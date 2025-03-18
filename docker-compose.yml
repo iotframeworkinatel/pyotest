@@ -7,17 +7,17 @@ services:
     networks:
       - iot_network
 
-  device2:
-    build: ./pyotest/devices/device2
-    container_name: iot_device_2
-    networks:
-      - iot_network
+  # device2:
+  #   build: ./pyotest/devices/device2
+  #   container_name: iot_device_2
+  #   networks:
+  #     - iot_network
 
-  device3:
-    build: ./pyotest/devices/device3
-    container_name: iot_device_3
-    networks:
-      - iot_network
+  # device3:
+  #   build: ./pyotest/devices/device3
+  #   container_name: iot_device_3
+  #   networks:
+  #     - iot_network
 
   mqtt_broker:
     image: eclipse-mosquitto
