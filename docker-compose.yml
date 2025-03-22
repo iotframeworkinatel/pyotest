@@ -6,6 +6,8 @@ services:
     container_name: iot_device_1
     networks:
       - iot_network
+    ports:
+      - "5000:5000"
 
   # device2:
   #   build: ./pyotest/devices/device2
@@ -28,18 +30,16 @@ services:
     networks:
       - iot_network
 
-  pyotest:
-    build: .
-    container_name: pyotest
-    volumes:
-      - .:/app
-    networks:
-      - iot_network
-    depends_on:
-      - device1
-      - device2
-      - device3
-      - mqtt_broker
+  # pyotest:
+  #   build: .
+  #   container_name: pyotest
+  #   volumes:
+  #     - .:/app
+  #   networks:
+  #     - iot_network
+  #   depends_on:
+  #     - device1
+  #     - mqtt_broker
 
 networks:
   iot_network:

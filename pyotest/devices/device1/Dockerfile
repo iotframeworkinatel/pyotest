@@ -2,7 +2,7 @@ FROM ubuntu:22.04
 
 # Atualiza e instala dependências essenciais
 RUN apt-get update && apt-get install -y \
-    qemu-system-arm \  # Emulador de ARM
+    qemu-system-arm \
     python3 \
     python3-pip \
     curl \

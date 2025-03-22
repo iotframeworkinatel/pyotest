@@ -10,6 +10,9 @@ COPY requirements.txt .
 # Instalar as dependências necessárias
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Instalar nmap
+RUN apt-get update && apt-get install -y nmap
+
 # Copiar todo o código da aplicação para o contêiner
 COPY . .
 
