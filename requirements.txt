@@ -1,0 +1,4 @@
+scapy
+netaddr
+mac-vendor-lookup
+python-nmap
