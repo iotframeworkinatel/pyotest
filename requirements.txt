@@ -1,4 +1,8 @@
-scapy
-netaddr
+scapy==2.5.0
+netaddr==1.2.1
 mac-vendor-lookup
 python-nmap
+requests==2.31.0
+scapy==2.5.0
+pyshark==0.6
+psutil==5.9.8
