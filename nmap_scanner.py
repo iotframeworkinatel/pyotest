@@ -49,7 +49,7 @@ def heuristica_iot(device):
 
     return suspeito_por_hostname or suspeito_por_porta
 
-def main():
+def nmap_scanner(REDE_LOCAL):
     dispositivos = escanear_rede_ping(REDE_LOCAL)
 
     dispositivos_info = []
@@ -87,4 +87,4 @@ def main():
     print(f"[✔] Relatório salvo como relatorio_iot_{timestamp}.txt")
 
 if __name__ == "__main__":
-    main()
+    nmap_scanner(REDE_LOCAL)

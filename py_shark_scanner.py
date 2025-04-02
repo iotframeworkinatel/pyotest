@@ -4,7 +4,7 @@ from netaddr import IPNetwork
 import socket
 
 # Configurações da rede
-NETWORK = "192.168.15.0/24"
+NETWORK = "192.168.0.0/24"
 COMMON_VULN_PORTS = {
     23: "Telnet",
     21: "FTP",
@@ -57,7 +57,7 @@ def is_iot_device(mac, open_ports):
            any(port in iot_ports for port in open_ports)
 
 # --- MAIN ---
-if __name__ == "__main__":
+def pyshark_explore(NETWORK, NOME_ARQUIVO="relatorio.txt"):
     devices = scan_network(NETWORK)
     print(f"\n📱 Dispositivos encontrados: {len(devices)}\n")
 
@@ -79,3 +79,6 @@ if __name__ == "__main__":
             print("  📡 Dispositivo genérico.")
 
     print("\n✅ Varredura finalizada.")
+
+if __name__ == "__main__":
+    pyshark_explore(NETWORK)
