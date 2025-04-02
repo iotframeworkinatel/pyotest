@@ -15,7 +15,7 @@ parser.add_argument("-m", "--mac", type=str, help="MAC a ser escaneado")
 parser.add_argument("-r", "--rede", type=str, default="192.168.0.0/24", help="Rede a ser escaneada (padrão: 192.168.0.0/24)")
 #lista dos scans para executar
 parser.add_argument("-s", "--scans", type=str, default="", help="Métodos de escaneamento a serem executados (nmap, pyshark)")
-parser.add_argument("-o", "--output", type=str, default="relatorio", help="Arquivo de saída para o relatório (padrão: relatorio.txt)")
+parser.add_argument("-o", "--output", type=str, default="relatorio.txt", help="Arquivo de saída para o relatório (padrão: relatorio.txt)")
 args = parser.parse_args()
 
 if args.verbose:
@@ -25,12 +25,12 @@ else:
 
 if args.all:
     logging.info(f"Escaneando a rede {args.rede} com todos os métodos...")
-    nmap_scanner(args.rede)
+    nmap_scanner(args.rede, args.output)
     pyshark_explore(args.rede, args.output)
 
 if "nmap" in args.scans:
     logging.info("Executando escaneamento Nmap...")
-    nmap_scanner(args.rede)
+    nmap_scanner(args.rede, args.output)
     logging.info("Escaneamento Nmap concluído.")
 
 if "pyshark" in args.scans:
