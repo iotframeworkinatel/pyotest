@@ -49,7 +49,7 @@ def heuristica_iot(device):
 
     return suspeito_por_hostname or suspeito_por_porta
 
-def nmap_scanner(REDE_LOCAL):
+def nmap_scanner(REDE_LOCAL, NOME_ARQUIVO="relatorio.txt"):
     dispositivos = escanear_rede_ping(REDE_LOCAL)
 
     dispositivos_info = []
@@ -75,7 +75,7 @@ def nmap_scanner(REDE_LOCAL):
 
     # Exportar relatório simples
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    with open(f"relatorio_iot_{timestamp}.txt", "w") as f:
+    with open(f"{timestamp}_{NOME_ARQUIVO}", "w", encoding='utf-8') as f:
         for d in dispositivos_iot:
             f.write(f"IP: {d['ip']}\n")
             f.write(f"MAC: {d['mac']}\n")
@@ -84,7 +84,7 @@ def nmap_scanner(REDE_LOCAL):
             f.write("-" * 40 + "\n")
 
     print(f"\n[✔] Dispositivos IoT identificados: {len(dispositivos_iot)}")
-    print(f"[✔] Relatório salvo como relatorio_iot_{timestamp}.txt")
+    print(f"[✔] Relatório salvo como {timestamp}_{NOME_ARQUIVO}")
 
 if __name__ == "__main__":
     nmap_scanner(REDE_LOCAL)
