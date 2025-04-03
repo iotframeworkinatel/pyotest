@@ -75,7 +75,12 @@ def nmap_scanner(REDE_LOCAL, NOME_ARQUIVO="relatorio.txt"):
 
     # Exportar relatório simples
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    with open(f"{timestamp}_{NOME_ARQUIVO}", "w", encoding='utf-8') as f:
+    with open(f"nmap_{timestamp}_{NOME_ARQUIVO}", "w", encoding='utf-8') as f:
+        f.write(f"Relatório de escaneamento - {timestamp}\n\n")
+        f.write(f"Rede: {REDE_LOCAL}\n")
+        f.write(f"Data: {datetime.now()}\n\n")
+        f.write(f"Dispositivos iot encontrados: {len(dispositivos_iot)}\n")
+        f.write("-" * 40 + "\n")
         for d in dispositivos_iot:
             f.write(f"IP: {d['ip']}\n")
             f.write(f"MAC: {d['mac']}\n")

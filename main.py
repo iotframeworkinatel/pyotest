@@ -1,5 +1,5 @@
 from nmap_scanner import nmap_scanner
-from py_shark_scanner import pyshark_explore
+from scapy_scanner import scapy_explore
 
 # definindo argumentos de linha de comando
 import argparse
@@ -14,7 +14,7 @@ parser.add_argument("-ip", "--ip", type=str, help="IP a ser escaneado")
 parser.add_argument("-m", "--mac", type=str, help="MAC a ser escaneado")
 parser.add_argument("-r", "--rede", type=str, default="192.168.0.0/24", help="Rede a ser escaneada (padrão: 192.168.0.0/24)")
 #lista dos scans para executar
-parser.add_argument("-s", "--scans", type=str, default="", help="Métodos de escaneamento a serem executados (nmap, pyshark)")
+parser.add_argument("-s", "--scans", type=str, default="", help="Métodos de escaneamento a serem executados (nmap, scapy)")
 parser.add_argument("-o", "--output", type=str, default="relatorio.txt", help="Arquivo de saída para o relatório (padrão: relatorio.txt)")
 args = parser.parse_args()
 
@@ -26,14 +26,14 @@ else:
 if args.all:
     logging.info(f"Escaneando a rede {args.rede} com todos os métodos...")
     nmap_scanner(args.rede, args.output)
-    pyshark_explore(args.rede, args.output)
+    scapy_explore(args.rede, args.output)
 
 if "nmap" in args.scans:
     logging.info("Executando escaneamento Nmap...")
     nmap_scanner(args.rede, args.output)
     logging.info("Escaneamento Nmap concluído.")
 
-if "pyshark" in args.scans:
-    logging.info("Executando escaneamento PyShark...")
-    pyshark_explore(args.rede, args.output)
-    logging.info("Escaneamento PyShark concluído.")
+if "scapy" in args.scans:
+    logging.info("Executando escaneamento Scapy...")
+    scapy_explore(args.rede, args.output)
+    logging.info("Escaneamento Scapy concluído.")

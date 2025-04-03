@@ -64,47 +64,48 @@ def is_iot_device(mac, open_ports):
            any(port in iot_ports for port in open_ports)
 
 # --- MAIN ---
-def pyshark_explore(NETWORK, NOME_ARQUIVO="relatorio.txt"):
+def scapy_explore(NETWORK, NOME_ARQUIVO="relatorio.txt"):
     dispositivos_iot = []
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    with open(f"{timestamp}_{NOME_ARQUIVO}", "w", encoding='utf-8') as f:
-        f.write(f"Relatório de escaneamento - {timestamp}\n\n")
-        f.write(f"Rede: {NETWORK}\n")
-        f.write(f"Data: {datetime.now()}\n\n")
-        f.write("-" * 40 + "\n")
-        devices = scan_network(NETWORK)
-        f.write(f"Dispositivos encontrados: {len(devices)}\n")
-        print(f"\n📱 Dispositivos encontrados: {len(devices)}\n")
+    devices = scan_network(NETWORK)
 
-        for device in devices:
-            ip = device['ip']
-            mac = device['mac']
-            hostname = device['hostname'] if device['hostname'] else "Desconhecido"
-            f.write(f"Hostname: {hostname}\n")
-            f.write(f"IP: {ip}\n")
-            f.write(f"MAC: {mac}\n")
-            print(f"➡️  Verificando: {hostname} - {ip} ({mac})...")
+    print(f"\n📱 Dispositivos encontrados: {len(devices)}\n")
 
-            open_ports = scan_ports(ip, COMMON_VULN_PORTS.keys(), mac)
-            if not open_ports:
-                f.write("Nenhuma porta vulnerável encontrada.\n")
+    for device in devices:
+        ip = device['ip']
+        mac = device['mac']
+        hostname = device['hostname'] if device['hostname'] else "Desconhecido"
+        print(f"➡️  Verificando: {hostname} - {ip} ({mac})...")
+
+        open_ports = scan_ports(ip, COMMON_VULN_PORTS.keys(), mac)
+        if not open_ports:
+            print("  🔒 Nenhuma porta vulnerável encontrada.")
+            continue
+        print(f"  ⚠️ Portas abertas: {', '.join(f'{p} ({COMMON_VULN_PORTS[p]})' for p in open_ports)}")
+        device['portas'] = f"{', '.join(f'{p} ({COMMON_VULN_PORTS[p]})' for p in open_ports)}"
+        if is_iot_device(mac, open_ports):
+            dispositivos_iot.append(device)
+            print("  🤖 Possível dispositivo IoT identificado!")
+        else:
+            print("  📡 Dispositivo genérico.")   
+    
+    with open(f"scapy_{timestamp}_{NOME_ARQUIVO}", "w", encoding='utf-8') as f:
+            f.write(f"Relatório de escaneamento - {timestamp}\n\n")
+            f.write(f"Rede: {NETWORK}\n")
+            f.write(f"Data: {datetime.now()}\n\n")
+            f.write(f"Dispositivos iot encontrados: {len(dispositivos_iot)}\n")
+            f.write("-" * 40 + "\n")
+            for device in devices:
+                if device not in dispositivos_iot:
+                    continue
+                f.write(f"Hostname: {device['hostname']}\n")
+                f.write(f"IP: {device['ip']}\n")
+                f.write(f"MAC: {device['mac']}\n")
+                f.write(f"Portas abertas: {device['portas']}\n")
                 f.write("-" * 40 + "\n")
-                print("  🔒 Nenhuma porta vulnerável encontrada.")
-                continue
-            f.write(f"Portas abertas: {', '.join(map(str, open_ports))}\n")
-            print(f"  ⚠️ Portas abertas: {', '.join(f'{p} ({COMMON_VULN_PORTS[p]})' for p in open_ports)}")
-
-            if is_iot_device(mac, open_ports):
-                f.write("Dispositivo IoT identificado!\n")
-                dispositivos_iot.append(device)
-                print("  🤖 Possível dispositivo IoT identificado!")
-            else:
-                f.write("Dispositivo genérico.\n")
-                print("  📡 Dispositivo genérico.")
-            f.write("-" * 40 + "\n")    
 
     print("\n✅ Varredura finalizada.")
     print(f'dispositivos IoT encontrados: {len(dispositivos_iot)}')
 
 if __name__ == "__main__":
-    pyshark_explore(NETWORK)
+    scapy_explore(NETWORK)
