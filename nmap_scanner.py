@@ -1,11 +1,16 @@
 import nmap
+import socket
+import ipaddress
 from datetime import datetime
 
-REDE_LOCAL = "192.168.15.0/24"
-
-# Critérios alternativos para identificar IoT
 PORTAS_IOT = [80, 443, 554, 8883, 8080, 2323, 23, 5678, 6668, 9999]
 HOSTNAMES_SUSPEITOS = ["camera", "tuya", "smart", "iot", "ipcam", "unknown", "device", "esp", "tplink", "dlink", "sonoff", "light", "plug", "bulb", "roku", "tv", "android", "iphone"]
+
+def obter_rede_local():
+    hostname = socket.gethostname()
+    ip_local = socket.gethostbyname(hostname)
+    rede = ipaddress.ip_network(ip_local + '/24', strict=False)
+    return str(rede)
 
 def escanear_rede_ping(rede):
     print(f"[+] Rodando Nmap na rede {rede}...")
@@ -49,8 +54,9 @@ def heuristica_iot(device):
 
     return suspeito_por_hostname or suspeito_por_porta
 
-def nmap_scanner(REDE_LOCAL, NOME_ARQUIVO="relatorio.txt"):
-    dispositivos = escanear_rede_ping(REDE_LOCAL)
+def nmap_scanner(NOME_ARQUIVO="relatorio.txt"):
+    rede_local = obter_rede_local()
+    dispositivos = escanear_rede_ping(rede_local)
 
     dispositivos_info = []
     dispositivos_iot = []
@@ -67,17 +73,15 @@ def nmap_scanner(REDE_LOCAL, NOME_ARQUIVO="relatorio.txt"):
 
         print(f"{'[IoT]' if d['is_iot'] else '[---]'} {d['ip']} | {d['mac']} | {d['hostname']} | Portas: {list(portas.keys())}")
 
-    # Salvar resultado em dicionário
     resultado = {
         "todos_dispositivos": dispositivos_info,
         "dispositivos_iot": dispositivos_iot
     }
 
-    # Exportar relatório simples
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     with open(f"nmap_{timestamp}_{NOME_ARQUIVO}", "w", encoding='utf-8') as f:
         f.write(f"Relatório de escaneamento - {timestamp}\n\n")
-        f.write(f"Rede: {REDE_LOCAL}\n")
+        f.write(f"Rede: {rede_local}\n")
         f.write(f"Data: {datetime.now()}\n\n")
         f.write(f"Dispositivos iot encontrados: {len(dispositivos_iot)}\n")
         f.write("-" * 40 + "\n")
@@ -89,7 +93,7 @@ def nmap_scanner(REDE_LOCAL, NOME_ARQUIVO="relatorio.txt"):
             f.write("-" * 40 + "\n")
 
     print(f"\n[✔] Dispositivos IoT identificados: {len(dispositivos_iot)}")
-    print(f"[✔] Relatório salvo como {timestamp}_{NOME_ARQUIVO}")
+    print(f"[✔] Relatório salvo como nmap_{timestamp}_{NOME_ARQUIVO}")
 
 if __name__ == "__main__":
-    nmap_scanner(REDE_LOCAL)
+    nmap_scanner()
