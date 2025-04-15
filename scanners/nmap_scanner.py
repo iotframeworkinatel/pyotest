@@ -7,60 +7,59 @@ from reports import csv, html, txt, json
 import os
 
 
-def escanear_rede_ping(rede):
-    print(f"[+] Rodando Nmap na rede {rede}...")
+def ping_scan(network):
+    print(f"[+] Running Nmap on network {network}...")
     nm = nmap.PortScanner()
-    nm.scan(hosts=rede, arguments="-sn")
-    dispositivos = []
+    nm.scan(hosts=network, arguments="-sn")
+    devices = []
 
     for host in nm.all_hosts():
         ip = nm[host]['addresses'].get('ipv4')
-        mac = nm[host]['addresses'].get('mac', 'Desconhecido')
+        mac = nm[host]['addresses'].get('mac', 'Unknown')
         hostname = nm[host]['hostnames'][0]['name'] if nm[host]['hostnames'] else None
 
-        dispositivos.append(Device(ip=ip, mac=mac, hostname=hostname))
+        devices.append(Device(ip=ip, mac=mac, hostname=hostname))
 
-    print(f"[+] {len(dispositivos)} dispositivos encontrados.")
-    return dispositivos
+    print(f"[+] {len(devices)} devices found.")
+    return devices
 
-def escanear_portas(ip):
+def scan_ports(ip):
     nm = nmap.PortScanner()
-    portas_abertas = []
+    open_ports = []
     try:
         nm.scan(ip, arguments='-T4 -F')
         if ip in nm.all_hosts():
-            portas = nm[ip].get('tcp', {})
-            portas_abertas = list(portas.keys())
+            ports = nm[ip].get('tcp', {})
+            open_ports = list(ports.keys())
     except Exception as e:
-        print(f"[!] Erro ao escanear portas de {ip}: {e}")
-    return portas_abertas
+        print(f"[!] Error scanning ports on {ip}: {e}")
+    return open_ports
 
-def heuristica_iot(device: Device):
+def iot_heuristic(device: Device):
     hostname = (device.hostname or "").lower()
-    portas_set = set(device.ports or [])
+    ports_set = set(device.ports or [])
 
-    suspeito_por_hostname = any(term in hostname for term in HOSTNAME)
-    suspeito_por_porta = any(p in portas_set for p in COMMON_VULN_PORTS.keys())
+    suspicious_by_hostname = any(term in hostname for term in HOSTNAME)
+    suspicious_by_port = any(p in ports_set for p in COMMON_VULN_PORTS.keys())
 
-    return suspeito_por_hostname or suspeito_por_porta
+    return suspicious_by_hostname or suspicious_by_port
 
 def explore(args):
-    rede_local = get_local_network() if args.network == "auto" else args.network
-    output = args.output
+    network_ip = get_local_network() if args.network == "auto" else args.network
+    output = "nmap_" + args.output 
+    devices = ping_scan(network_ip)
+    iot_devices = []
 
-    dispositivos = escanear_rede_ping(rede_local)
-    dispositivos_iot = []
-
-    for d in dispositivos:
-        d.ports = escanear_portas(d.ip)
-        d.is_iot = heuristica_iot(d)
+    for d in devices:
+        d.ports = scan_ports(d.ip)
+        d.is_iot = iot_heuristic(d)
 
         if d.is_iot:
-            dispositivos_iot.append(d)
+            iot_devices.append(d)
 
-        print(f"{'[IoT]' if d.is_iot else '[---]'} {d.ip} | {d.mac} | {d.hostname} | Portas: {d.ports}")
+        print(f"{'[IoT]' if d.is_iot else '[---]'} {d.ip} | {d.mac} | {d.hostname} | Ports: {d.ports}")
 
-    report = Report(rede_local, dispositivos_iot, output)
+    report = Report(network_ip, iot_devices, output)
 
     ext = output.lower()
     if ext.endswith(".html"):
@@ -72,5 +71,5 @@ def explore(args):
     else:
         txt.report(report)
 
-    print(f"\n[✔] Dispositivos IoT identificados: {len(dispositivos_iot)}")
-    print(f"[✔] Relatório salvo como {report.timestamp}_{os.path.splitext(output)[0]}.{ext.split('.')[-1]}")
+    print(f"\n[✔] IoT devices identified: {len(iot_devices)}")
+    print(f"[✔] Report saved as {report.timestamp}_{os.path.splitext(output)[0]}.{ext.split('.')[-1]}")

@@ -6,23 +6,23 @@ def report(report: Report):
     network = report.network
     devices = report.network.devices
 
-    # Garante que a extensão seja .csv
+    # Ensure the extension is .csv
     base_output = os.path.splitext(report.output)[0]
     filename = f"report/{report.timestamp}_{base_output}.csv"
 
     with open(filename, mode="w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
 
-        # Cabeçalho
-        writer.writerow(["Hostname", "IP", "MAC", "Portas Abertas", "Rede", "Data"])
+        # Header
+        writer.writerow(["Hostname", "IP", "MAC", "Open Ports", "Network", "Timestamp"])
 
-        # Dados dos dispositivos
+        # Device data
         for device in devices:
             writer.writerow([
                 device.hostname or "N/A",
                 device.ip,
                 device.mac or "N/A",
-                ", ".join(map(str, device.ports)) if device.ports else "Nenhuma",
+                ", ".join(map(str, device.ports)) if device.ports else "None",
                 network.ip,
                 report.timestamp
             ])
