@@ -1,0 +1,3 @@
+# Milesight IOT device simulator
+
+[SG50 Ultra Low Power Solar LoRaWAN® Gateway](https://www.milesight.com/iot/resources/download-center/#firmware-sg50) is a new generation of ultra-low power solar LoRaWAN® gateway. It is powered by solar energy and built-in 10,000mAh large capacity battery, which can be used for a long time without external power supply. It is suitable for various application scenarios such as smart agriculture, smart city, smart factory, etc.

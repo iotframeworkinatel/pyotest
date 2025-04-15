@@ -1,8 +1,10 @@
-scapy==2.5.0
-netaddr==1.2.1
+binwalk==2.1.0
 mac-vendor-lookup
-python-nmap
+netaddr==1.2.1
+paho-mqtt==1.6.1
+psutil==5.9.8
+pyshark==0.6
+pytest==7.1.2
+python-nmap==0.7.1
 requests==2.31.0
 scapy==2.5.0
-pyshark==0.6
-psutil==5.9.8
