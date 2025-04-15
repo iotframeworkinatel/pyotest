@@ -1,16 +1,8 @@
 import nmap
-import socket
-import ipaddress
 from datetime import datetime
+from utils import get_local_network
+from utils.default_data import HOSTNAME, COMMON_VULN_PORTS
 
-PORTAS_IOT = [80, 443, 554, 8883, 8080, 2323, 23, 5678, 6668, 9999]
-HOSTNAMES_SUSPEITOS = ["camera", "tuya", "smart", "iot", "ipcam", "unknown", "device", "esp", "tplink", "dlink", "sonoff", "light", "plug", "bulb", "roku", "tv", "android", "iphone"]
-
-def obter_rede_local():
-    hostname = socket.gethostname()
-    ip_local = socket.gethostbyname(hostname)
-    rede = ipaddress.ip_network(ip_local + '/24', strict=False)
-    return str(rede)
 
 def escanear_rede_ping(rede):
     print(f"[+] Rodando Nmap na rede {rede}...")
@@ -49,13 +41,15 @@ def heuristica_iot(device):
     portas = device.get('portas', {})
     portas_set = set(portas.keys())
 
-    suspeito_por_hostname = any(term in hostname for term in HOSTNAMES_SUSPEITOS)
-    suspeito_por_porta = any(p in portas_set for p in PORTAS_IOT)
+    suspeito_por_hostname = any(term in hostname for term in HOSTNAME)
+    suspeito_por_porta = any(p in portas_set for p in COMMON_VULN_PORTS.keys())
 
     return suspeito_por_hostname or suspeito_por_porta
 
-def nmap_scanner(NOME_ARQUIVO="relatorio.txt"):
-    rede_local = obter_rede_local()
+def explore(args):
+    rede_local = get_local_network() if args.network == "auto" else args.network
+    output = args.output
+
     dispositivos = escanear_rede_ping(rede_local)
 
     dispositivos_info = []
@@ -79,7 +73,7 @@ def nmap_scanner(NOME_ARQUIVO="relatorio.txt"):
     }
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    with open(f"nmap_{timestamp}_{NOME_ARQUIVO}", "w", encoding='utf-8') as f:
+    with open(f"nmap_{timestamp}_{output}", "w", encoding='utf-8') as f:
         f.write(f"Relatório de escaneamento - {timestamp}\n\n")
         f.write(f"Rede: {rede_local}\n")
         f.write(f"Data: {datetime.now()}\n\n")
@@ -93,7 +87,4 @@ def nmap_scanner(NOME_ARQUIVO="relatorio.txt"):
             f.write("-" * 40 + "\n")
 
     print(f"\n[✔] Dispositivos IoT identificados: {len(dispositivos_iot)}")
-    print(f"[✔] Relatório salvo como nmap_{timestamp}_{NOME_ARQUIVO}")
-
-if __name__ == "__main__":
-    nmap_scanner()
+    print(f"[✔] Relatório salvo como nmap_{timestamp}_{output}")
