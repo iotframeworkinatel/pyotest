@@ -38,6 +38,8 @@ def report(report: Report):
             f.write(f"<p><strong>IP:</strong> {device.ip}</p>\n")
             f.write(f"<p><strong>MAC:</strong> {device.mac or 'N/A'}</p>\n")
             f.write(f"<p><strong>Open Ports:</strong> {', '.join(map(str, device.ports)) if device.ports else 'None'}</p>\n")
+            # is_iot
+            f.write(f"<p><strong>Is IoT Device:</strong> {'Yes' if device.is_iot else 'No'}</p>\n")
             f.write("</div>\n")
 
         f.write("</body>\n")

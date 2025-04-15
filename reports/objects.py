@@ -2,11 +2,12 @@ from datetime import datetime
 
 class Device:
 
-    def __init__(self, ip, mac = None, hostname = None, ports = None):
+    def __init__(self, ip, mac = None, hostname = None, ports = None, is_iot = False):
         self.ip = ip
         self.mac = mac
         self.hostname = hostname
         self.ports = ports
+        self.is_iot = is_iot
 
 class Network:
 
