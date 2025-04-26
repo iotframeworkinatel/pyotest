@@ -1,7 +1,6 @@
 import nmap
-from utils import get_local_network
 from utils.default_data import HOSTNAME, COMMON_VULN_PORTS
-from reports.objects import Device, Report
+from reports.objects import Device
 
 def ping_scan(network):
     print(f"[+] Running Nmap on network {network}...")
@@ -41,8 +40,7 @@ def iot_heuristic(device: Device):
     return suspicious_by_hostname or suspicious_by_port
 
 def explore(args):
-    network_ip = get_local_network() if args.network == "auto" else args.network
-    devices = ping_scan(network_ip)
+    devices = ping_scan(args.network)
     iot_devices = []
 
     for d in devices:
@@ -54,6 +52,4 @@ def explore(args):
 
         print(f"{'[IoT]' if d.is_iot else '[---]'} {d.ip} | {d.mac} | {d.hostname} | Ports: {d.ports}")
 
-    report = Report(network_ip, iot_devices)
-
-    return report
+    return iot_devices

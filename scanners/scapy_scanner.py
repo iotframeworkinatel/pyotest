@@ -1,10 +1,6 @@
-import json
-import pyshark
 from scapy.all import ARP, Ether, srp, IP, TCP
 import socket
-from reports.objects import Report, Device
-from reports import csv, html, txt, json
-from utils import get_local_network
+from reports.objects import Device
 from utils.default_data import HOSTNAME, COMMON_VULN_PORTS, MAC_ADDRESSES
 
 # 1. ARP scan to discover active devices
@@ -47,8 +43,7 @@ def is_iot_device(mac, open_ports):
            any(port in COMMON_VULN_PORTS.keys() for port in open_ports)
 
 def explore(args):
-    net_ip = get_local_network() if args.network == "auto" else args.network
-    devices = scan_network(net_ip)
+    devices = scan_network(args.network)
     iot_devices = []
 
     for device in devices:
@@ -61,8 +56,6 @@ def explore(args):
         if device.is_iot:
             iot_devices.append(device)
         
-        print(f"{'[IoT]' if device.is_iot else '[---]'} {ip} | {mac} | {hostname} | Ports: {open_ports}")
+        print(f"{'[IoT]' if device.is_iot else '[---]'} {ip} | {mac} | {hostname} | Ports: {device.ports}")
        
-    report = Report(net_ip, iot_devices)
-
-    return report
+    return iot_devices
