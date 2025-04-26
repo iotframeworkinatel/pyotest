@@ -1,4 +1,6 @@
 COMMON_VULN_PORTS = {
+    21: "FTP",
+    22: "SSH",
     23: "Telnet",
     80: "HTTP",
     443: "HTTPS",

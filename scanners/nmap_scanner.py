@@ -5,6 +5,7 @@ from utils.default_data import HOSTNAME, COMMON_VULN_PORTS
 from reports.objects import Device, Report
 from reports import csv, html, txt, json
 import os
+from vulnerability_tester import test_ssh_weak_auth
 
 
 def ping_scan(network):
@@ -58,6 +59,12 @@ def explore(args):
             iot_devices.append(d)
 
         print(f"{'[IoT]' if d.is_iot else '[---]'} {d.ip} | {d.mac} | {d.hostname} | Ports: {d.ports}")
+
+        if 22 in d.ports:
+            print("\n")
+            print(f"🔑 Testing SSH weak authentication on {d.ip}...")
+            test_ssh_weak_auth(d.ip)
+            print("\n")
 
     report = Report(network_ip, iot_devices, output)
 
