@@ -70,6 +70,8 @@ for d in iot_devices:
         grab_banner(d.ip, port)    
 
 if args.output and len(iot_devices) > 0:
+    if not os.path.exists("report"):
+        os.makedirs("report")
     ext = args.output.lower()
     report = Report(args.network, iot_devices, ext)
     if ext.endswith(".html"):

@@ -16,4 +16,11 @@ sudo ip link set macvlan0 up
 
 sudo ip route add 192.168.2.30/32 dev macvlan0
 sudo ip route add 192.168.2.31/32 dev macvlan0
-sudo ip route add 192.168.2.32/32 dev macvlan0 
+sudo ip route add 192.168.2.32/32 dev macvlan0
+sudo ip route add 192.168.2.33/32 dev macvlan0
+sudo ip route add 192.168.2.34/32 dev macvlan0
+sudo ip route add 192.168.2.35/32 dev macvlan0
+sudo ip route add 192.168.2.36/32 dev macvlan0
+sudo ip route add 192.168.2.37/32 dev macvlan0
+
+

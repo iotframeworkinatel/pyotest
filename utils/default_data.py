@@ -2,9 +2,10 @@ COMMON_VULN_PORTS = {
     21: "FTP",
     22: "SSH",
     23: "Telnet",
-    80: "HTTP"
+    80: "HTTP",
     # 443: "HTTPS",
     # 554: "RTSP",
+    1883: "MQTT"#,
     # 8883: "MQTT sobre TLS",
     # 8080: "HTTP alternativa",
     # 2323: "Telnet alternativa",
