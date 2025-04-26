@@ -1,46 +1,31 @@
-version: '3.8'
-
 services:
-  device1:
-    build: ./pyotest/devices/device1
-    container_name: iot_device_1
+  fake_telnet_device:
+    image: rastasheep/ubuntu-sshd:latest
+    container_name: fake_telnet_device
     networks:
-      - iot_network
-    ports:
-      - "5000:5000"
+      iot_macvlan:
+        ipv4_address: 192.168.2.30
+    restart: unless-stopped
 
-  # device2:
-  #   build: ./pyotest/devices/device2
-  #   container_name: iot_device_2
-  #   networks:
-  #     - iot_network
-
-  # device3:
-  #   build: ./pyotest/devices/device3
-  #   container_name: iot_device_3
-  #   networks:
-  #     - iot_network
-
-  mqtt_broker:
-    image: eclipse-mosquitto
-    container_name: mqtt_broker
-    ports:
-      - "1883:1883"
-      - "9001:9001"
+  fake_http_device:
+    image: httpd:2.4
+    container_name: fake_http_device
     networks:
-      - iot_network
+      iot_macvlan:
+        ipv4_address: 192.168.2.31
+    restart: unless-stopped
 
-  # pyotest:
-  #   build: .
-  #   container_name: pyotest
-  #   volumes:
-  #     - .:/app
-  #   networks:
-  #     - iot_network
-  #   depends_on:
-  #     - device1
-  #     - mqtt_broker
+  fake_ftp_device:
+    image: fauria/vsftpd
+    container_name: fake_ftp_device
+    networks:
+      iot_macvlan:
+        ipv4_address: 192.168.2.32
+    environment:
+      - FTP_USER=admin
+      - FTP_PASS=admin
+    restart: unless-stopped
 
 networks:
-  iot_network:
-    driver: bridge
+  iot_macvlan:
+    external: true
