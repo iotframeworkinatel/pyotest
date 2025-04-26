@@ -6,6 +6,7 @@ import argparse
 import logging
 
 from reports import csv, html, txt, json
+from vulnerability_tester import test_ssh_weak_auth
 
 SCANNERS: dict = {
     "nmap": nmap_explore,
@@ -41,6 +42,12 @@ for scanner in args.scans.split(","):
     logging.info(f"Running {scanner} scan...")
     report = SCANNERS[scanner](args)
     logging.info(f"{scanner} scan completed.")
+
+
+    for d in report.network.devices:
+        if 22 in d.ports:
+            print(f"🔑 Testing SSH weak authentication on {d.ip}...")
+            test_ssh_weak_auth(d.ip)
 
     ext = scanner.lower() + "_" + args.output.lower()
     report.set_output(ext)
