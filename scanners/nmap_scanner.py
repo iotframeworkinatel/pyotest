@@ -22,10 +22,13 @@ def scan_ports(ip):
     nm = nmap.PortScanner()
     open_ports = []
     try:
-        nm.scan(ip, arguments='-T4 -F')
+        ports_to_check = ','.join(str(port) for port in COMMON_VULN_PORTS.keys())
+        nm.scan(ip, arguments=f'-T4 -p {ports_to_check}')
         if ip in nm.all_hosts():
             ports = nm[ip].get('tcp', {})
-            open_ports = list(ports.keys())
+            for port, port_data in ports.items():
+                if port_data.get('state') == 'open':
+                    open_ports.append(port)
     except Exception as e:
         print(f"[!] Error scanning ports on {ip}: {e}")
     return open_ports
