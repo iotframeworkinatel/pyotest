@@ -61,7 +61,7 @@ for d in iot_devices:
         print(f"🔑 Testing SSH weak authentication on {d.ip}...")
         test_ssh_weak_auth(d.ip)
 
-if args.output:
+if args.output and len(iot_devices) > 0:
     ext = args.output.lower()
     report = Report(args.network, iot_devices, ext)
     if ext.endswith(".html"):
