@@ -1,29 +1,75 @@
 services:
-  fake_telnet_device:
-    image: rastasheep/ubuntu-sshd:latest
-    container_name: fake_telnet_device
+  ftp_anonymous:
+    image: fauria/vsftpd
+    container_name: ftp_anonymous
     networks:
       iot_macvlan:
         ipv4_address: 192.168.2.30
+    environment:
+      - FTP_USER=admin
+      - FTP_PASS=admin
     restart: unless-stopped
 
-  fake_http_device:
-    image: httpd:2.4
-    container_name: fake_http_device
+  http_traversal:
+    build: ./pyotest/devices/http-vuln
+    container_name: http_traversal
     networks:
       iot_macvlan:
         ipv4_address: 192.168.2.31
     restart: unless-stopped
 
-  fake_ftp_device:
-    image: fauria/vsftpd
-    container_name: fake_ftp_device
+  telnet_insecure:
+    build: ./pyotest/devices/telnetdf
+    container_name: telnet_insecure
     networks:
       iot_macvlan:
         ipv4_address: 192.168.2.32
+    restart: unless-stopped
+
+  ftp_banner:
+    image: stilliard/pure-ftpd:hardened
+    container_name: ftp_banner
+    networks:
+      iot_macvlan:
+        ipv4_address: 192.168.2.33
     environment:
-      - FTP_USER=admin
-      - FTP_PASS=admin
+      - PUBLICHOST=192.168.2.33
+    restart: unless-stopped
+
+  http_admin_default_creds:
+    build: ./pyotest/devices/app-admin-panel
+    container_name: http_admin_default_creds
+    networks:
+      iot_macvlan:
+        ipv4_address: 192.168.2.34
+    restart: unless-stopped
+
+  http_directory_listing:
+    image: httpd:2.4
+    container_name: http_directory_listing
+    networks:
+      iot_macvlan:
+        ipv4_address: 192.168.2.35
+    restart: unless-stopped
+
+  mqtt_no_auth:
+    image: eclipse-mosquitto
+    container_name: mqtt_no_auth
+    networks:
+      iot_macvlan:
+        ipv4_address: 192.168.2.36
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./pyotest/devices/mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf
+    restart: unless-stopped
+
+  ssh_old_banner:
+    image: rastasheep/ubuntu-sshd
+    container_name: ssh_old_banner
+    networks:
+      iot_macvlan:
+        ipv4_address: 192.168.2.37
     restart: unless-stopped
 
 networks:
