@@ -54,7 +54,6 @@ def is_iot_device(mac, open_ports):
 
 def explore(args):
     net_ip = get_local_network() if args.network == "auto" else args.network
-    output = "scapy_" + args.output 
     
     devices = scan_network(net_ip)
 
@@ -79,16 +78,6 @@ def explore(args):
             print("  📡 Generic network device.")
             
 
-    report = Report(net_ip, devices, output)
+    report = Report(net_ip, devices)
 
-    if output.endswith(".html"):
-        html.report(report)
-    elif output.endswith(".txt"):
-        txt.report(report)
-    elif output.endswith(".csv"):
-        csv.report(report)
-    elif output.endswith(".json"):
-        json.report(report)
-
-    print("\n✅ Scan completed.")
-    print(f"IoT devices found: {len(devices)}")
+    return report

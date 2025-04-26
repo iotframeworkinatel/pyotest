@@ -1,10 +1,7 @@
 import nmap
-from datetime import datetime
 from utils import get_local_network
 from utils.default_data import HOSTNAME, COMMON_VULN_PORTS
 from reports.objects import Device, Report
-from reports import csv, html, txt, json
-import os
 from vulnerability_tester import test_ssh_weak_auth
 
 
@@ -47,7 +44,6 @@ def iot_heuristic(device: Device):
 
 def explore(args):
     network_ip = get_local_network() if args.network == "auto" else args.network
-    output = "nmap_" + args.output 
     devices = ping_scan(network_ip)
     iot_devices = []
 
@@ -66,17 +62,6 @@ def explore(args):
             test_ssh_weak_auth(d.ip)
             print("\n")
 
-    report = Report(network_ip, iot_devices, output)
+    report = Report(network_ip, iot_devices)
 
-    ext = output.lower()
-    if ext.endswith(".html"):
-        html.report(report)
-    elif ext.endswith(".csv"):
-        csv.report(report)
-    elif ext.endswith(".json"):
-        json.report(report)
-    else:
-        txt.report(report)
-
-    print(f"\n[✔] IoT devices identified: {len(iot_devices)}")
-    print(f"[✔] Report saved as {report.timestamp}_{os.path.splitext(output)[0]}.{ext.split('.')[-1]}")
+    return report
