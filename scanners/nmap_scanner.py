@@ -1,11 +1,6 @@
 import nmap
-from datetime import datetime
-from utils import get_local_network
 from utils.default_data import HOSTNAME, COMMON_VULN_PORTS
-from reports.objects import Device, Report
-from reports import csv, html, txt, json
-import os
-
+from reports.objects import Device
 
 def ping_scan(network):
     print(f"[+] Running Nmap on network {network}...")
@@ -27,10 +22,13 @@ def scan_ports(ip):
     nm = nmap.PortScanner()
     open_ports = []
     try:
-        nm.scan(ip, arguments='-T4 -F')
+        ports_to_check = ','.join(str(port) for port in COMMON_VULN_PORTS.keys())
+        nm.scan(ip, arguments=f'-T4 -p {ports_to_check}')
         if ip in nm.all_hosts():
             ports = nm[ip].get('tcp', {})
-            open_ports = list(ports.keys())
+            for port, port_data in ports.items():
+                if port_data.get('state') == 'open':
+                    open_ports.append(port)
     except Exception as e:
         print(f"[!] Error scanning ports on {ip}: {e}")
     return open_ports
@@ -45,9 +43,7 @@ def iot_heuristic(device: Device):
     return suspicious_by_hostname or suspicious_by_port
 
 def explore(args):
-    network_ip = get_local_network() if args.network == "auto" else args.network
-    output = "nmap_" + args.output 
-    devices = ping_scan(network_ip)
+    devices = ping_scan(args.network)
     iot_devices = []
 
     for d in devices:
@@ -59,17 +55,4 @@ def explore(args):
 
         print(f"{'[IoT]' if d.is_iot else '[---]'} {d.ip} | {d.mac} | {d.hostname} | Ports: {d.ports}")
 
-    report = Report(network_ip, iot_devices, output)
-
-    ext = output.lower()
-    if ext.endswith(".html"):
-        html.report(report)
-    elif ext.endswith(".csv"):
-        csv.report(report)
-    elif ext.endswith(".json"):
-        json.report(report)
-    else:
-        txt.report(report)
-
-    print(f"\n[✔] IoT devices identified: {len(iot_devices)}")
-    print(f"[✔] Report saved as {report.timestamp}_{os.path.splitext(output)[0]}.{ext.split('.')[-1]}")
+    return iot_devices
