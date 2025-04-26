@@ -21,3 +21,6 @@ class Report:
         self.network = Network(ip, devices)
         self.output = output
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    def set_output(self, output):
+        self.output = output
