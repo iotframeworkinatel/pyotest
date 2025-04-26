@@ -55,16 +55,14 @@ def explore(args):
         ip = device.ip
         mac = device.mac
         hostname = device.hostname if device.hostname else "Unknown"
-        open_ports = scan_ports(ip, COMMON_VULN_PORTS.keys(), mac)
-        if not open_ports:
-            continue
+        device.ports = scan_ports(ip, COMMON_VULN_PORTS.keys(), mac)
+        device.is_iot = is_iot_device(mac, device.ports)
         
-        device.ports = open_ports
-        print(f"{'[IoT]' if device.is_iot else '[---]'} {ip} | {mac} | {hostname} | Ports: {open_ports}")
-        if is_iot_device(mac, open_ports):
-            device.is_iot = True
+        if device.is_iot:
             iot_devices.append(device)
-            
+        
+        print(f"{'[IoT]' if device.is_iot else '[---]'} {ip} | {mac} | {hostname} | Ports: {open_ports}")
+       
     report = Report(net_ip, iot_devices)
 
     return report
