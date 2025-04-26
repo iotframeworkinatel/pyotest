@@ -7,7 +7,7 @@ import logging
 
 from reports import csv, html, txt, json
 from utils.scan import get_local_network
-from vulnerability_tester import test_ssh_weak_auth, grab_banner
+from vulnerability_tester import test_ssh_weak_auth, grab_banner, check_anonymous_ftp
 from reports.objects import Device, Report
 
 SCANNERS: dict = {
@@ -58,12 +58,16 @@ for scanner in args.scans.split(","):
 
 for d in iot_devices:
     if 22 in d.ports:
-        print(f"\n🔑 Testing SSH weak authentication on {d.ip}...")
+        print(f"\nTesting SSH weak authentication on {d.ip}...")
         test_ssh_weak_auth(d.ip)
 
-    print(f"\n📡 Scanning ports on {d.ip}...")
+    if 21 in d.ports:
+        print(f"\nTesting anonymous FTP on {d.ip}...")
+        check_anonymous_ftp(d.ip)
+
     for port in d.ports:
-        grab_banner(d.ip, port)
+        print(f"\nGrabbing banner on {d.ip}...")
+        grab_banner(d.ip, port)    
 
 if args.output and len(iot_devices) > 0:
     ext = args.output.lower()
