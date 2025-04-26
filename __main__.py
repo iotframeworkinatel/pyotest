@@ -6,7 +6,9 @@ import argparse
 import logging
 
 from reports import csv, html, txt, json
+from utils.scan import get_local_network
 from vulnerability_tester import test_ssh_weak_auth
+from reports.objects import Device, Report
 
 SCANNERS: dict = {
     "nmap": nmap_explore,
@@ -21,7 +23,7 @@ parser.add_argument("-ip", "--ip", type=str, help="IP address to scan")
 parser.add_argument("-m", "--mac", type=str, help="MAC address to scan")
 parser.add_argument("-r", "--network", type=str, default="auto", help="Network to scan (default: detected /24 network)")
 parser.add_argument("-s", "--scans", type=str, default="", help="Comma-separated scanning methods to run (nmap, scapy)")
-parser.add_argument("-o", "--output", type=str, default="report.txt", help="Output file name (default: report.txt)")
+parser.add_argument("-o", "--output", type=str, help="Output file name")
 parser.add_argument("-p", "--ports", type=str, help="Extra ports to scan (comma-separated)")
 
 args = parser.parse_args()
@@ -34,23 +36,34 @@ else:
 if args.all:
     args.scans = ",".join(SCANNERS.keys())
 
+iot_devices = []
+
+args.network = get_local_network() if args.network == "auto" else args.network
+
 for scanner in args.scans.split(","):
     if scanner not in SCANNERS:
         logging.error(f"Invalid scanner: {scanner}")
         continue
     
     logging.info(f"Running {scanner} scan...")
-    report = SCANNERS[scanner](args)
+    result = SCANNERS[scanner](args)
+
+    for d in result:
+        if d not in iot_devices:
+            iot_devices.append(d)
+        else:
+            iot_devices[iot_devices.index(d)].ports = iot_devices[iot_devices.index(d)].ports + d.ports
+
     logging.info(f"{scanner} scan completed.")
 
+for d in iot_devices:
+    if 22 in d.ports:
+        print(f"🔑 Testing SSH weak authentication on {d.ip}...")
+        test_ssh_weak_auth(d.ip)
 
-    for d in report.network.devices:
-        if 22 in d.ports:
-            print(f"🔑 Testing SSH weak authentication on {d.ip}...")
-            test_ssh_weak_auth(d.ip)
-
-    ext = scanner.lower() + "_" + args.output.lower()
-    report.set_output(ext)
+if args.output:
+    ext = args.output.lower()
+    report = Report(args.network, iot_devices, ext)
     if ext.endswith(".html"):
         html.report(report)
     elif ext.endswith(".csv"):
