@@ -7,7 +7,8 @@ import logging
 
 from reports import csv, html, txt, json
 from utils.scan import get_local_network, get_local_network
-from vulnerability_tester import test_ssh_weak_auth, grab_banner, check_anonymous_ftp
+from utils.tester import general_tester
+from vulnerability_tester import *
 from reports.objects import Device, Report
 
 SCANNERS: dict = {
@@ -25,6 +26,7 @@ parser.add_argument("-r", "--network", type=str, default="auto", help="Network t
 parser.add_argument("-s", "--scans", type=str, default="", help="Comma-separated scanning methods to run (nmap, scapy)")
 parser.add_argument("-o", "--output", type=str, help="Output file name")
 parser.add_argument("-p", "--ports", type=str, help="Extra ports to scan (comma-separated)")
+parser.add_argument("-t", "--test", action="store_true", help="Run vulnerability tests on discovered devices")
 
 args = parser.parse_args()
 
@@ -56,18 +58,22 @@ for scanner in args.scans.split(","):
 
     logging.info(f"{scanner} scan completed.")
 
-for d in iot_devices:
-    if 22 in d.ports:
-        print(f"\nTesting SSH weak authentication on {d.ip}...")
-        test_ssh_weak_auth(d.ip)
+# Testing new tester
+if args.test:
+    general_tester(iot_devices)
 
-    if 21 in d.ports:
-        print(f"\nTesting anonymous FTP on {d.ip}...")
-        check_anonymous_ftp(d.ip)
+# for d in iot_devices:
+#     if 22 in d.ports:
+#         print(f"\nTesting SSH weak authentication on {d.ip}...")
+#         test_ssh_weak_auth(d.ip)
 
-    for port in d.ports:
-        print(f"\nGrabbing banner on {d.ip}...")
-        grab_banner(d.ip, port)    
+#     if 21 in d.ports:
+#         print(f"\nTesting anonymous FTP on {d.ip}...")
+#         check_anonymous_ftp(d.ip)
+
+#     for port in d.ports:
+#         print(f"\nGrabbing banner on {d.ip}...")
+#         grab_banner(d.ip, port)    
 
 if args.output and len(iot_devices) > 0:
     if not os.path.exists("report"):
