@@ -6,7 +6,7 @@ import argparse
 import logging
 
 from reports import csv, html, txt, json
-from utils.scan import get_local_network
+from utils.scan import get_local_network, get_local_network
 from vulnerability_tester import test_ssh_weak_auth, grab_banner, check_anonymous_ftp
 from reports.objects import Device, Report
 
