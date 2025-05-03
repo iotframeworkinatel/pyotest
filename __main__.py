@@ -60,7 +60,7 @@ for scanner in args.scans.split(","):
 
 # Testing new tester
 if args.test:
-    general_tester(iot_devices)
+    iot_devices = general_tester(iot_devices)
 
 # for d in iot_devices:
 #     if 22 in d.ports:

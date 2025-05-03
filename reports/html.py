@@ -1,5 +1,5 @@
-from reports import Report
 import os
+from reports import Report  # Ajuste conforme seu projeto
 
 def report(report: Report):
     network = report.network
@@ -21,6 +21,7 @@ def report(report: Report):
         f.write("        .info { margin-bottom: 20px; }\n")
         f.write("        .device { border: 1px solid #ccc; padding: 15px; border-radius: 6px; margin-bottom: 20px; }\n")
         f.write("        .device p { margin: 5px 0; }\n")
+        f.write("        .device ul { margin: 5px 0 10px 20px; }\n")
         f.write("    </style>\n")
         f.write("</head>\n")
         f.write("<body>\n")
@@ -38,8 +39,18 @@ def report(report: Report):
             f.write(f"<p><strong>IP:</strong> {device.ip}</p>\n")
             f.write(f"<p><strong>MAC:</strong> {device.mac or 'N/A'}</p>\n")
             f.write(f"<p><strong>Open Ports:</strong> {', '.join(map(str, device.ports)) if device.ports else 'None'}</p>\n")
-            # is_iot
             f.write(f"<p><strong>Is IoT Device:</strong> {'Yes' if device.is_iot else 'No'}</p>\n")
+
+            # Vulnerability report
+            if hasattr(device, "vulnerabilities") and device.vulnerabilities:
+                f.write("<p><strong>Vulnerabilities:</strong></p>\n")
+                f.write("<ul>\n")
+                for vuln in device.vulnerabilities:
+                    f.write(f"<li>{vuln}</li>\n")
+                f.write("</ul>\n")
+            else:
+                f.write("<p><strong>Vulnerabilities:</strong> Sem vulnerabilidades encontradas</p>\n")
+
             f.write("</div>\n")
 
         f.write("</body>\n")
