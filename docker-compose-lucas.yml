@@ -50,6 +50,9 @@ services:
     networks:
       iot_macvlan:
         ipv4_address: 192.168.15.35
+    volumes:
+      - ./pyotest/devices/httpd/conf.d/directory-listing.conf:/usr/local/apache2/conf/conf.d/directory-listing.conf
+      - ./pyotest/devices/httpd/htdocs:/usr/local/apache2/htdocs
     restart: unless-stopped
 
   mqtt_no_auth:
