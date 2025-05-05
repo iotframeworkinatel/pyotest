@@ -4,7 +4,7 @@ services:
     container_name: ftp_anonymous
     networks:
       iot_macvlan:
-        ipv4_address: 192.168.2.30
+        ipv4_address: 192.168.15.30
     environment:
       - FTP_USER=admin
       - FTP_PASS=admin
@@ -15,15 +15,15 @@ services:
     container_name: http_traversal
     networks:
       iot_macvlan:
-        ipv4_address: 192.168.2.31
+        ipv4_address: 192.168.15.31
     restart: unless-stopped
 
   telnet_insecure:
-    build: ./pyotest/devices/telnetdf
+    build: ./pyotest/devices/telnetd
     container_name: telnet_insecure
     networks:
       iot_macvlan:
-        ipv4_address: 192.168.2.32
+        ipv4_address: 192.168.15.32
     restart: unless-stopped
 
   ftp_banner:
@@ -31,9 +31,9 @@ services:
     container_name: ftp_banner
     networks:
       iot_macvlan:
-        ipv4_address: 192.168.2.33
+        ipv4_address: 192.168.15.33
     environment:
-      - PUBLICHOST=192.168.2.33
+      - PUBLICHOST=192.168.15.33
     restart: unless-stopped
 
   http_admin_default_creds:
@@ -41,7 +41,7 @@ services:
     container_name: http_admin_default_creds
     networks:
       iot_macvlan:
-        ipv4_address: 192.168.2.34
+        ipv4_address: 192.168.15.34
     restart: unless-stopped
 
   http_directory_listing:
@@ -49,7 +49,7 @@ services:
     container_name: http_directory_listing
     networks:
       iot_macvlan:
-        ipv4_address: 192.168.2.35
+        ipv4_address: 192.168.15.35
     volumes:
       - ./pyotest/devices/httpd/conf.d/directory-listing.conf:/usr/local/apache2/conf/conf.d/directory-listing.conf
       - ./pyotest/devices/httpd/htdocs:/usr/local/apache2/htdocs
@@ -60,7 +60,7 @@ services:
     container_name: mqtt_no_auth
     networks:
       iot_macvlan:
-        ipv4_address: 192.168.2.36
+        ipv4_address: 192.168.15.36
     ports:
       - "1883:1883"
     volumes:
@@ -72,7 +72,7 @@ services:
     container_name: ssh_old_banner
     networks:
       iot_macvlan:
-        ipv4_address: 192.168.2.37
+        ipv4_address: 192.168.15.37
     restart: unless-stopped
 
 networks:
