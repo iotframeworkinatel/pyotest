@@ -34,12 +34,11 @@ def scan_ports(ip):
     return open_ports
 
 def iot_heuristic(device: Device):
-    hostname = (device.hostname or "").lower()
+    hostname = (device.hostname or "")
     ports_set = set(device.ports or [])
 
     suspicious_by_hostname = any(term in hostname for term in HOSTNAME)
     suspicious_by_port = any(p in ports_set for p in COMMON_VULN_PORTS.keys())
-
     return suspicious_by_hostname or suspicious_by_port
 
 def explore(args):

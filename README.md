@@ -118,3 +118,19 @@ python scanner.py -a -v
 - To selectively run scanners, use the `--scans` option with the desired method(s).
 - Results will be saved in the file specified by `--output`.
 - The tool is designed to be modular and scalable, allowing easy integration of future scanning methods.
+
+
+## DOCS to improve
+```sh
+# ANTES DE INICIAR PARA SUMULAR, RODE OS COMANDOS DO simulation.sh ou simulation-lucas.sh
+# Tudo vai depender da sua configuração de rede
+# RODANDO DOCKER COMPOSE COM UM ARQUIVO ESPECIFICO
+docker compose -f docker-compose-lucas.yml up -d
+
+
+# RODANDO SCAN COM NMAP E TESTANDO
+sudo python3 . -s nmap -o test.html -t
+
+```
+- scanners
+- 

@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
 
   telnet_insecure:
-    build: ./pyotest/devices/telnetdf
+    build: ./pyotest/devices/telnetd
     container_name: telnet_insecure
     networks:
       iot_macvlan:

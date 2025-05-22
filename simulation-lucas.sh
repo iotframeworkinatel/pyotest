@@ -24,3 +24,6 @@ sudo ip route add 192.168.15.36/32 dev macvlan0
 sudo ip route add 192.168.15.37/32 dev macvlan0
 
 
+# limpar configurações
+sudo ip link rmv macvlan0
+docker compose -f docker-compose-lucas.yml down

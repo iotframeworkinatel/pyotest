@@ -18,15 +18,15 @@ SCANNERS: dict = {
 
 parser = argparse.ArgumentParser(description="Network scanner for IoT devices")
 parser.add_argument("-v", "--verbose", action="store_true", help="Verbose mode")
-parser.add_argument("-a", "--all", action="store_true", help="Run all available scanning methods")
-parser.add_argument("-i", "--interface", type=str, default="eth0", help="Network interface to use (default: eth0)")
-parser.add_argument("-ip", "--ip", type=str, help="IP address to scan")
-parser.add_argument("-m", "--mac", type=str, help="MAC address to scan")
-parser.add_argument("-r", "--network", type=str, default="auto", help="Network to scan (default: detected /24 network)")
-parser.add_argument("-s", "--scans", type=str, default="", help="Comma-separated scanning methods to run (nmap, scapy)")
-parser.add_argument("-o", "--output", type=str, help="Output file name")
-parser.add_argument("-p", "--ports", type=str, help="Extra ports to scan (comma-separated)")
-parser.add_argument("-t", "--test", action="store_true", help="Run vulnerability tests on discovered devices")
+parser.add_argument("-a", "--all", action="store_true", help="Run all available scanning methods") ## se usar apenas nmap não precisa de flag
+parser.add_argument("-i", "--interface", type=str, default="eth0", help="Network interface to use (default: eth0)") ## não usado
+parser.add_argument("-ip", "--ip", type=str, help="IP address to scan") ## não usado
+parser.add_argument("-m", "--mac", type=str, help="MAC address to scan") ## não usado
+parser.add_argument("-r", "--network", type=str, default="auto", help="Network to scan (default: detected /24 network)") ## corrigir de -r para -n
+parser.add_argument("-s", "--scans", type=str, default="", help="Comma-separated scanning methods to run (nmap, scapy)") ## apenas nmap n necessita de flag
+parser.add_argument("-o", "--output", type=str, help="Output file name") ## html ou json
+parser.add_argument("-p", "--ports", type=str, help="Extra ports to scan (comma-separated)") ## implementar portas extras para teste
+parser.add_argument("-t", "--test", action="store_true", help="Run vulnerability tests on discovered devices") ## funcionando
 
 args = parser.parse_args()
 
@@ -62,18 +62,6 @@ for scanner in args.scans.split(","):
 if args.test:
     iot_devices = general_tester(iot_devices)
 
-# for d in iot_devices:
-#     if 22 in d.ports:
-#         print(f"\nTesting SSH weak authentication on {d.ip}...")
-#         test_ssh_weak_auth(d.ip)
-
-#     if 21 in d.ports:
-#         print(f"\nTesting anonymous FTP on {d.ip}...")
-#         check_anonymous_ftp(d.ip)
-
-#     for port in d.ports:
-#         print(f"\nGrabbing banner on {d.ip}...")
-#         grab_banner(d.ip, port)    
 
 if args.output and len(iot_devices) > 0:
     if not os.path.exists("report"):
