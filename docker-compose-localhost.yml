@@ -1,0 +1,103 @@
+services:
+  ftp_anonymous:
+    image: fauria/vsftpd
+    container_name: ftp_anonymous
+    environment:
+      - FTP_USER=admin
+      - FTP_PASS=admin
+    restart: unless-stopped
+    networks:
+      iot_bridge:
+        ipv4_address: 172.20.0.10
+
+  http_traversal:
+    build: ./pyotest/devices/http-vuln
+    container_name: http_traversal
+    restart: unless-stopped
+    networks:
+      iot_bridge:
+        ipv4_address: 172.20.0.11
+
+  telnet_insecure:
+    build: ./pyotest/devices/telnetd
+    container_name: telnet_insecure
+    restart: unless-stopped
+    networks:
+      iot_bridge:
+        ipv4_address: 172.20.0.12
+
+  ftp_banner:
+    image: stilliard/pure-ftpd:hardened
+    container_name: ftp_banner
+    environment:
+      - PUBLICHOST=172.20.0.13
+    restart: unless-stopped
+    networks:
+      iot_bridge:
+        ipv4_address: 172.20.0.13
+
+  http_admin_default_creds:
+    build: ./pyotest/devices/app-admin-panel
+    container_name: http_admin_default_creds
+
+    restart: unless-stopped
+    networks:
+      iot_bridge:
+        ipv4_address: 172.20.0.14
+
+  http_directory_listing:
+    image: httpd:2.4
+    container_name: http_directory_listing
+    volumes:
+      - ./pyotest/devices/httpd/conf.d/directory-listing.conf:/usr/local/apache2/conf/conf.d/directory-listing.conf
+      - ./pyotest/devices/httpd/htdocs:/usr/local/apache2/htdocs
+    restart: unless-stopped
+    networks:
+      iot_bridge:
+        ipv4_address: 172.20.0.15
+
+  mqtt_no_auth:
+    image: eclipse-mosquitto
+    container_name: mqtt_no_auth
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./pyotest/devices/mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf
+    restart: unless-stopped
+    networks:
+      iot_bridge:
+        ipv4_address: 172.20.0.16
+
+  ssh_old_banner:
+    image: rastasheep/ubuntu-sshd
+    container_name: ssh_old_banner
+    restart: unless-stopped
+    networks:
+      iot_bridge:
+        ipv4_address: 172.20.0.17
+
+  scanner:
+    build: .
+    container_name: scanner
+    restart: no
+    depends_on:
+      - ftp_anonymous
+      - http_traversal
+      - telnet_insecure
+      - ftp_banner
+      - http_admin_default_creds
+      - http_directory_listing
+      - mqtt_no_auth
+      - ssh_old_banner
+    volumes:
+      - ./report:/app/report
+    networks:
+      iot_bridge:
+        ipv4_address: 172.20.0.18
+
+networks:
+  iot_bridge:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24

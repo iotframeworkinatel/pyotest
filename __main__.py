@@ -87,3 +87,5 @@ if args.output and len(iot_devices) > 0:
 
     print(f"\n[✔] IoT devices identified: {len(report.network.devices)}")
     print(f"[✔] Report saved as {report.timestamp}_{os.path.splitext(ext)[0]}.{ext.split('.')[-1]}")
+
+exit(0)
