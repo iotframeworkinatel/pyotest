@@ -120,7 +120,7 @@ python scanner.py -a -v
 - The tool is designed to be modular and scalable, allowing easy integration of future scanning methods.
 
 
-## DOCS to improve
+## DOCS/CODE to improve
 ```sh
 # ANTES DE INICIAR PARA SUMULAR, RODE OS COMANDOS DO simulation.sh ou simulation-lucas.sh
 # Tudo vai depender da sua configuração de rede
@@ -132,5 +132,14 @@ docker compose -f docker-compose-lucas.yml up -d
 sudo python3 . -s nmap -o test.html -t
 
 ```
-- scanners
-- 
+- remover scapy dos scanners
+- remover flag -a e -s uma vez que o nmap é o unico scanner
+- remover flags de ports, ip e mac uma vez que o nmap faz isso baseado nas congfigurações do utils
+- incluir uma flag para overwrite do arquivo default_data
+- implementar o report em json
+- atualizar o -o para receber html ou json, o nome do report deve ser gerado automaticamente
+- remover a flag -i, pois o nmap faz isso automaticamente
+- revisar quais testers estão sendo utilizados e remover os que não estão sendo utilizados
+- revisar os imports e remover os que não estão sendo utilizados
+- adicionar linux como pré requisito além do binário do nmap
+- remover reports que não estão sendo utilizados

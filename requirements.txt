@@ -9,4 +9,3 @@ python-nmap==0.7.1
 requests==2.31.0
 scapy==2.5.0
 paramiko
-netifaces

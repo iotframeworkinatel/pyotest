@@ -2,18 +2,40 @@ import nmap
 from utils.default_data import HOSTNAME, COMMON_VULN_PORTS
 from reports.objects import Device
 
+
 def ping_scan(network):
     print(f"[+] Running Nmap on network {network}...")
-    nm = nmap.PortScanner()
-    nm.scan(hosts=network, arguments="-sn")
+
+    # Scan the network for live hosts using ARP
+    nm_arp = nmap.PortScanner()
+    nm_arp.scan(hosts=network, arguments="-sn")
+
+    # Check for silent hosts with vulnerable ports
+    ports_to_check = ','.join(str(port) for port in COMMON_VULN_PORTS.keys())
+    nm_ports = nmap.PortScanner()
+    nm_ports.scan(hosts=network, arguments=f"-T4 -Pn -sT -p {ports_to_check}")
+
     devices = []
 
-    for host in nm.all_hosts():
-        ip = nm[host]['addresses'].get('ipv4')
-        mac = nm[host]['addresses'].get('mac', 'Unknown')
-        hostname = nm[host]['hostnames'][0]['name'] if nm[host]['hostnames'] else None
+    for host in nm_ports.all_hosts():
+        ip = host
+        mac = nm_arp[host]['addresses'].get('mac', 'Unknown') if host in nm_arp.all_hosts() else 'Unknown'
+        hostname = None
+        if 'hostnames' in nm_ports[host] and nm_ports[host]['hostnames']:
+            hostname = nm_ports[host]['hostnames'][0].get('name', None)
 
-        devices.append(Device(ip=ip, mac=mac, hostname=hostname))
+        open_ports = []
+        tcp_ports = nm_ports[host].get('tcp', {})
+        for port, info in tcp_ports.items():
+            if info.get('state') == 'open':
+                open_ports.append(port)
+
+        if not open_ports:
+            continue
+
+        device = Device(ip=ip, mac=mac, hostname=hostname)
+        device.ports = open_ports
+        devices.append(device)
 
     print(f"[+] {len(devices)} devices found.")
     return devices
@@ -46,7 +68,7 @@ def explore(args):
     iot_devices = []
 
     for d in devices:
-        d.ports = scan_ports(d.ip)
+        # d.ports = scan_ports(d.ip)
         d.is_iot = iot_heuristic(d)
 
         if d.is_iot:

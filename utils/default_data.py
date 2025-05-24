@@ -11,7 +11,8 @@ COMMON_VULN_PORTS = {
     2323: "Telnet alternativa",
     5678: "UDP Discovery (MikroTik, Sonoff, etc)",
     6668: "Tuya Smart",
-    9999: "TP-Link Smart Home"
+    9999: "TP-Link Smart Home",
+    50000: "iiimsf"
 }
 
 
