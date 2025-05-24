@@ -15,7 +15,19 @@ COMMON_VULN_PORTS = {
     50000: "iiimsf"
 }
 
+COMMON_CREDENTIALS = [
+    ('root', 'root'),
+    ('admin', 'admin'),
+]
 
-HOSTNAME = ["camera", "tuya", "smart", "iot", "ipcam", "unknown", "device", "esp", "tplink", "dlink", "sonoff", "light", "plug", "bulb", "roku", "tv", "android", "iphone"]
-
-MAC_ADDRESSES = ['00:1A:11', '00:1E:C0', '18:B4:30', 'F4:F5:D8']
+# COMMON_CREDENTIALS = [
+#     ('root', 'root'),
+#     ('root', 'admin'),
+#     ('root', 'password'),
+#     ('root', '12345'),
+#     ('admin', 'admin'),
+#     ('admin', 'password'),
+#     ('admin', ''),
+#     ('user', 'user'),
+#     ('test', 'test'),
+# ]

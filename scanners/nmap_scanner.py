@@ -1,10 +1,20 @@
 import nmap
-from utils.default_data import HOSTNAME, COMMON_VULN_PORTS
+from utils.default_data import COMMON_VULN_PORTS
 from reports.objects import Device
 
 
-def ping_scan(network):
+def ping_scan(network, extra_ports=None):
     print(f"[+] Running Nmap on network {network}...")
+
+    # If extra ports are provided, add them to the common vulnerable ports
+    if extra_ports:
+        print(f"[+] Adding extra ports to scan: {extra_ports}")
+        extra_ports = [int(port.strip()) for port in extra_ports.split(',')]
+        for port in extra_ports:
+            if port not in COMMON_VULN_PORTS:
+                COMMON_VULN_PORTS[port] = "Custom Port"
+    # SHow the common vulnerable ports being scanned
+    print(f"[+] Scanning for common vulnerable ports: {', '.join(str(port) for port in COMMON_VULN_PORTS.keys())}")
 
     # Scan the network for live hosts using ARP
     nm_arp = nmap.PortScanner()
@@ -33,46 +43,18 @@ def ping_scan(network):
         if not open_ports:
             continue
 
-        device = Device(ip=ip, mac=mac, hostname=hostname)
-        device.ports = open_ports
+        device = Device(ip=ip, mac=mac, hostname=hostname, ports=open_ports, is_iot=True)
         devices.append(device)
 
     print(f"[+] {len(devices)} devices found.")
     return devices
 
-def scan_ports(ip):
-    nm = nmap.PortScanner()
-    open_ports = []
-    try:
-        ports_to_check = ','.join(str(port) for port in COMMON_VULN_PORTS.keys())
-        nm.scan(ip, arguments=f'-T4 -p {ports_to_check}')
-        if ip in nm.all_hosts():
-            ports = nm[ip].get('tcp', {})
-            for port, port_data in ports.items():
-                if port_data.get('state') == 'open':
-                    open_ports.append(port)
-    except Exception as e:
-        print(f"[!] Error scanning ports on {ip}: {e}")
-    return open_ports
-
-def iot_heuristic(device: Device):
-    hostname = (device.hostname or "")
-    ports_set = set(device.ports or [])
-
-    suspicious_by_hostname = any(term in hostname for term in HOSTNAME)
-    suspicious_by_port = any(p in ports_set for p in COMMON_VULN_PORTS.keys())
-    return suspicious_by_hostname or suspicious_by_port
-
 def explore(args):
-    devices = ping_scan(args.network)
+    devices = ping_scan(args.network, args.ports)
     iot_devices = []
 
     for d in devices:
-        # d.ports = scan_ports(d.ip)
-        d.is_iot = iot_heuristic(d)
-
-        if d.is_iot:
-            iot_devices.append(d)
+        iot_devices.append(d)
 
         print(f"{'[IoT]' if d.is_iot else '[---]'} {d.ip} | {d.mac} | {d.hostname} | Ports: {d.ports}")
 

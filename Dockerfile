@@ -17,4 +17,4 @@ RUN apt-get update && apt-get install -y nmap
 COPY . .
 
 # Comando padrão para executar os testes
-CMD ["python3", ".", "-n", "172.20.0.0/27", "--test", "-o", "html"]
+CMD ["python3", ".", "-n", "172.20.0.0/27", "--test", "-o", "json"]

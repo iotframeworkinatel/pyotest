@@ -6,8 +6,8 @@ def report(report: Report):
     devices = report.network.devices
 
     # Ensure the final extension is .html
-    base_output = os.path.splitext(report.output)[0]
-    filename = f"report/{report.timestamp}_{base_output}.html"
+    # base_output = os.path.splitext(report.output)[0]
+    filename = f"report/{report.timestamp}_vulnerability_report.html"
 
     with open(filename, "w", encoding="utf-8") as f:
         f.write("<!DOCTYPE html>\n")
