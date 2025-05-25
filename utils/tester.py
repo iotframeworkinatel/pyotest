@@ -79,6 +79,22 @@ def general_tester(iot_devices):
                 else:
                     print("[✘] MQTT broker is restricted or unavailable.")
 
+            # RTSP
+            elif port == 554:
+                print(f"[*] Testing RTSP open on {d.ip}...")
+                if test_rtsp_open(d.ip, port):
+                    print("[✔] RTSP open and accessible.")
+                    d.vulnerabilities.append("RTSP open and accessible")
+                else:
+                    print("[✘] RTSP not accessible.")
+
+                print(f"[*] Testing RTSP path brute force on {d.ip}...")
+                rtsp_path_found, rtsp_path = test_rtsp_path_brute(d.ip, port)
+                if rtsp_path_found:
+                    print(f"[✔] RTSP path found: {rtsp_path}")
+                    d.vulnerabilities.append(f"RTSP path found: {rtsp_path}")
+                else:
+                    print("[✘] No RTSP path found.")
             # Generic banner grabbing (can keep last)
             print(f"[*] Grabbing banner from {d.ip}:{port}...")
             if grab_banner(d.ip, port):
