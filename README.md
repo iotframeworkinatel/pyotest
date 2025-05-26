@@ -29,7 +29,6 @@ It supports scanning library (Nmap), tests insecure protocols, and helps map vul
 - [`python-nmap`](https://pypi.org/project/python-nmap/): Nmap port scanning wrapper.
 - [`requests`](https://requests.readthedocs.io/): API testing.
 - [`paramiko`](http://www.paramiko.org/): SSH connections.
-- [`paho-mqtt`](https://pypi.org/project/paho-mqtt/): MQTT client.
 
 You can install all dependencies with:
 
