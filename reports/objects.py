@@ -18,7 +18,7 @@ class Network:
 
 class Report:
 
-    def __init__(self, ip, devices, output = "report.txt"):
+    def __init__(self, ip, devices, output = "html"):
         self.network = Network(ip, devices)
         self.output = output
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
