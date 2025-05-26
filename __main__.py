@@ -50,7 +50,7 @@ if args.output and len(iot_devices) > 0:
     elif ext.endswith("csv"):
         csv.report(report)
     else:
-        print(f"[!] Invalid output format: {ext}. Supported formats are: html, json")
+        print(f"[!] Invalid output format: {ext}. Supported formats are: html, json and csv")
         exit(1)
 
 

@@ -64,7 +64,7 @@ python . [OPTIONS]
 | Option               | Description                                                             | Default                   |
 |----------------------|-------------------------------------------------------------------------|---------------------------|
 | `-v`, `--verbose`    | Enable verbose logging                                                  | Off                       |
-| `-n`, `--network`    | Network CIDR block to scan (e.g., `192.168.0.0/24`)                     | `192.168.0.0/24`          |
+| `-n`, `--network`    | Network CIDR block to scan (e.g., `192.168.0.0/24`, `192.168.0.0-255`)  | `192.168.0.0/24`          |
 | `-o`, `--output`     | Output file format (e.g., html, json, csv)                              | None                      |
 | `-p`, `--ports`      | Extra ports to scan (comma-separated, e.g., `80,443,8080`)              | None                      |
 | `-t`, `--test`       | Run vulnerability tests on discovered devices                           | Off                       |
