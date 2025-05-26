@@ -28,12 +28,6 @@ def general_tester(iot_devices, args):
                 else:
                     logging.debug("Anonymous FTP login not allowed.")
 
-                logging.debug(f"Grabbing FTP banner on {d.ip}...")
-                if test_ftp_banner_grabbing(d.ip, port):
-                    logging.debug("FTP banner exposed.")
-                    d.vulnerabilities.append("FTP banner exposed")
-                else:
-                    logging.debug("No FTP banner found.")
 
             # HTTP
             elif port == 80:
