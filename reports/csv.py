@@ -8,13 +8,13 @@ def report(report: Report):
 
     # Ensure the extension is .csv
     base_output = os.path.splitext(report.output)[0]
-    filename = f"report/{report.timestamp}_{base_output}.csv"
+    filename = f"report/{report.timestamp}_vulnerability_report.csv"
 
     with open(filename, mode="w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
 
         # Header
-        writer.writerow(["Hostname", "IP", "MAC", "Open Ports", "Network", "Timestamp"])
+        writer.writerow(["Hostname", "IP", "MAC", "Open Ports", "Vulnerabilities", "Network", "Timestamp"])
 
         # Device data
         for device in devices:
@@ -23,6 +23,7 @@ def report(report: Report):
                 device.ip,
                 device.mac or "N/A",
                 ", ".join(map(str, device.ports)) if device.ports else "None",
+                device.vulnerabilities if hasattr(device, "vulnerabilities") else [],
                 network.ip,
                 report.timestamp
             ])

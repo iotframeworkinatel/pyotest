@@ -1,7 +1,7 @@
 # Pyotest - IoT Network Vulnerability Scanner
 
 **Pyotest** is a Python-based framework for **scanning and testing IoT device vulnerabilities** across local networks.  
-It supports multiple scanning techniques (Nmap, Scapy), tests insecure protocols, and helps map vulnerabilities against the **OWASP IoT Top 10**.
+It supports scanning library (Nmap), tests insecure protocols, and helps map vulnerabilities against the **OWASP IoT Top 10**.
 
 ---
 
@@ -10,12 +10,10 @@ It supports multiple scanning techniques (Nmap, Scapy), tests insecure protocols
 ### Functional Requirements
 
 - **IoT Security Testing**: Detect weak authentication, insecure APIs, open ports, and missing encryption.
-- **Multi-Protocol Support**: MQTT, CoAP, HTTP, Telnet, SSH, etc.
+- **Multi-Protocol Support**: MQTT, HTTP, Telnet, SSH, etc.
 - **Test Automation**: Integration with CI/CD pipelines (GitHub Actions, Jenkins).
 - **Containerized Execution**: Run tests in isolated Docker environments.
-- **Firmware Testing**: Analyze extracted device firmware.
-- **Malicious Traffic Simulation**: Allow brute-force, sniffing, and other network attacks.
-- **Detailed Reporting**: Map discovered vulnerabilities with OWASP IoT Top 10 guidelines.
+- **Detailed Reporting**: Map discovered vulnerabilities.
 
 ### Non-Functional Requirements
 
@@ -28,11 +26,9 @@ It supports multiple scanning techniques (Nmap, Scapy), tests insecure protocols
 
 ## 2. Core Libraries
 
-- [`pytest`](https://docs.pytest.org/): Test framework.
-- [`scapy`](https://scapy.readthedocs.io/): Network packet crafting and sniffing.
 - [`python-nmap`](https://pypi.org/project/python-nmap/): Nmap port scanning wrapper.
 - [`requests`](https://requests.readthedocs.io/): API testing.
-- [`binwalk`](https://github.com/ReFirmLabs/binwalk): Firmware analysis.
+- [`paramiko`](http://www.paramiko.org/): SSH connections.
 
 You can install all dependencies with:
 
@@ -50,6 +46,8 @@ sudo apt install nmap
 brew install nmap
 ```
 
+Install on windows using the installer from the official Nmap website: [Nmap Download](https://nmap.org/download.html).
+
 ---
 
 ## 3. How to Run the Scanner
@@ -57,64 +55,62 @@ brew install nmap
 Navigate to the project root and execute:
 
 ```bash
-python scanner.py [OPTIONS]
+python . [OPTIONS]
 ```
-
-Replace `scanner.py` with the correct script filename if needed.
 
 ### Available Options
 
-| Option               | Description                                                             | Default                  |
+| Option               | Description                                                             | Default                   |
 |----------------------|-------------------------------------------------------------------------|---------------------------|
-| `-v`, `--verbose`     | Enable verbose logging                                                  | Off                       |
-| `-a`, `--all`         | Run **all available** scanning methods                                 | Off                       |
-| `-i`, `--interface`   | Network interface to use (e.g., `eth0`, `wlan0`)                        | `eth0`                    |
-| `-ip`, `--ip`         | Specific IP address to scan                                             | None                      |
-| `-m`, `--mac`         | Specific MAC address to scan                                            | None                      |
-| `-r`, `--network`     | Network CIDR block to scan (e.g., `192.168.0.0/24`) or `auto`            | `auto`                    |
-| `-s`, `--scans`       | Comma-separated scan types to run (`nmap`, `scapy`)                     | None (requires `-a` or `-s`) |
-| `-o`, `--output`      | Output file name to save results                                        | `report.txt`              |
-| `-p`, `--ports`       | Extra ports to scan (comma-separated, e.g., `80,443,8080`)               | None                      |
+| `-v`, `--verbose`    | Enable verbose logging                                                  | Off                       |
+| `-n`, `--network`    | Network CIDR block to scan (e.g., `192.168.0.0/24`, `192.168.0.0-255`)  | `192.168.0.0/24`          |
+| `-o`, `--output`     | Output file format (e.g., html, json, csv)                              | None                      |
+| `-p`, `--ports`      | Extra ports to scan (comma-separated, e.g., `80,443,8080`)              | None                      |
+| `-t`, `--test`       | Run vulnerability tests on discovered devices                           | Off                       |
 
 ---
 
 ## 4. Usage Examples
 
-**Run a full scan using all methods**:
+**Run a full scan without testing**:
 
 ```bash
-python scanner.py -a
+python . -n 192.168.15.0/24
 ```
 
-**Scan a specific IP address with Nmap only**:
+**Run a full scan with vulnerability testing**:
 
 ```bash
-python scanner.py -s nmap -ip 192.168.1.10
+python . -n 192.168.15.0/24 -t
 ```
 
-**Scan a specific network and save results to a custom output file**:
+**Run a full scan with vulnerability testing and save results in HTML format**:
 
 ```bash
-python scanner.py -a -r 192.168.0.0/24 -o scan_results.txt
+python . -n 192.168.15.0/24 -t -o html
 ```
 
-**Scan specific ports using Scapy**:
+**Run a full scan with vulnerability testing and specify extra ports**:
 
 ```bash
-python scanner.py -s scapy -p 80,443,8080
+python . -n 192.168.15.0/24 -p 123,456,7890
 ```
 
 **Enable verbose mode (debugging output)**:
 
 ```bash
-python scanner.py -a -v
+python . -v
 ```
 
+**Run a simulation with Docker**:
+
+```bash
+docker-compose up --build 
+```
 ---
 
 ## 5. Notes
 
-- If the `--all` flag is used, both Nmap and Scapy scans will run.
-- To selectively run scanners, use the `--scans` option with the desired method(s).
-- Results will be saved in the file specified by `--output`.
-- The tool is designed to be modular and scalable, allowing easy integration of future scanning methods.
+- Running locally or in a Docker container the results will be saved in the `reports` folder.
+- The `docker-compose-localhost.yml` file is configured to run the scanner in a Docker container.
+

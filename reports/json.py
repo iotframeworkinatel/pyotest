@@ -8,7 +8,7 @@ def report(report: Report):
 
     # Ensure the final extension is .json
     base_output = os.path.splitext(report.output)[0]
-    filename = f"report/{report.timestamp}_{base_output}.json"
+    filename = f"report/{report.timestamp}_vulnerability_report.json"
 
     data = {
         "timestamp": report.timestamp,
@@ -22,7 +22,8 @@ def report(report: Report):
             "hostname": device.hostname or "N/A",
             "ip": device.ip,
             "mac": device.mac or "N/A",
-            "open_ports": device.ports if device.ports else []
+            "open_ports": device.ports if device.ports else [],
+            "vulnerabilities": device.vulnerabilities if hasattr(device, "vulnerabilities") else []
         })
 
     with open(filename, "w", encoding="utf-8") as f:
