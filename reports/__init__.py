@@ -1,0 +1,1 @@
+from reports.objects import Report as Report
