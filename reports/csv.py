@@ -14,7 +14,7 @@ def report(report: Report):
         writer = csv.writer(f)
 
         # Header
-        writer.writerow(["Hostname", "IP", "MAC", "Open Ports","Vulnerabilities", "Network", "Timestamp"])
+        writer.writerow(["Hostname", "IP", "MAC", "Open Ports", "Vulnerabilities", "Network", "Timestamp"])
 
         # Device data
         for device in devices:

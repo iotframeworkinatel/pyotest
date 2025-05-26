@@ -106,7 +106,7 @@ python . -v
 **Run a simulation with Docker**:
 
 ```bash
-docker-compose -f docker-compose-localhost.yml up --build 
+docker-compose up --build 
 ```
 ---
 
