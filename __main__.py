@@ -35,7 +35,7 @@ for d in result:
 
 # Testing devices
 if args.test:
-    iot_devices = general_tester(iot_devices)
+    iot_devices = general_tester(iot_devices, args)
 
 
 if args.output and len(iot_devices) > 0:
@@ -50,11 +50,10 @@ if args.output and len(iot_devices) > 0:
     elif ext.endswith("csv"):
         csv.report(report)
     else:
-        print(f"[!] Invalid output format: {ext}. Supported formats are: html, json and csv")
+        logging.warning(f"Invalid output format: {ext}. Supported formats are: html, json and csv")
         exit(1)
 
-
-    print(f"\n[✔] IoT devices identified: {len(report.network.devices)}")
-    print(f"[✔] Report saved as {report.timestamp}_{os.path.splitext(ext)[0]}.{ext.split('.')[-1]}")
+    logging.info(f"IoT devices identified: {len(report.network.devices)}")
+    logging.info(f"Report saved as {report.timestamp}_{os.path.splitext(ext)[0]}.{ext.split('.')[-1]}")
 
 exit(0)
