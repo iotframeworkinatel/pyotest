@@ -5,17 +5,18 @@ It supports scanning library (Nmap), tests insecure protocols, and helps map vul
 
 ---
 
-## 1. Requirements
+# 1. System Overview
 
-### Functional Requirements
+### Functional overview
+Pyotest scans local networks for IoT devices, identifies open ports, and performs vulnerability tests.
 
 - **IoT Security Testing**: Detect weak authentication, insecure APIs, open ports, and missing encryption.
 - **Multi-Protocol Support**: MQTT, HTTP, Telnet, SSH, etc.
 - **Test Automation**: Integration with CI/CD pipelines (GitHub Actions, Jenkins).
 - **Containerized Execution**: Run tests in isolated Docker environments.
-- **Detailed Reporting**: Map discovered vulnerabilities.
+- **Detailed Reporting**: Export results in HTML, JSON, and CSV format.
 
-### Non-Functional Requirements
+### Non-Functional overview
 
 - **Modularity**: Plugin-based architecture for easy extensibility.
 - **Ease of Use**: Simple for developers to add new test cases.
@@ -24,7 +25,7 @@ It supports scanning library (Nmap), tests insecure protocols, and helps map vul
 
 ---
 
-## 2. Core Libraries
+# 2. Core Libraries
 
 - [`python-nmap`](https://pypi.org/project/python-nmap/): Nmap port scanning wrapper.
 - [`requests`](https://requests.readthedocs.io/): API testing.
@@ -50,7 +51,7 @@ Install on windows using the installer from the official Nmap website: [Nmap Dow
 
 ---
 
-## 3. How to Run the Scanner
+# 3. How to Run the Scanner
 
 Navigate to the project root and execute:
 
@@ -70,47 +71,66 @@ python . [OPTIONS]
 
 ---
 
-## 4. Usage Examples
+# 4. Usage Examples
 
 **Run a full scan without testing**:
 
 ```bash
+# The scanner will scan the network for devices and open ports and show the results in the terminal.
 python . -n 192.168.15.0/24
 ```
 
 **Run a full scan with vulnerability testing**:
 
 ```bash
+# The scanner will scan the network for devices, open ports, and run vulnerability tests on discovered devices.
 python . -n 192.168.15.0/24 -t
 ```
 
 **Run a full scan with vulnerability testing and save results in HTML format**:
 
 ```bash
+# The scanner will scan the network for devices, open ports, run vulnerability tests, and save the results in HTML format.
 python . -n 192.168.15.0/24 -t -o html
 ```
 
 **Run a full scan with vulnerability testing and specify extra ports**:
 
 ```bash
+# The scanner will scan the network for devices with additional specified ports.
 python . -n 192.168.15.0/24 -p 123,456,7890
 ```
 
 **Enable verbose mode (debugging output)**:
 
 ```bash
-python . -v
+# The scanner will run in verbose mode, providing detailed output in the terminal.
+python . -n 192.168.15.0/24 -v 
 ```
 
+## 5. Running with Docker - Simulation
+
 **Run a simulation with Docker**:
+
+You must have Docker installed on your system.
+
+Docker Installation instructions can be found here: [Docker Installation](https://docs.docker.com/get-docker/).
 
 ```bash
 docker-compose up --build 
 ```
+
+- The scanner will run a simulated environment with a mock IoT device and perform vulnerability tests.
+- The results will be saved in the `reports` folder in the project root.
 ---
 
-## 5. Notes
 
-- Running locally or in a Docker container the results will be saved in the `reports` folder.
-- The `docker-compose-localhost.yml` file is configured to run the scanner in a Docker container.
+## 6. Contributing
+We welcome contributions! Please follow these steps:
 
+1. Fork the repository.
+2. Create a new branch: `git checkout -b my-branch`.
+3. Make your changes.
+4. Commit your changes: `git commit -am "Add my changes"`.
+5. Push your branch: `git push origin my-branch`.
+6. Create a pull request.
