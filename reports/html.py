@@ -19,7 +19,7 @@ def report(report: Report):
         f.write("        body { font-family: Arial, sans-serif; margin: 40px; }\n")
         f.write("        h1 { color: #2c3e50; }\n")
         f.write("        .info { margin-bottom: 20px; }\n")
-        f.write("        .device { border: 1px solid #ccc; padding: 15px; border-radius: 6px; margin-bottom: 20px; }\n")
+        f.write("        .device { border: 1px solid #ccc; padding: 15px; border-radius: 6px; margin-bottom: 20px; margin-right: 70%;}\n")
         f.write("        .device p { margin: 5px 0; }\n")
         f.write("        .device ul { margin: 5px 0 10px 20px; }\n")
         f.write("    </style>\n")
