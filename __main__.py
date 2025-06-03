@@ -54,6 +54,6 @@ if args.output and len(iot_devices) > 0:
         exit(1)
 
     logging.info(f"IoT devices identified: {len(report.network.devices)}")
-    logging.info(f"Report saved as {report.timestamp}_{os.path.splitext(ext)[0]}.{ext.split('.')[-1]}")
+    logging.info(f"Report saved as {report.timestamp}_vulnerability_report.{args.output.lower()}")
 
 exit(0)
