@@ -23,4 +23,4 @@ COPY . .
 USER pyotestuser
 
 # Comando padrão para executar os testes
-CMD ["python3", ".", "-n", "172.20.0.0/27", "--test", "-o", "html", "-v"]
+CMD ["python3", ".", "-n", "172.20.0.0/27", "--test", "-o", "html"]
