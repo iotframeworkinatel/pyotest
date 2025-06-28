@@ -1,7 +1,7 @@
 services:
-  ftp_anonymous:
+  ftp_weak_auth:
     image: fauria/vsftpd
-    container_name: ftp_anonymous
+    container_name: ftp_weak_auth
     environment:
       - FTP_USER=admin
       - FTP_PASS=admin
@@ -81,7 +81,7 @@ services:
     container_name: scanner
     restart: no
     depends_on:
-      - ftp_anonymous
+      - ftp_weak_auth
       - http_traversal
       - telnet_insecure
       - ftp_banner

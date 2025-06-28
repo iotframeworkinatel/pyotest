@@ -21,12 +21,12 @@ def general_tester(iot_devices, args):
         for port in d.ports:
             # FTP
             if port == 21:
-                logging.debug(f"Testing anonymous FTP on {d.ip}...")
-                if test_ftp_anonymous_login(d.ip, port):
-                    logging.debug("Anonymous FTP login allowed.")
-                    d.vulnerabilities.append("Anonymous FTP login allowed")
+                logging.debug(f"Testing weak login on FTP on {d.ip}...")
+                if test_ftp_wek_login(d.ip, port):
+                    logging.debug("Weak FTP login allowed.")
+                    d.vulnerabilities.append("Weak FTP login allowed")
                 else:
-                    logging.debug("Anonymous FTP login not allowed.")
+                    logging.debug("Weak FTP login not allowed.")
 
 
             # HTTP
