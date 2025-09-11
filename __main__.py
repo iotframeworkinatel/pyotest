@@ -14,7 +14,8 @@ parser.add_argument("-v", "--verbose", action="store_true", help="Verbose mode")
 parser.add_argument("-n", "--network", type=str, default="192.168.0.0/27", help="Network to scan (e.g., 192.168.15.0/24)")
 parser.add_argument("-o", "--output", type=str, help="Output file format (e.g., html, json, csv)") 
 parser.add_argument("-p", "--ports", type=str, help="Extra ports to scan (comma-separated e.g., 80,443)") 
-parser.add_argument("-t", "--test", action="store_true", help="Run vulnerability tests on discovered devices") 
+parser.add_argument("-t", "--test", action="store_true", help="Run vulnerability tests on discovered devices")
+parser.add_argument("-aml", "--automl", action="store_true", help="Run automl to automatic generate test cases")
 
 args = parser.parse_args()
 
@@ -56,4 +57,9 @@ if args.output and len(iot_devices) > 0:
     logging.info(f"IoT devices identified: {len(report.network.devices)}")
     logging.info(f"Report saved as {report.timestamp}_vulnerability_report.{args.output.lower()}")
 
+if args.automl:
+    from utils.auto_ml import general_automl
+    logging.info(f"Running AutoML to generate test cases...")
+    general_automl(iot_devices)
+    logging.info(f"AutoML test case generation completed. Check generated_tests.py for details.")
 exit(0)

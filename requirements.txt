@@ -1,3 +1,7 @@
 python-nmap==0.7.1
 requests==2.31.0
 paramiko
+h2o
+pandas
+numpy
+scikit-learn

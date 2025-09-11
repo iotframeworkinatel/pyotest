@@ -15,6 +15,7 @@ Pyotest scans local networks for IoT devices, identifies open ports, and perform
 - **Test Automation**: Integration with CI/CD pipelines (GitHub Actions, Jenkins).
 - **Containerized Execution**: Run tests in isolated Docker environments.
 - **Detailed Reporting**: Export results in HTML, JSON, and CSV format.
+- **Possible to use AutoML for anomaly detection and test case generation for high risk scenarios** (future feature).
 
 ### Non-Functional overview
 
@@ -30,6 +31,9 @@ Pyotest scans local networks for IoT devices, identifies open ports, and perform
 - [`python-nmap`](https://pypi.org/project/python-nmap/): Nmap port scanning wrapper.
 - [`requests`](https://requests.readthedocs.io/): API testing.
 - [`paramiko`](http://www.paramiko.org/): SSH connections.
+- [`h2o`](http://www.paramiko.org/): h2o AutoML library for anomaly detection (future feature).
+- [`pandas`](http://www.paramiko.org/): pandas data analysis library.
+- [`scikit-learn`](http://www.paramiko.org/): scikit-learn machine learning library (future feature).
 
 You can install all dependencies with:
 
@@ -51,6 +55,17 @@ Install on windows using the installer from the official Nmap website: [Nmap Dow
 
 ---
 
+Make sure you also have **h2o** installed on your system if using h2o automl feature:
+
+```bash
+# Ubuntu/Debian
+sudo apt install h2o
+
+# macOS (Homebrew)
+brew install h2o
+```
+---
+
 # 3. How to Run the Scanner
 
 Navigate to the project root and execute:
@@ -61,13 +76,14 @@ python . [OPTIONS]
 
 ### Available Options
 
-| Option               | Description                                                             | Default                   |
-|----------------------|-------------------------------------------------------------------------|---------------------------|
-| `-v`, `--verbose`    | Enable verbose logging                                                  | Off                       |
-| `-n`, `--network`    | Network CIDR block to scan (e.g., `192.168.0.0/24`, `192.168.0.0-255`)  | `192.168.0.0/24`          |
-| `-o`, `--output`     | Output file format (e.g., `html`,`json`,`csv`)                          | None                      |
-| `-p`, `--ports`      | Extra ports to scan (comma-separated, e.g., `80,443,8080`)              | None                      |
-| `-t`, `--test`       | Run vulnerability tests on discovered devices                           | Off                       |
+| Option             | Description                                                            | Default                   |
+|--------------------|------------------------------------------------------------------------|---------------------------|
+| `-v`, `--verbose`  | Enable verbose logging                                                 | Off                       |
+| `-n`, `--network`  | Network CIDR block to scan (e.g., `192.168.0.0/24`, `192.168.0.0-255`) | `192.168.0.0/24`          |
+| `-o`, `--output`   | Output file format (e.g., `html`,`json`,`csv`)                         | None                      |
+| `-p`, `--ports`    | Extra ports to scan (comma-separated, e.g., `80,443,8080`)             | None                      |
+| `-t`, `--test`     | Run vulnerability tests on discovered devices                          | Off                       |
+| `-aml`, `--automl` | Run AutoML to generate test cases for high risk scenarios              | Off                       |
 
 ---
 
