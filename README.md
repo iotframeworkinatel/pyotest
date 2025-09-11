@@ -31,9 +31,9 @@ Pyotest scans local networks for IoT devices, identifies open ports, and perform
 - [`python-nmap`](https://pypi.org/project/python-nmap/): Nmap port scanning wrapper.
 - [`requests`](https://requests.readthedocs.io/): API testing.
 - [`paramiko`](http://www.paramiko.org/): SSH connections.
-- [`h2o`](http://www.paramiko.org/): h2o AutoML library for anomaly detection (future feature).
-- [`pandas`](http://www.paramiko.org/): pandas data analysis library.
-- [`scikit-learn`](http://www.paramiko.org/): scikit-learn machine learning library (future feature).
+- [`h2o`](https://h2o.ai/platform/h2o-automl/): h2o AutoML library for anomaly detection (future feature).
+- [`pandas`](https://pandas.pydata.org/): pandas data analysis library.
+- [`scikit-learn`](https://scikit-learn.org/stable/): scikit-learn machine learning library (future feature).
 
 You can install all dependencies with:
 
