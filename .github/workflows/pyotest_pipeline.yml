@@ -45,6 +45,8 @@ jobs:
 
       - name: Run Docker Compose
         run: |
+          sudo mkdir -p /app/report
+          sudo mkdir -p /report
           docker compose up --build 
 
       - name: Upload artifacts
