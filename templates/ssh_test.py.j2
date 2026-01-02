@@ -1,0 +1,30 @@
+import paramiko
+
+
+def test_ssh_weak_credentials():
+    # 1️⃣ CONTEXTO
+    ip = "{{ v.ip }}"
+    port = int("{{ v.ports }}".split(",")[0])
+
+    success = False
+
+    # 2️⃣ PROCESSAMENTO
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+    try:
+        ssh.connect(
+            ip,
+            port=port,
+            username="root",
+            password="root",
+            timeout=5
+        )
+        success = True
+    except Exception:
+        success = False
+    finally:
+        ssh.close()
+
+    # 3️⃣ ASSERTIVA
+    assert success is True

@@ -16,6 +16,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Instalar nmap
 RUN apt-get update && apt-get install -y nmap
 
+RUN apt-get update && apt-get install -y openjdk-21-jdk-headless
+
 # Copiar todo o código da aplicação para o contêiner
 COPY . .
 
@@ -26,4 +28,4 @@ RUN chown -R pyotestuser:pyotestuser /app/
 USER pyotestuser
 
 # Comando padrão para executar os testes
-CMD ["python3", ".", "-n", "172.20.0.0/27", "--test", "-o", "html"]
+CMD ["python3", ".", "-n", "172.20.0.0/27", "-aml", "--test", "-o", "html"]

@@ -1,0 +1,15 @@
+import telnetlib
+
+
+def test_telnet_open():
+    # 1️⃣ CONTEXTO
+    ip = "{{ v.ip }}"
+    port = int("{{ v.ports }}".split(",")[0])
+
+    # 2️⃣ PROCESSAMENTO
+    tn = telnetlib.Telnet(ip, port, timeout=5)
+    banner = tn.read_some()
+    tn.close()
+
+    # 3️⃣ ASSERTIVA
+    assert banner is not None and len(banner) > 0

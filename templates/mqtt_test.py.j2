@@ -1,0 +1,24 @@
+import paho.mqtt.client as mqtt
+
+
+def test_mqtt_anonymous_access():
+    # 1️⃣ CONTEXTO
+    ip = "{{ v.ip }}"
+    port = int("{{ v.ports }}".split(",")[0])
+
+    connected = {"ok": False}
+
+    # 2️⃣ PROCESSAMENTO
+    def on_connect(client, userdata, flags, rc):
+        if rc == 0:
+            connected["ok"] = True
+
+    client = mqtt.Client()
+    client.on_connect = on_connect
+    client.connect(ip, port, 5)
+    client.loop_start()
+    client.loop_stop()
+    client.disconnect()
+
+    # 3️⃣ ASSERTIVA
+    assert connected["ok"] is True

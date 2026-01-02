@@ -1,95 +1,141 @@
-import logging
 import h2o
 from h2o.automl import H2OAutoML
-import pandas as pd
-from sklearn.model_selection import train_test_split
+from pathlib import Path
+from jinja2 import Environment, FileSystemLoader
 
 
-def general_automl(devices):
-    logging.info("Starting AutoML for device-based test case generation...")
+OUT_DIR = Path("generated_tests")
+TEMPLATE_DIR = Path("templates")
 
-    vuln_data = []
 
-    for device in devices:
-        # Caso o device não tenha vulnerabilidades
-        if not hasattr(device, "vulnerabilities") or not device.vulnerabilities:
-            logging.info(f"Device {device.ip} has no vulnerabilities, generating basic tests...")
+def generate_tests(iot_devices):
+    """
+    Gera arquivos de teste Python executáveis a partir dos dispositivos IoT
+    e suas vulnerabilidades detectadas, escolhendo o template por protocolo.
+    """
 
-            with open("generated_basic_tests.py", "a") as f:
-                f.write(f"def test_device_{device.ip.replace('.', '_')}_basic():\n")
-                f.write(f"    # Basic connectivity and IoT checks\n")
-                f.write(f"    assert check_ip_reachable('{device.ip}')\n")
-                f.write(f"    assert check_mac_format('{device.mac}')\n")
-                f.write(f"    assert check_ports_open('{device.ip}', {device.ports})\n")
-                f.write(f"    assert {device.is_iot} == True  # Device must be IoT\n\n")
-            continue
-
-        # Se houver vulnerabilidades → coleta normalmente
-        for vuln in device.vulnerabilities:
-            vuln_data.append({
-                "device_id": getattr(device, "id", device.ip),
-                "ip": device.ip,
-                "mac": device.mac,
-                "ports": ",".join(map(str, device.ports)),
-                "vuln_id": vuln.get("id", "unknown"),
-                "name": vuln.get("name", "unnamed"),
-                "severity": vuln.get("severity", "low"),
-                "category": vuln.get("category", "generic"),
-                "protocol": vuln.get("protocol", "unknown"),
-                "exploit_available": 1 if vuln.get("exploit_available", False) else 0
-            })
-
-    # Se não houver vulnerabilidades em nenhum device, para aqui
-    if not vuln_data:
-        logging.info("No vulnerabilities found. Only basic tests were generated.")
+    # =========================
+    # Inicialização do H2O
+    # =========================
+    try:
+        h2o.init()
+    except Exception as e:
+        print("[AML] Erro ao iniciar H2O:", e)
+        print("[AML] Etapa AutoML abortada")
         return
 
-    df = pd.DataFrame(vuln_data)
+    # =========================
+    # Coleta dos dados
+    # =========================
+    ips = []
+    hostnames = []
+    ports = []
+    vulns = []
 
-    # Target
-    y = "exploit_available"
-    x = [col for col in df.columns if col not in ["device_id", "vuln_id", "name", y]]
+    for dev in iot_devices:
+        for vuln in dev.vulnerabilities:
+            ips.append(dev.ip)
+            hostnames.append(dev.hostname)
+            ports.append(",".join(map(str, dev.ports)))
+            vulns.append(vuln)
 
-    # Encoding
-    df_encoded = pd.get_dummies(df[x + [y]], drop_first=True)
+    print("[AML] Dataset size:", len(vulns))
 
-    # Split dataset
-    train, test = train_test_split(df_encoded, test_size=0.2, random_state=42)
+    if not vulns:
+        print("[AML] Nenhuma vulnerabilidade encontrada")
+        return
 
-    # H2O init
-    h2o.init()
-    train_h2o = h2o.H2OFrame(train)
-    test_h2o = h2o.H2OFrame(test)
+    # =========================
+    # Criação do H2OFrame
+    # =========================
+    frame = h2o.H2OFrame({
+        "ip": ips,
+        "hostname": hostnames,
+        "ports": ports,
+        "vulnerabilities": vulns
+    })
 
-    # Converter target para categórico
-    train_h2o[y] = train_h2o[y].asfactor()
-    test_h2o[y] = test_h2o[y].asfactor()
+    print("[AML] Frame columns:", frame.col_names)
 
-    # AutoML
-    aml = H2OAutoML(max_runtime_secs=600, seed=1, balance_classes=True)
-    aml.train(x=[col for col in train_h2o.columns if col != y], y=y, training_frame=train_h2o)
+    frame["vulnerabilities"] = frame["vulnerabilities"].asfactor()
 
-    # Predição
-    preds = aml.leader.predict(test_h2o)
-    pred_df = preds.as_data_frame()
-    original_test = test.reset_index(drop=True)
-    original_test['predicted_exploit_prob'] = pred_df['p1']
+    # =========================
+    # AutoML (pipeline base)
+    # =========================
+    aml = H2OAutoML(
+        max_models=5,
+        max_runtime_secs=30,
+        seed=1
+    )
 
-    # Selecionar vulnerabilidades críticas
-    risky_cases = original_test[original_test['predicted_exploit_prob'] > 0.75]
-    if risky_cases.empty:
-        risky_cases = original_test.sort_values(by='predicted_exploit_prob', ascending=False).head(1)
+    aml.train(
+        y="vulnerabilities",
+        training_frame=frame
+    )
 
-    # Gerar testes
-    with open("generated_vulnerabilities_tests.py", "w") as f:
-        for idx, row in risky_cases.iterrows():
-            vuln_row = df.iloc[row.name]  # linha original com dados da vulnerabilidade
-            test_name = vuln_row['name'].replace(" ", "_").lower()
+    # =========================
+    # Ambiente de templates
+    # =========================
+    env = Environment(
+        loader=FileSystemLoader(TEMPLATE_DIR),
+        autoescape=False
+    )
 
-            f.write(f"def test_vulnerability_{idx}_{test_name}():\n")
-            f.write(f"    # Device: {vuln_row['device_id']}\n")
-            f.write(f"    # Vulnerability ID: {vuln_row['vuln_id']}\n")
-            f.write(f"    # Severity: {vuln_row['severity']}\n")
-            f.write(f"    # Predicted exploit probability: {row['predicted_exploit_prob']:.2f}\n")
-            f.write(f"    exploit_vulnerability('{vuln_row['name']}')\n")
-            f.write(f"    assert_device_resilient()\n\n")
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    # =========================
+    # Geração dos testes
+    # =========================
+    generated_files = []
+
+    for i in range(len(vulns)):
+        vuln_text = vulns[i].lower()
+
+        # Seleção do template por protocolo
+        if "ftp" in vuln_text:
+            template_name = "ftp_test.py.j2"
+        elif "http" in vuln_text or "directory" in vuln_text:
+            template_name = "http_test.py.j2"
+        elif "mqtt" in vuln_text:
+            template_name = "mqtt_test.py.j2"
+        elif "telnet" in vuln_text:
+            template_name = "telnet_test.py.j2"
+        elif "ssh" in vuln_text:
+            template_name = "ssh_test.py.j2"
+        else:
+            template_name = "generic_test.py.j2"
+
+        template = env.get_template(template_name)
+
+        filename = (
+            f"test_{ips[i]}_{vulns[i]}"
+            .lower()
+            .replace(" ", "_")
+            .replace(".", "_")
+        )
+
+        filepath = OUT_DIR / f"{filename}.py"
+
+        code = template.render(v={
+            "ip": ips[i],
+            "hostname": hostnames[i],
+            "ports": ports[i],
+            "vulnerabilities": vulns[i]
+        })
+
+        try:
+            filepath.write_text(code)
+            if filepath.exists():
+                generated_files.append(filepath)
+        except Exception as e:
+            print(f"[AML] Falha ao gerar {filepath.name}: {e}")
+
+    # =========================
+    # Mensagem final confiável
+    # =========================
+    if generated_files:
+        print(f"[AML] {len(generated_files)} testes gerados com sucesso:")
+        for f in generated_files:
+            print(f"  - {f}")
+    else:
+        print("[AML] Nenhum teste foi gerado")

@@ -58,8 +58,10 @@ if args.output and len(iot_devices) > 0:
     logging.info(f"Report saved as {report.timestamp}_vulnerability_report.{args.output.lower()}")
 
 if args.automl:
-    from utils.auto_ml import general_automl
-    logging.info(f"Running AutoML to generate test cases...")
-    general_automl(iot_devices)
+    from utils.auto_ml import generate_tests
+    logging.info(f"Running AutoML to generate test cases for...")
+    generate_tests(iot_devices)
+    if not os.path.exists("generated_tests"):
+        os.makedirs("generated_tests")
     logging.info(f"AutoML test case generation completed. Check generated_tests.py for details.")
 exit(0)

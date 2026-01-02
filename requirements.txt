@@ -5,3 +5,4 @@ h2o
 pandas
 numpy
 scikit-learn
+jinja2
