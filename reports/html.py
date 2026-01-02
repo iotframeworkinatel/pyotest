@@ -7,7 +7,15 @@ def report(report: Report):
 
     # Ensure the final extension is .html
     # base_output = os.path.splitext(report.output)[0]
-    filename = f"report/{report.timestamp}_vulnerability_report.html"
+    #filename = f"report/{report.timestamp}_vulnerability_report.html"
+
+    output_dir = os.getenv("OUTPUT_DIR", "report")
+    os.makedirs(output_dir, exist_ok=True)
+
+    filename = os.path.join(
+        output_dir,
+        f"{report.timestamp}_vulnerability_report.html"
+    )
 
     with open(filename, "w", encoding="utf-8") as f:
         f.write("<!DOCTYPE html>\n")
