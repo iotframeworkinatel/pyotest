@@ -90,7 +90,7 @@ services:
       - mqtt_no_auth
       - ssh_old_banner
     volumes:
-      - ./report:/app/report
+      - $GITHUB_WORKSPACE/report:/app/report
     networks:
       iot_bridge:
         ipv4_address: 172.20.0.18
