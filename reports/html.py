@@ -14,7 +14,7 @@ def report(report: Report):
 
     filename = os.path.join(
         output_dir,
-        f"{report.timestamp}_vulnerability_report.html"
+        f"{report.timestamp}_vulnerability_reportaa.html"
     )
 
     with open(filename, "w", encoding="utf-8") as f:
