@@ -8,6 +8,11 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: write
+  actions: write
+  checks: write
+
 jobs:
 
   docker-setup-run:
