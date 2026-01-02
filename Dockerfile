@@ -4,6 +4,8 @@ FROM python:3.10-slim
 # Adiciona um usuário não-root
 RUN useradd -m pyotestuser
 
+RUN mkdir -p /app/report
+
 # Definir o diretório de trabalho dentro do contêiner
 WORKDIR /app
 
@@ -18,9 +20,6 @@ RUN apt-get update && apt-get install -y nmap
 
 # Copiar todo o código da aplicação para o contêiner
 COPY . .
-
-# chown: comando linux que muda o dono de uma pasta. Nesse caso estamos dando permissao para o usuario jenkins
-RUN chown -R pyotestuser:pyotestuser /app
 
 # Troca para o usuário não-root
 USER pyotestuser
