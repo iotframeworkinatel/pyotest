@@ -4,8 +4,6 @@ FROM python:3.10-slim
 # Adiciona um usuário não-root
 RUN useradd -m pyotestuser
 
-RUN mkdir -p /app/report
-
 # Definir o diretório de trabalho dentro do contêiner
 WORKDIR /app
 
