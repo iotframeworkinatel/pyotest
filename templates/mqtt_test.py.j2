@@ -1,14 +1,16 @@
-import paho.mqtt.client as mqtt
+import pytest
 
+try:
+    import paho.mqtt.client as mqtt
+except ImportError:
+    pytest.skip("paho-mqtt not installed", allow_module_level=True)
 
-def test_mqtt_anonymous_access():
-    # 1️⃣ CONTEXTO
+def test_MQTT_ANON_ACCESS():
     ip = "{{ v.ip }}"
     port = int("{{ v.ports }}".split(",")[0])
 
     connected = {"ok": False}
 
-    # 2️⃣ PROCESSAMENTO
     def on_connect(client, userdata, flags, rc):
         if rc == 0:
             connected["ok"] = True
@@ -18,7 +20,5 @@ def test_mqtt_anonymous_access():
     client.connect(ip, port, 5)
     client.loop_start()
     client.loop_stop()
-    client.disconnect()
 
-    # 3️⃣ ASSERTIVA
     assert connected["ok"] is True

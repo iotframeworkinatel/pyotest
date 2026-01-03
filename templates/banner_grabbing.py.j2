@@ -1,0 +1,15 @@
+import pytest
+import socket
+
+@pytest.mark.vuln_id("BANNER_GRABBED")
+def test_banner_grabbing():
+    ip = "{{ v.ip }}"
+    port = int("{{ v.ports }}".split(",")[0])
+
+    s = socket.socket()
+    s.settimeout(5)
+    s.connect((ip, port))
+    data = s.recv(1024)
+    s.close()
+
+    assert len(data) > 0

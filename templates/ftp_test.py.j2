@@ -1,17 +1,12 @@
 import ftplib
-import pytest
 
-
-def test_ftp_anonymous_login():
-    # 1️⃣ CONTEXTO
+def test_FTP_ANON_LOGIN():
     ip = "{{ v.ip }}"
     port = int("{{ v.ports }}".split(",")[0])
 
-    # 2️⃣ PROCESSAMENTO
     ftp = ftplib.FTP()
     ftp.connect(ip, port, timeout=5)
-    response = ftp.login()
+    resp = ftp.login()
     ftp.quit()
 
-    # 3️⃣ ASSERTIVA
-    assert "230" in response
+    assert "230" in resp

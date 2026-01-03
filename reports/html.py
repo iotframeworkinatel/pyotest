@@ -1,13 +1,16 @@
 import os
 from reports import Report  # Ajuste conforme seu projeto
 
-def report(report: Report):
+def report(report: Report, mode="static"):
     network = report.network
     devices = report.network.devices
 
     # Ensure the final extension is .html
     # base_output = os.path.splitext(report.output)[0]
-    filename = f"report/{report.timestamp}_vulnerability_report.html"
+    if mode == "static":
+        filename = f"report/{report.timestamp}_vulnerability_report.html"
+    else:
+        filename = f"report/{report.timestamp}_aml_vulnerability_report.html"
 
     with open(filename, "w", encoding="utf-8") as f:
         f.write("<!DOCTYPE html>\n")

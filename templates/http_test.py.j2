@@ -1,24 +1,10 @@
 import requests
-import pytest
 
-
-def test_http_vulnerability():
-    # 1️⃣ CONTEXTO
+def test_HTTP_GENERIC():
     ip = "{{ v.ip }}"
-    vuln = "{{ v.vulnerabilities }}".lower()
+    port = int("{{ v.ports }}".split(",")[0])
+    url = f"http://{ip}:{port}/"
 
-    # 2️⃣ PROCESSAMENTO
-    if "directory listing" in vuln:
-        r = requests.get(f"http://{ip}", timeout=5)
-        result = "Index of" in r.text
+    r = requests.get(url, timeout=5)
 
-    elif "directory traversal" in vuln:
-        r = requests.get(f"http://{ip}/../../../../etc/passwd", timeout=5)
-        result = "root:" in r.text
-
-    else:
-        pytest.skip("Vulnerabilidade HTTP não suportada")
-        return
-
-    # 3️⃣ ASSERTIVA
-    assert result is True
+    assert r.status_code in (200, 401, 403)

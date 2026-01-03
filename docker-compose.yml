@@ -105,6 +105,8 @@ services:
     volumes:
       - ./report:/app/report
       - ./generated_tests:/app/generated_tests
+      - ./automl_history:/app/auto_ml_history
+      - ./metrics:/app/metrics
     networks:
       iot_bridge:
         ipv4_address: 172.20.0.19

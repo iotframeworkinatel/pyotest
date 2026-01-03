@@ -60,8 +60,12 @@ if args.output and len(iot_devices) > 0:
 if args.automl:
     from utils.auto_ml import generate_tests
     logging.info(f"Running AutoML to generate test cases for...")
-    generate_tests(iot_devices)
     if not os.path.exists("generated_tests"):
         os.makedirs("generated_tests")
+    if not os.path.exists("automl_history"):
+        os.makedirs("automl_history")
+    if not os.path.exists("metrics"):
+        os.makedirs("metrics")
+    generate_tests(iot_devices, args)
     logging.info(f"AutoML test case generation completed. Check generated_tests.py for details.")
 exit(0)

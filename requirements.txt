@@ -6,3 +6,6 @@ pandas
 numpy
 scikit-learn
 jinja2
+pytest
+pytest-html
+paho-mqtt>=1.6
