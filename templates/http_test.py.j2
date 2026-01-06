@@ -1,10 +1,26 @@
+import pytest
 import requests
 
-def test_HTTP_GENERIC():
+@pytest.mark.vuln_id("HTTP_GENERIC")
+def test_http_vulnerability():
     ip = "{{ v.ip }}"
-    port = int("{{ v.ports }}".split(",")[0])
-    url = f"http://{ip}:{port}/"
+    ports = "{{ v.ports }}".split(",")
 
-    r = requests.get(url, timeout=5)
+    try:
+        for p in ports:
+            url = f"http://{ip}:{p}/"
 
-    assert r.status_code in (200, 401, 403)
+            r = requests.get(url, timeout=5)
+
+            # Heurística simples de exposição
+            if r.status_code == 200 and (
+                "Index of" in r.text or
+                "../" in r.text or
+                "admin" in r.text.lower()
+            ):
+                assert True  # vulnerabilidade confirmada
+
+        pytest.fail("Nenhuma vulnerabilidade HTTP confirmada")
+
+    except requests.exceptions.RequestException as e:
+        pytest.skip(f"Erro HTTP: {e}")

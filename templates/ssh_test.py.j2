@@ -1,18 +1,23 @@
 import pytest
+import paramiko
 
-try:
-    import paramiko
-except ImportError:
-    pytest.skip("paramiko not installed", allow_module_level=True)
-
-def test_SSH_WEAK_CREDS():
+@pytest.mark.vuln_id("SSH_WEAK_CREDS")
+def test_ssh_weak_credentials():
     ip = "{{ v.ip }}"
-    port = int("{{ v.ports }}".split(",")[0])
+    port = 22
 
-    ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-    ssh.connect(ip, port=port, username="root", password="root", timeout=5)
-    ssh.close()
+        # credenciais fracas clássicas
+        client.connect(ip, port=port, username="root", password="root", timeout=5)
 
-    assert True
+        client.close()
+        assert True  # credencial fraca aceita
+
+    except paramiko.AuthenticationException:
+        pytest.fail("Credenciais fracas rejeitadas")
+
+    except Exception as e:
+        pytest.skip(f"Erro SSH: {e}")

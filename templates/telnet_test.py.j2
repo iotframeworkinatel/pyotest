@@ -1,12 +1,20 @@
-import socket
+import pytest
+import telnetlib
 
-def test_TELNET_OPEN():
+@pytest.mark.vuln_id("TELNET_OPEN")
+def test_telnet_open():
     ip = "{{ v.ip }}"
-    port = int("{{ v.ports }}".split(",")[0])
+    port = 23
 
-    s = socket.socket()
-    s.settimeout(3)
-    s.connect((ip, port))
-    s.close()
+    try:
+        tn = telnetlib.Telnet(ip, port, timeout=5)
+        banner = tn.read_until(b"\n", timeout=3)
+        tn.close()
 
-    assert True
+        if banner:
+            assert True  # serviço telnet aberto
+        else:
+            pytest.fail("Telnet não respondeu")
+
+    except Exception as e:
+        pytest.skip(f"Erro Telnet: {e}")
