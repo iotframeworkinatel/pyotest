@@ -66,6 +66,8 @@ if args.automl:
         os.makedirs("automl_history")
     if not os.path.exists("metrics"):
         os.makedirs("metrics")
+    if not os.path.exists("automl_report"):
+        os.makedirs("automl_report")
     generate_tests(iot_devices, args)
     logging.info(f"AutoML test case generation completed. Check generated_tests.py for details.")
 exit(0)

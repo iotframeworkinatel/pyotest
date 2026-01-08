@@ -1,23 +1,40 @@
 import pytest
+import socket
 import paramiko
 
-@pytest.mark.vuln_id("SSH_WEAK_CREDS")
-def test_ssh_weak_credentials():
-    ip = "{{ v.ip }}"
+TIMEOUT = 5
+
+WEAK_CREDENTIALS = [
+    ("root", "root"),
+    ("admin", "admin"),
+    ("test", "test"),
+]
+
+@pytest.mark.vuln_id("SSH_WEAK_CREDENTIALS")
+def test_SSH_WEAK_CREDENTIALS():
+    ip = "{{ ip }}"
     port = 22
 
-    try:
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    for user, password in WEAK_CREDENTIALS:
+        try:
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            ssh.connect(
+                ip,
+                port=port,
+                username=user,
+                password=password,
+                timeout=TIMEOUT,
+                allow_agent=False,
+                look_for_keys=False,
+            )
+            ssh.close()
+            assert True  # PASS → vulnerabilidade confirmada
 
-        # credenciais fracas clássicas
-        client.connect(ip, port=port, username="root", password="root", timeout=5)
+        except paramiko.AuthenticationException:
+            continue
 
-        client.close()
-        assert True  # credencial fraca aceita
+        except (socket.timeout, paramiko.SSHException, OSError):
+            pytest.skip("SSH indisponível")
 
-    except paramiko.AuthenticationException:
-        pytest.fail("Credenciais fracas rejeitadas")
-
-    except Exception as e:
-        pytest.skip(f"Erro SSH: {e}")
+    pytest.fail("SSH não aceita credenciais fracas")

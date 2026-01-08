@@ -1,58 +1,40 @@
-import pytest
 import ftplib
+import pytest
 import socket
 
 TIMEOUT = 5
 
-# Credenciais fracas + anônimo
 WEAK_CREDENTIALS = [
-    ("anonymous", ""),
-    ("ftp", "ftp"),
+    ("anonymous", "anonymous"),
     ("admin", "admin"),
     ("root", "root"),
-    ("1234", "1234"),
+    ("test", "test"),
 ]
-
 
 @pytest.mark.vuln_id("FTP_WEAK_OR_ANON_LOGIN")
 def test_FTP_WEAK_OR_ANON_LOGIN():
-    """
-    Testa se o servidor FTP aceita:
-    - login anônimo
-    - credenciais fracas conhecidas
-
-    PASS  → vulnerabilidade confirmada
-    SKIP  → serviço seguro ou indisponível
-    """
-
-    ip = "{{ v.ip }}"
-    port = int("{{ v.ports }}".split(",")[0])
+    ip = "{{ ip }}"
+    port = int("{{ ports }}".split(",")[0])
 
     for user, password in WEAK_CREDENTIALS:
         ftp = None
         try:
             ftp = ftplib.FTP()
             ftp.connect(ip, port, timeout=TIMEOUT)
-
             resp = ftp.login(user=user, passwd=password)
 
-            # Código 230 = login bem-sucedido
             if resp and resp.startswith("230"):
                 try:
                     ftp.quit()
                 except Exception:
                     pass
-
-                # Vulnerabilidade confirmada
-                assert True
+                assert True  # PASS → vulnerabilidade confirmada
 
         except ftplib.error_perm:
-            # Credencial rejeitada → comportamento esperado
-            continue
+            continue  # credencial rejeitada → tenta próxima
 
-        except (ftplib.all_errors, socket.error):
-            # Servidor matou a conexão ou erro transitório
-            continue
+        except (socket.timeout, ConnectionError, OSError):
+            pytest.skip("FTP indisponível")
 
         finally:
             try:
@@ -61,5 +43,4 @@ def test_FTP_WEAK_OR_ANON_LOGIN():
             except Exception:
                 pass
 
-    # Nenhuma credencial funcionou → serviço seguro
-    pytest.skip("FTP não aceita login anônimo nem credenciais fracas")
+    pytest.fail("FTP não aceita login anônimo nem credenciais fracas")

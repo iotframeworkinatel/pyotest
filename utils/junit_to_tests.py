@@ -1,69 +1,65 @@
-from dataclasses import dataclass
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass
 class TestResult:
-    name: str
-    classname: str
-    vuln_id: str
-    status: str        # PASS | FAIL | SKIP
-    duration: float
+    host: str
+    test_type: str
+    status: str  # PASS | FAIL | SKIP
 
 
-def parse_junit_tests(junit_xml_path):
-    """
-    Converte relatório JUnit XML em resultados semânticos:
-    PASS  -> vulnerabilidade confirmada
-    FAIL  -> vulnerabilidade não encontrada
-    SKIP  -> erro / ambiente / não testável
-    """
+def normalize_test_type(name: str) -> str:
+    name = name.upper()
+
+    if "FTP" in name:
+        return "FTP_WEAK_OR_ANON_LOGIN"
+    if "SSH" in name:
+        return "SSH_WEAK_CREDENTIALS"
+    if "TELNET" in name:
+        return "TELNET_OPEN"
+    if "MQTT" in name:
+        return "MQTT_ANONYMOUS_ACCESS"
+    if "HTTP" in name:
+        return "HTTP_DEFAULT_CREDENTIALS"
+
+    return "BANNER_GENERIC"
+
+
+def extract_host(classname: str) -> str:
+    # exemplo: generated_tests.test_172_20_0_10_xxx
+    parts = classname.split("_")
+    for i in range(len(parts)):
+        if parts[i].isdigit():
+            return ".".join(parts[i:i+4])
+    return "UNKNOWN"
+
+
+def parse_junit_tests(xml_path: Path):
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
 
     results = []
 
-    tree = ET.parse(junit_xml_path)
-    root = tree.getroot()
+    for tc in root.iter("testcase"):
+        classname = tc.attrib.get("classname", "")
+        name = tc.attrib.get("name", "")
 
-    for testcase in root.iter("testcase"):
-        name = testcase.attrib.get("name", "UNKNOWN")
-        classname = testcase.attrib.get("classname", "")
-        duration = float(testcase.attrib.get("time", 0.0))
+        host = extract_host(classname)
+        test_type = normalize_test_type(name)
 
-        vuln_id = "UNKNOWN"
-
-        # Extração robusta do vuln_id
-        for line in testcase.itertext():
-            if "vuln_id" in line:
-                # Ex: @pytest.mark.vuln_id("FTP_ANON_LOGIN")
-                try:
-                    vuln_id = line.split("vuln_id")[1].split('"')[1]
-                except Exception:
-                    pass
-
-        # --- CLASSIFICAÇÃO SEMÂNTICA ---
-        if testcase.find("skipped") is not None:
+        if tc.find("skipped") is not None:
             status = "SKIP"
-
-        elif testcase.find("error") is not None:
-            # erro de execução → NÃO é falha lógica
-            status = "SKIP"
-
-        elif testcase.find("failure") is not None:
-            # assert falhou → vulnerabilidade NÃO existe
+        elif tc.find("failure") is not None or tc.find("error") is not None:
             status = "FAIL"
-
         else:
-            # passou sem erros → vulnerabilidade CONFIRMADA
             status = "PASS"
 
-        results.append(
-            TestResult(
-                name=name,
-                classname=classname,
-                vuln_id=vuln_id,
-                status=status,
-                duration=duration,
-            )
-        )
+        results.append(TestResult(
+            host=host,
+            test_type=test_type,
+            status=status
+        ))
 
     return results

@@ -3,8 +3,8 @@ import socket
 
 @pytest.mark.vuln_id("BANNER_GRABBED")
 def test_banner_grabbing():
-    ip = "{{ v.ip }}"
-    port = int("{{ v.ports }}".split(",")[0])
+    ip = "{{ ip }}"
+    port = int("{{ ports }}".split(",")[0])
 
     s = socket.socket()
     s.settimeout(5)

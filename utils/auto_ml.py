@@ -1,42 +1,35 @@
-from doctest import SKIP
-
 import h2o
 from h2o.automl import H2OAutoML
 from pathlib import Path
-from jinja2 import Environment, FileSystemLoader
 import json
 import time
 
-from utils.metrics import save_metrics
-from utils.automl_static_reporter import xml_json_test_reporter
-from utils.junit_parser import parse_junit
+from utils.automl_tester import xml_json_test_reporter
 from utils.junit_to_tests import parse_junit_tests
-from utils.automl_postprocess import apply_automl_results
-from reports import html
-from reports import Report
+from jinja2 import Environment, FileSystemLoader
 
+# =========================
+# Config
+# =========================
 
-OUT_DIR = Path("generated_tests")
-TEMPLATE_DIR = Path("templates")
-HISTORY_FILE = Path("auto_ml_history/history.json")
-AUTOML_REPORT_DIR = Path("report/automl")
+HISTORY_FILE = Path("automl_history/history.json")
+REPORT_DIR = Path("automl_report")
+REPORT_XML = REPORT_DIR / "automl_tests.xml"
+GENERATED_TESTS_DIR = Path("generated_tests")
 
-FEATURE_COLS = [
-    "port_count",
-    "has_ftp",
-    "has_ssh",
-    "has_telnet",
-    "has_http",
-    "has_mqtt",
-    "vuln_len",
-]
+MIN_HISTORY_ROWS = 20
+TARGET_COL = "test_useful"
+FEATURE_COLS = ["host", "test_type"]
 
-TARGET_COL = "vuln_found"
+env = Environment(loader=FileSystemLoader("templates"))
 
+GENERATED_TESTS_DIR.mkdir(exist_ok=True)
+REPORT_DIR.mkdir(exist_ok=True)
 
 # =========================
 # Histórico
 # =========================
+
 def load_history():
     if HISTORY_FILE.exists():
         return json.loads(HISTORY_FILE.read_text())
@@ -51,50 +44,73 @@ def save_history(entry):
 
 
 # =========================
-# Feature engineering
+# AutoML
 # =========================
-def build_features(device, vulnerability):
-    v = vulnerability.upper()
 
-    return {
-        "port_count": len(device.ports),
-        "has_ftp": "FTP" in v,
-        "has_ssh": "SSH" in v,
-        "has_telnet": "TELNET" in v,
-        "has_http": "HTTP" in v,
-        "has_mqtt": "MQTT" in v,
-        "vuln_len": len(v),
-    }
+def train_model(rows):
+    frame = h2o.H2OFrame(
+        rows,
+        column_names=["host", "test_type", "test_useful"]
+    )
 
+    frame["host"] = frame["host"].asfactor()
+    frame["test_type"] = frame["test_type"].asfactor()
+    frame["test_useful"] = frame["test_useful"].asfactor()
 
-# =========================
-# AutoML model
-# =========================
-def train_model(frame):
     aml = H2OAutoML(
         max_models=10,
-        max_runtime_secs=60,
-        seed=1,
+        max_runtime_secs=30,
+        seed=1
     )
-    aml.train(y=TARGET_COL, training_frame=frame)
+
+    aml.train(y="test_useful", training_frame=frame)
     return aml.leader
 
 
-# =========================
-# Decide se gera o teste
-# =========================
-def should_generate_test(model, features):
-    row = {k: features[k] for k in FEATURE_COLS}
-    frame = h2o.H2OFrame([row])
+def should_generate_test(model, host, test_type):
+    if model is None:
+        return True  # bootstrap
+
+    frame = h2o.H2OFrame(
+        [{"host": host, "test_type": test_type}],
+        column_names=["host", "test_type"]
+    )
+
+    frame["host"] = frame["host"].asfactor()
+    frame["test_type"] = frame["test_type"].asfactor()
+
     pred = model.predict(frame).as_data_frame()
     return int(pred.iloc[0, 0]) == 1
+
+
+# =========================
+# Template selection
+# =========================
+
+def select_template(test_type):
+    t = test_type.lower()
+
+    if "ftp" in t:
+        return "ftp_test.py.j2"
+    if "ssh" in t:
+        return "ssh_test.py.j2"
+    if "telnet" in t:
+        return "telnet_test.py.j2"
+    if "mqtt" in t:
+        return "mqtt_test.py.j2"
+    if "http" in t or "directory" in t:
+        return "http_test.py.j2"
+
+    return "generic_test.py.j2"
+
 
 # =========================
 # Entry point
 # =========================
+
 def generate_tests(iot_devices, args):
 
-    start_time = time.time()
+    start = time.time()
 
     try:
         h2o.init()
@@ -103,112 +119,84 @@ def generate_tests(iot_devices, args):
         return
 
     history = load_history()
-    normalized = []
 
-    for r in history:
-        if TARGET_COL not in r:
-            continue
+    rows = [
+        {
+            "host": h["host"],
+            "test_type": h["test_type"],
+            "test_useful": h["test_useful"]
+        }
+        for h in history
+    ]
 
-        row = {k: r.get(k, 0) for k in FEATURE_COLS}
-        row[TARGET_COL] = r[TARGET_COL]
-        normalized.append(row)
-
-    print(f"[AML][DEBUG] Histórico normalizado: {len(normalized)} linhas")
+    print(f"[AML][DEBUG] Histórico: {len(rows)} linhas")
 
     model = None
-    labels = {r[TARGET_COL] for r in normalized}
+    labels = {r["test_useful"] for r in rows}
 
-    if len(labels) >= 2:
-        frame = h2o.H2OFrame(normalized)
-        frame[TARGET_COL] = frame[TARGET_COL].asfactor()
-        model = train_model(frame)
-        print("[AML] Modelo AutoML treinado com sucesso")
-    else:
-        print("[AML] Bootstrap: rótulos insuficientes")
+    if len(rows) >= MIN_HISTORY_ROWS and len(labels) > 1:
+        try:
+            model = train_model(rows)
+            print("[AML] Modelo AutoML treinado com sucesso")
+        except Exception as e:
+            print("[AML] AutoML falhou, fallback:", e)
 
-    # ---------- Templates ----------
-    env = Environment(loader=FileSystemLoader(TEMPLATE_DIR))
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    # -------------------------
+    # Geração de testes
+    # -------------------------
 
     generated = []
 
     for dev in iot_devices:
-        for vuln in dev.vulnerabilities:
-            features = build_features(dev, vuln)
+        host = dev.ip
 
-            if model and not should_generate_test(model, features):
+        for vuln in dev.vulnerabilities:
+            test_type = vuln.upper()
+
+            if not should_generate_test(model, host, test_type):
                 continue
 
-            v = vuln.lower()
-            if "ftp" in v:
-                tpl = "ftp_test.py.j2"
-            elif "http" in v or "directory" in v:
-                tpl = "http_test.py.j2"
-            elif "mqtt" in v:
-                tpl = "mqtt_test.py.j2"
-            elif "telnet" in v:
-                tpl = "telnet_test.py.j2"
-            elif "ssh" in v:
-                tpl = "ssh_test.py.j2"
-            else:
-                tpl = "generic_test.py.j2"
+            template = env.get_template(select_template(test_type))
 
-            template = env.get_template(tpl)
+            filename = f"test_{host}_{test_type}".lower().replace(".", "_")
+            path = GENERATED_TESTS_DIR / f"{filename}.py"
 
-            fname = f"test_{dev.ip}_{vuln}".lower().replace(" ", "_").replace(".", "_")
-            path = OUT_DIR / f"{fname}.py"
+            path.write_text(template.render(
+                ip=dev.ip,
+                hostname=getattr(dev, "hostname", ""),
+                ports=",".join(map(str, dev.ports)),
+                test_type=test_type
+            ))
 
-            path.write_text(template.render(v={
-                "ip": dev.ip,
-                "hostname": dev.hostname,
-                "ports": ",".join(map(str, dev.ports)),
-                "vulnerabilities": vuln,
-            }))
+            generated.append(path)
 
-            if path.exists():
-                generated.append(path)
+    print(f"[AML] {len(generated)} testes gerados")
 
-    print(f"[AML] {len(generated)} testes gerados (AutoML-guided)")
+    if not generated:
+        print("[AML] Nenhum teste gerado")
+        return
 
-    result = xml_json_test_reporter(OUT_DIR, AUTOML_REPORT_DIR)
+    # -------------------------
+    # Executa pytest
+    # -------------------------
 
-    apply_automl_results(
-        iot_devices,
-        AUTOML_REPORT_DIR / "automl_tests.xml"
+    xml_json_test_reporter(
+        test_dir=GENERATED_TESTS_DIR,
+        report_dir=REPORT_DIR
     )
 
-    report = Report(args.network, iot_devices, args.output.lower())
-    html.report(report, "automl")
+    # -------------------------
+    # Feedback supervisionado
+    # -------------------------
 
-    junit_results = parse_junit(AUTOML_REPORT_DIR / "automl_tests.xml")
+    if REPORT_XML.exists():
+        test_results = parse_junit_tests(REPORT_XML)
 
-    total_time = time.time() - start_time
+        for t in test_results:
+            save_history({
+                "host": t.host,
+                "test_type": t.test_type,
+                "test_useful": 1 if t.status in ("PASS", "FAIL") else 0
+            })
 
-    save_metrics({
-        "mode": "automl",
-        "devices": len(iot_devices),
-        "tests_generated": len(generated),
-        "tests_executed": junit_results["passed"] + junit_results["failed"],
-        "confirmed_vulns": junit_results["passed"],
-        "exec_time_sec": total_time,
-    })
-
-    # ---------- Feedback supervisionado ----------
-    test_results = parse_junit_tests(AUTOML_REPORT_DIR / "automl_tests.xml")
-
-    for t in test_results:
-        if t.status == "SKIP":
-            continue  # não aprende com dado inválido
-
-
-        save_history({
-            "test_name": t.name,
-            "port_count": 1,
-            "has_ftp": t.vuln_id.startswith("FTP"),
-            "has_ssh": t.vuln_id.startswith("SSH"),
-            "has_telnet": t.vuln_id.startswith("TELNET"),
-            "has_http": t.vuln_id.startswith("HTTP"),
-            "has_mqtt": t.vuln_id.startswith("MQTT"),
-            "vuln_len": len(t.vuln_id),
-            "vuln_found": 1 if t.status == "PASS" else 0
-        })
+    print(f"[AML] Execução finalizada em {time.time() - start:.2f}s")

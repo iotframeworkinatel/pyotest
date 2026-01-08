@@ -10,6 +10,21 @@ services:
       iot_bridge:
         ipv4_address: 172.20.0.10
 
+  ftp_credentials_vuln:
+    image: stilliard/pure-ftpd
+    container_name: ftp_credentials_vuln
+    ports:
+      - "2121:21"
+    environment:
+      FTP_USER_NAME: admin
+      FTP_USER_PASS: admin
+      FTP_USER_HOME: /home/admin
+      FTP_ALLOW_ANON: "true"
+    restart: unless-stopped
+    networks:
+      iot_bridge:
+        ipv4_address: 172.20.0.20
+
   http_traversal:
     build: ./pyotest/devices/http-vuln
     container_name: http_traversal
@@ -102,10 +117,12 @@ services:
       - mqtt_no_auth
       - ssh_old_banner
       - h2o-automl
+      - ftp_credentials_vuln
     volumes:
       - ./report:/app/report
       - ./generated_tests:/app/generated_tests
-      - ./automl_history:/app/auto_ml_history
+      - ./automl_history:/app/automl_history
+      - ./automl_report:/app/automl_report
       - ./metrics:/app/metrics
     networks:
       iot_bridge:

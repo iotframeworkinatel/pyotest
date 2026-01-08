@@ -36,6 +36,8 @@ def general_tester(iot_devices, args):
                 if test_ftp_anonymous_login(d.ip, port):
                     d.vulnerabilities.append("Anonymous FTP login allowed")
                     static_vulns_found += 1
+                else:
+                    d.vulnerabilities.append("Anonymous FTP login failed")
 
             # HTTP
             elif port == 80:
@@ -43,61 +45,79 @@ def general_tester(iot_devices, args):
                 if test_http_default_credentials(d.ip, port, args):
                     d.vulnerabilities.append("Default HTTP credentials accepted")
                     static_vulns_found += 1
+                else:
+                    d.vulnerabilities.append("Default HTTP credentials not accepted")
 
                 static_tests_executed += 1
                 if test_http_directory_listing(d.ip, port):
                     d.vulnerabilities.append("Directory listing enabled")
                     static_vulns_found += 1
+                else:
+                    d.vulnerabilities.append("Directory listing failed")
 
                 static_tests_executed += 1
                 if test_http_directory_traversal(d.ip, port):
                     d.vulnerabilities.append("Directory traversal vulnerability found")
                     static_vulns_found += 1
+                else:
+                    d.vulnerabilities.append("Directory traversal vulnerability not found")
 
-            # # Telnet
-            # elif port == 23:
-            #     static_tests_executed += 1
-            #     if test_telnet_open(d.ip, port):
-            #         d.vulnerabilities.append("Telnet open and accessible")
-            #         static_vulns_found += 1
-            #
-            # # SSH
-            # elif port == 22:
-            #     static_tests_executed += 1
-            #     if test_ssh_weak_auth(d.ip, port, timeout=0.1, args=args):
-            #         d.vulnerabilities.append("SSH weak credentials allowed")
-            #         static_vulns_found += 1
-            #
-            # # MQTT
-            # elif port == 1883:
-            #     static_tests_executed += 1
-            #     if test_mqtt_open_access(d.ip, port):
-            #         d.vulnerabilities.append("MQTT broker allows anonymous access")
-            #         static_vulns_found += 1
-            #
-            # # RTSP
-            # elif port == 554:
-            #     static_tests_executed += 1
-            #     rtsp_script_output = rtsp_brute_force(
-            #         ip=d.ip,
-            #         port=port,
-            #         args=args,
-            #         wordlist_path="./vulnerability_tester/rtsp-urls.txt"
-            #     )
-            #     if rtsp_script_output:
-            #         d.vulnerabilities.append("RTSP URL brute force output found")
-            #         static_vulns_found += 1
-            #
-            #     static_tests_executed += 1
-            #     if test_rtsp_open(d.ip, port):
-            #         d.vulnerabilities.append("RTSP open and accessible")
-            #         static_vulns_found += 1
-            #
-            # # Banner grabbing (sempre conta)
-            # static_tests_executed += 1
-            # if grab_banner(d.ip, port):
-            #     d.vulnerabilities.append("Banner grabbed")
-            #     static_vulns_found += 1
+            # Telnet
+            elif port == 23:
+                static_tests_executed += 1
+                if test_telnet_open(d.ip, port):
+                    d.vulnerabilities.append("Telnet open and accessible")
+                    static_vulns_found += 1
+                else:
+                    d.vulnerabilities.append("Telnet open and accessible failed")
+
+            # SSH
+            elif port == 22:
+                static_tests_executed += 1
+                if test_ssh_weak_auth(d.ip, port, timeout=0.1, args=args):
+                    d.vulnerabilities.append("SSH weak credentials allowed")
+                    static_vulns_found += 1
+                else:
+                    d.vulnerabilities.append("SSH weak credentials not allowed")
+
+            # MQTT
+            elif port == 1883:
+                static_tests_executed += 1
+                if test_mqtt_open_access(d.ip, port):
+                    d.vulnerabilities.append("MQTT broker allows anonymous access")
+                    static_vulns_found += 1
+                else:
+                    d.vulnerabilities.append("MQTT broker not allowed")
+
+            # RTSP
+            elif port == 554:
+                static_tests_executed += 1
+                rtsp_script_output = rtsp_brute_force(
+                    ip=d.ip,
+                    port=port,
+                    args=args,
+                    wordlist_path="./vulnerability_tester/rtsp-urls.txt"
+                )
+                if rtsp_script_output:
+                    d.vulnerabilities.append("RTSP URL brute force output found")
+                    static_vulns_found += 1
+                else:
+                    d.vulnerabilities.append("RTSP URL brute force failed")
+
+                static_tests_executed += 1
+                if test_rtsp_open(d.ip, port):
+                    d.vulnerabilities.append("RTSP open and accessible")
+                    static_vulns_found += 1
+                else:
+                    d.vulnerabilities.append("RTSP open and accessible failed")
+
+            # Banner grabbing (sempre conta)
+            static_tests_executed += 1
+            if grab_banner(d.ip, port):
+                d.vulnerabilities.append("Banner grabbed")
+                static_vulns_found += 1
+            else:
+                d.vulnerabilities.append("Banner not grabbed")
 
         logging.info(f"Device {d.ip} vulnerabilities: {d.vulnerabilities}")
 

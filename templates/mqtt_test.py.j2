@@ -1,33 +1,20 @@
 import pytest
+import socket
 import paho.mqtt.client as mqtt
-import time
 
-@pytest.mark.vuln_id("MQTT_ANON_ACCESS")
-def test_mqtt_anonymous_access():
-    ip = "{{ v.ip }}"
+TIMEOUT = 5
+
+@pytest.mark.vuln_id("MQTT_ANONYMOUS_ACCESS")
+def test_MQTT_ANONYMOUS_ACCESS():
+    ip = "{{ ip }}"
     port = 1883
 
-    connected = False
-
-    def on_connect(client, userdata, flags, rc):
-        nonlocal connected
-        if rc == 0:
-            connected = True
-
     client = mqtt.Client()
-    client.on_connect = on_connect
 
     try:
-        client.connect(ip, port, 5)
-        client.loop_start()
-        time.sleep(1)
-        client.loop_stop()
+        client.connect(ip, port, TIMEOUT)
         client.disconnect()
+        assert True  # PASS → acesso anônimo permitido
 
-        if connected:
-            assert True  # acesso anônimo confirmado
-        else:
-            pytest.fail("Conexão MQTT anônima recusada")
-
-    except Exception as e:
-        pytest.skip(f"Erro MQTT: {e}")
+    except (socket.timeout, ConnectionError, OSError):
+        pytest.fail("MQTT não aceita conexão anônima")

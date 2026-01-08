@@ -8,8 +8,8 @@ from statistics import mode
 def xml_json_test_reporter(test_dir, report_dir):
     report_dir.mkdir(parents=True, exist_ok=True)
 
-    junit_path = report_dir / "automl_tests.xml"
-    json_path = report_dir / "automl_tests.json"
+    junit_path = report_dir / "automl_report.xml"
+    json_path = report_dir / "automl_report.json"
 
     start = time.time()
 

@@ -1,26 +1,27 @@
 import pytest
 import requests
 
-@pytest.mark.vuln_id("HTTP_GENERIC")
-def test_http_vulnerability():
-    ip = "{{ v.ip }}"
-    ports = "{{ v.ports }}".split(",")
+TIMEOUT = 5
 
-    try:
-        for p in ports:
-            url = f"http://{ip}:{p}/"
+@pytest.mark.vuln_id("HTTP_BASIC_AUTH")
+def test_HTTP_DEFAULT_CREDENTIALS():
+    ip = "{{ ip }}"
+    ports = "{{ ports }}".split(",")
 
-            r = requests.get(url, timeout=5)
+    for port in ports:
+        url = f"http://{ip}:{port}"
 
-            # Heurística simples de exposição
-            if r.status_code == 200 and (
-                "Index of" in r.text or
-                "../" in r.text or
-                "admin" in r.text.lower()
-            ):
-                assert True  # vulnerabilidade confirmada
+        try:
+            r = requests.get(
+                url,
+                auth=("admin", "admin"),
+                timeout=TIMEOUT
+            )
 
-        pytest.fail("Nenhuma vulnerabilidade HTTP confirmada")
+            if r.status_code < 400:
+                assert True  # PASS → credencial fraca aceita
 
-    except requests.exceptions.RequestException as e:
-        pytest.skip(f"Erro HTTP: {e}")
+        except requests.RequestException:
+            continue
+
+    pytest.fail("HTTP não aceita credenciais padrão")
