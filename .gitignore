@@ -3,4 +3,4 @@ __pycache__/
 .pytest_cache/
 .idea/
 generated_tests/
-experiments/
+experiments/exp_*
