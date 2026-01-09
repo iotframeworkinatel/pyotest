@@ -3,5 +3,4 @@ __pycache__/
 .pytest_cache/
 .idea/
 generated_tests/
-automl_history/
-metrics/
+experiments/

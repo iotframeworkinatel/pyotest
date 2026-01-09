@@ -120,10 +120,7 @@ services:
       - ftp_credentials_vuln
     volumes:
       - ./report:/app/report
-      - ./generated_tests:/app/generated_tests
-      - ./automl_history:/app/automl_history
-      - ./automl_report:/app/automl_report
-      - ./metrics:/app/metrics
+      - ./experiments:/app/experiments/
     networks:
       iot_bridge:
         ipv4_address: 172.20.0.19

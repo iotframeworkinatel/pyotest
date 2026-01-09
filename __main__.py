@@ -1,13 +1,17 @@
 import os
+
+from automl.pipeline import run_automl
+from experiments.manager import ExperimentManager
 from scanners.nmap_scanner import explore as nmap_explore
 
 import argparse
 import logging
 
 from reports import html, json, csv
+from utils.run_adaptive_tests import run_adaptive_tests
 from utils.tester import general_tester
-from vulnerability_tester import *
 from reports.objects import Report
+
 
 parser = argparse.ArgumentParser(description="Network scanner for IoT devices")
 parser.add_argument("-v", "--verbose", action="store_true", help="Verbose mode")
@@ -25,6 +29,13 @@ else:
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 iot_devices = []
+experiment = ExperimentManager()
+
+
+history_path = experiment.path("history.csv")
+metrics_static_path = experiment.path("metrics_static.json")
+metrics_automl_path = experiment.path("metrics_automl.json")
+automl_tests_path = experiment.path("automl_tests.csv")
 
 # scanning with nmap
 logging.info(f"Running nmap scan...")
@@ -33,10 +44,15 @@ logging.info(f"Nmap scan completed.")
 for d in result:
     iot_devices.append(d)
 
+if args.automl:
 
-# Testing devices
-if args.test:
-    iot_devices = general_tester(iot_devices, args)
+    logging.info(f"Running AutoML to generate test cases for...")
+    iot_devices = general_tester(iot_devices, experiment, args)
+    adaptive_tests = run_automl(iot_devices, experiment)
+    run_adaptive_tests(adaptive_tests, iot_devices, experiment, args)
+
+elif args.test:
+    iot_devices = general_tester(iot_devices, experiment, args)
 
 
 if args.output and len(iot_devices) > 0:
@@ -57,17 +73,5 @@ if args.output and len(iot_devices) > 0:
     logging.info(f"IoT devices identified: {len(report.network.devices)}")
     logging.info(f"Report saved as {report.timestamp}_vulnerability_report.{args.output.lower()}")
 
-if args.automl:
-    from utils.auto_ml import generate_tests
-    logging.info(f"Running AutoML to generate test cases for...")
-    if not os.path.exists("generated_tests"):
-        os.makedirs("generated_tests")
-    if not os.path.exists("automl_history"):
-        os.makedirs("automl_history")
-    if not os.path.exists("metrics"):
-        os.makedirs("metrics")
-    if not os.path.exists("automl_report"):
-        os.makedirs("automl_report")
-    generate_tests(iot_devices, args)
-    logging.info(f"AutoML test case generation completed. Check generated_tests.py for details.")
+
 exit(0)

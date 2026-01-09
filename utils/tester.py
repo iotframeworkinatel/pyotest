@@ -1,139 +1,81 @@
-from vulnerability_tester import *
-import logging
-from utils.metrics import save_metrics
 import time
+import logging
+from history.history_builder import HistoryBuilder
+from utils.metrics import save_metrics
+from utils.run_and_log import run_and_log
+from utils.protocol_test_map import PROTOCOL_TESTS
+from vulnerability_tester import grab_banner
 
 
-def general_tester(iot_devices, args):
-    """
-    General vulnerability tester for IoT devices.
-    Static baseline for comparison with AutoML.
-    """
+PORT_PROTOCOL_MAP = {
+    21: "ftp",
+    22: "ssh",
+    23: "telnet",
+    80: "http",
+    1883: "mqtt",
+    554: "rtsp",
+}
+
+
+def general_tester(iot_devices, experiment, args):
 
     start = time.time()
 
-    # =========================
-    # Métricas estáticas
-    # =========================
-    static_tests_executed = 0
-    static_vulns_found = 0
+    metrics = {
+        "tests_executed": 0,
+        "vulns_detected": 0
+    }
 
-    if args.verbose:
-        logging.basicConfig(level=logging.DEBUG)
-    else:
-        logging.basicConfig(level=logging.INFO)
+    history = HistoryBuilder(
+        path=experiment.path("history.csv")
+    )
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO
+    )
 
     logging.info("Starting static vulnerability tests...")
 
     for d in iot_devices:
-        logging.info(f"Testing device {d.ip} with ports {d.ports}...")
-
         for port in d.ports:
 
-            # FTP
-            if port == 21:
-                static_tests_executed += 1
-                if test_ftp_anonymous_login(d.ip, port):
-                    d.vulnerabilities.append("Anonymous FTP login allowed")
-                    static_vulns_found += 1
-                else:
-                    d.vulnerabilities.append("Anonymous FTP login failed")
+            protocol = PORT_PROTOCOL_MAP.get(port)
 
-            # HTTP
-            elif port == 80:
-                static_tests_executed += 1
-                if test_http_default_credentials(d.ip, port, args):
-                    d.vulnerabilities.append("Default HTTP credentials accepted")
-                    static_vulns_found += 1
-                else:
-                    d.vulnerabilities.append("Default HTTP credentials not accepted")
+            if protocol and protocol in PROTOCOL_TESTS:
+                for test_func, test_id, test_type, auth_required in PROTOCOL_TESTS[protocol]:
+                    run_and_log(
+                        test_func=test_func,
+                        test_id=test_id,
+                        test_type=test_type,
+                        device=d,
+                        port=port,
+                        protocol=protocol,
+                        history=history,
+                        metrics=metrics,
+                        args=args,
+                        strategy="static",
+                        auth_required=auth_required
+                    )
 
-                static_tests_executed += 1
-                if test_http_directory_listing(d.ip, port):
-                    d.vulnerabilities.append("Directory listing enabled")
-                    static_vulns_found += 1
-                else:
-                    d.vulnerabilities.append("Directory listing failed")
-
-                static_tests_executed += 1
-                if test_http_directory_traversal(d.ip, port):
-                    d.vulnerabilities.append("Directory traversal vulnerability found")
-                    static_vulns_found += 1
-                else:
-                    d.vulnerabilities.append("Directory traversal vulnerability not found")
-
-            # Telnet
-            elif port == 23:
-                static_tests_executed += 1
-                if test_telnet_open(d.ip, port):
-                    d.vulnerabilities.append("Telnet open and accessible")
-                    static_vulns_found += 1
-                else:
-                    d.vulnerabilities.append("Telnet open and accessible failed")
-
-            # SSH
-            elif port == 22:
-                static_tests_executed += 1
-                if test_ssh_weak_auth(d.ip, port, timeout=0.1, args=args):
-                    d.vulnerabilities.append("SSH weak credentials allowed")
-                    static_vulns_found += 1
-                else:
-                    d.vulnerabilities.append("SSH weak credentials not allowed")
-
-            # MQTT
-            elif port == 1883:
-                static_tests_executed += 1
-                if test_mqtt_open_access(d.ip, port):
-                    d.vulnerabilities.append("MQTT broker allows anonymous access")
-                    static_vulns_found += 1
-                else:
-                    d.vulnerabilities.append("MQTT broker not allowed")
-
-            # RTSP
-            elif port == 554:
-                static_tests_executed += 1
-                rtsp_script_output = rtsp_brute_force(
-                    ip=d.ip,
-                    port=port,
-                    args=args,
-                    wordlist_path="./vulnerability_tester/rtsp-urls.txt"
-                )
-                if rtsp_script_output:
-                    d.vulnerabilities.append("RTSP URL brute force output found")
-                    static_vulns_found += 1
-                else:
-                    d.vulnerabilities.append("RTSP URL brute force failed")
-
-                static_tests_executed += 1
-                if test_rtsp_open(d.ip, port):
-                    d.vulnerabilities.append("RTSP open and accessible")
-                    static_vulns_found += 1
-                else:
-                    d.vulnerabilities.append("RTSP open and accessible failed")
-
-            # Banner grabbing (sempre conta)
-            static_tests_executed += 1
-            if grab_banner(d.ip, port):
-                d.vulnerabilities.append("Banner grabbed")
-                static_vulns_found += 1
-            else:
-                d.vulnerabilities.append("Banner not grabbed")
-
-        logging.info(f"Device {d.ip} vulnerabilities: {d.vulnerabilities}")
-
-    # =========================
-    # Exportação das métricas
-    # =========================
-    duration = time.time() - start
+            # # Banner grabbing sempre
+            # run_and_log(
+            #     test_func=grab_banner,
+            #     test_id="banner_grab",
+            #     test_type="information_disclosure",
+            #     device=d,
+            #     port=port,
+            #     protocol="generic",
+            #     history=history,
+            #     metrics=metrics,
+            #     strategy="static"
+            # )
 
     save_metrics({
         "mode": "static",
         "devices": len(iot_devices),
-        "tests_generated": static_tests_executed,
-        "tests_executed": static_tests_executed,
-        "vulns_detected": static_vulns_found,
-        "false_positives": 0,  # assumido (baseline)
-        "exec_time_sec": int(duration * 1000)
-    })
+        "tests_executed": metrics["tests_executed"],
+        "vulns_detected": metrics["vulns_detected"],
+        "exec_time_sec": int((time.time() - start) * 1000)
+    }, path=experiment.path("metrics_static.json"))
 
     return iot_devices
