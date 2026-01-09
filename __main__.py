@@ -1,5 +1,6 @@
 import os
 
+from analysis.generate_plots import generate_plots
 from automl.pipeline import run_automl
 from experiments.manager import ExperimentManager
 from scanners.nmap_scanner import explore as nmap_explore
@@ -50,6 +51,7 @@ if args.automl:
     iot_devices = general_tester(iot_devices, experiment, args)
     adaptive_tests = run_automl(iot_devices, experiment)
     run_adaptive_tests(adaptive_tests, iot_devices, experiment, args)
+    generate_plots()
 
 elif args.test:
     iot_devices = general_tester(iot_devices, experiment, args)

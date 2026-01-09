@@ -10,3 +10,4 @@ pytest
 pytest-html
 paho-mqtt>=1.6
 telnetlib3
+matplotlib
