@@ -37,8 +37,8 @@ def run_and_log(
     history.log({
         "test_strategy": strategy,
         "container_id": device.ip,
-        "device_type": getattr(device, "type", "unknown"),
-        "firmware_version": getattr(device, "firmware", "unknown"),
+        "device_type": getattr(device, "device_type", "unknown"),
+        "firmware_version": getattr(device, "os", "unknown"),
         "open_port": port,
         "protocol": protocol,
         "service": protocol,

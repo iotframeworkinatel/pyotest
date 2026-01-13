@@ -23,7 +23,8 @@ def ping_scan(network, extra_ports=None):
     # Check for silent hosts with vulnerable ports
     ports_to_check = ','.join(str(port) for port in COMMON_VULN_PORTS.keys())
     nm_ports = nmap.PortScanner()
-    nm_ports.scan(hosts=network, arguments=f"-T4 -Pn -sT -p {ports_to_check}")
+    #nm_ports.scan(hosts=network, arguments=f"-T4 -Pn -sT -p {ports_to_check}")
+    nm_ports.scan(hosts=network, arguments=f"-T4 -Pn -sT -A -p {ports_to_check}")
 
     devices = []
 
@@ -40,10 +41,19 @@ def ping_scan(network, extra_ports=None):
             if info.get('state') == 'open':
                 open_ports.append(port)
 
+        os_info = None
+        if 'osmatch' in nm_ports[host]:
+            if len(nm_ports[host]['osmatch']) > 0:
+                os_info = nm_ports[host]['osmatch'][0]['name']
+
+        device_type = None
+        if 'osclass' in nm_ports[host] and len(nm_ports[host]['osclass']) > 0:
+            device_type = nm_ports[host]['osclass'][0].get('type', None)
+
         if not open_ports:
             continue
 
-        device = Device(ip=ip, mac=mac, hostname=hostname, ports=open_ports, is_iot=True)
+        device = Device(ip=ip, mac=mac, hostname=hostname, ports=open_ports, is_iot=True, os = os_info, device_type=device_type)
         devices.append(device)
 
     logging.info(f"{len(devices)} devices found.")

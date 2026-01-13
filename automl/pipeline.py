@@ -1,3 +1,5 @@
+import logging
+
 from automl.dataset import load_history
 from automl.train import train_automl
 from automl.candidates import generate_candidates
@@ -16,10 +18,6 @@ def run_automl(iot_devices, experiment):
     )
 
     best_tests = rank_tests(candidates, aml.leader)
-
-    best_tests = best_tests.drop_duplicates(
-        subset=["open_port", "protocol"]
-    )
 
     best_tests.to_csv(
         experiment.path("automl_tests.csv"),

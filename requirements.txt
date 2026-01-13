@@ -11,3 +11,5 @@ pytest-html
 paho-mqtt>=1.6
 telnetlib3
 matplotlib
+aiocoap
+pymodbus==2.5.3

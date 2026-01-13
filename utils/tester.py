@@ -4,17 +4,8 @@ from history.history_builder import HistoryBuilder
 from utils.metrics import save_metrics
 from utils.run_and_log import run_and_log
 from utils.protocol_test_map import PROTOCOL_TESTS
-from vulnerability_tester import grab_banner
+from utils.protocols import PORT_PROTOCOL_MAP, requires_auth
 
-
-PORT_PROTOCOL_MAP = {
-    21: "ftp",
-    22: "ssh",
-    23: "telnet",
-    80: "http",
-    1883: "mqtt",
-    554: "rtsp",
-}
 
 
 def general_tester(iot_devices, experiment, args):
@@ -56,19 +47,18 @@ def general_tester(iot_devices, experiment, args):
                         strategy="static",
                         auth_required=auth_required
                     )
-
-            # # Banner grabbing sempre
-            # run_and_log(
-            #     test_func=grab_banner,
-            #     test_id="banner_grab",
-            #     test_type="information_disclosure",
-            #     device=d,
-            #     port=port,
-            #     protocol="generic",
-            #     history=history,
-            #     metrics=metrics,
-            #     strategy="static"
-            # )
+                    # Banner grabbing sempre executado
+                    # run_and_log(
+                    #     test_func=grab_banner,
+                    #     test_id="banner_grab",
+                    #     test_type="information_disclosure",
+                    #     device=d,
+                    #     port=port,
+                    #     protocol="generic",
+                    #     history=history,
+                    #     metrics=metrics,
+                    #     strategy="static"
+                    # )
 
     save_metrics({
         "mode": "static",

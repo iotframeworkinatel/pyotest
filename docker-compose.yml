@@ -101,6 +101,25 @@ services:
       iot_bridge:
         ipv4_address: 172.20.0.18
 
+  coap_vuln:
+    build: ./pyotest/devices/coap
+    container_name: coap_vuln
+    ports:
+      - "5683:5683/udp"
+    restart: unless-stopped
+    networks:
+      iot_bridge:
+        ipv4_address: 172.20.0.21
+
+  modbus_vuln:
+    build: ./pyotest/devices/modbustcp
+    container_name: modbus_vuln
+    ports:
+      - "502:502"
+    restart: unless-stopped
+    networks:
+      iot_bridge:
+        ipv4_address: 172.20.0.22
 
   scanner:
     build: .
@@ -118,6 +137,8 @@ services:
       - ssh_old_banner
       - h2o-automl
       - ftp_credentials_vuln
+      - coap_vuln
+      - modbus_vuln
     volumes:
       - ./report:/app/report
       - ./experiments:/app/experiments/

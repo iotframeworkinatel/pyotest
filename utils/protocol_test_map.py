@@ -1,10 +1,15 @@
 from vulnerability_tester import *
+from vulnerability_tester.coap.coap_core_discovery import test_coap_core_discovery
+from vulnerability_tester.coap.coap_get import test_coap_get
+from vulnerability_tester.coap.coap_open_resource import test_coap_open_resource
 from vulnerability_tester.http.http_dangerous_methods import test_http_dangerous_methods
 from vulnerability_tester.http.http_missing_security_headers import test_http_missing_security_headers
 from vulnerability_tester.http.http_no_auth import test_http_no_auth
 from vulnerability_tester.http.http_open_admin import test_http_open_admin
 from vulnerability_tester.http.http_sensitive_files import test_http_sensitive_files
 from vulnerability_tester.http.http_verbose_server_header import test_http_verbose_server_header
+from vulnerability_tester.modbustcp.modbus_device_id import test_modbus_device_id
+from vulnerability_tester.modbustcp.modbus_read_holding_register import test_modbus_read_holding_register
 from vulnerability_tester.mqtt.mqtt_anon_publish import test_mqtt_anonymous_publish
 from vulnerability_tester.mqtt.mqtt_acl_bypass import test_mqtt_acl_bypass
 from vulnerability_tester.mqtt.mqtt_topic_enum import test_mqtt_topic_enum
@@ -22,6 +27,7 @@ PROTOCOL_TESTS = {
 
     "ftp": [
         (test_ftp_anonymous_login, "ftp_anonymous_login", "auth", False),
+
     ],
 
     "http": [
@@ -38,16 +44,15 @@ PROTOCOL_TESTS = {
 
     "ssh": [
         (test_ssh_weak_auth, "ssh_weak_auth", "auth", True),
-    ],
-
-    "telnet": [
-        (test_telnet_open, "telnet_open", "exposed_service", False),
-        (test_ssh_weak_auth, "ssh_weak_auth", "auth", True),
         (test_ssh_root_login, "ssh_root_login", "misconfiguration", True),
         (test_ssh_password_auth_enabled, "ssh_password_auth", "policy", True),
         (test_ssh_old_version, "ssh_old_version", "version", False),
         (test_ssh_weak_crypto, "ssh_weak_crypto", "crypto", False),
         (test_ssh_no_auth_limit, "ssh_no_auth_limit", "bruteforce", True),
+    ],
+
+    "telnet": [
+        (test_telnet_open, "telnet_open", "exposed_service", False),
     ],
 
     "mqtt": [
@@ -59,5 +64,16 @@ PROTOCOL_TESTS = {
 
     "rtsp": [
         (test_rtsp_open, "rtsp_open", "exposed_service", False),
+    ],
+
+    "coap": [
+        (test_coap_core_discovery, "coap_core_discovery", "information_disclosure", False),
+        (test_coap_open_resource, "coap_open_resource", "auth", False),
+        (test_coap_get, "coap_get", "auth", False),
+    ],
+
+    "modbus": [
+        (test_modbus_read_holding_register, "modbus_read_register", "auth", False),
+        (test_modbus_device_id, "modbus_device_id", "information_disclosure", False),
     ],
 }
