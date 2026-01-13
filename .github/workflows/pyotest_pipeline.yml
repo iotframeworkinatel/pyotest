@@ -50,7 +50,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: docker-artifacts
+          name: experiments_artifacts
           path: ./experiments/
 
           if-no-files-found: warn
