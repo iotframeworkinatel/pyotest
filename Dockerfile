@@ -28,4 +28,5 @@ RUN chown -R pyotestuser:pyotestuser /app/
 USER pyotestuser
 
 # Comando padrão para executar os testes
-CMD ["python3", ".", "-n", "172.20.0.0/27", "-aml", "-o", "html"]
+
+#CMD ["python3", ".", "-n", "172.20.0.0/27", "-aml", "-o", "html"]

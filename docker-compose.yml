@@ -125,7 +125,7 @@ services:
     build: .
     user: root
     container_name: scanner
-    restart: no
+    restart: unless-stopped
     depends_on:
       - ftp_anonymous
       - http_traversal
@@ -145,6 +145,38 @@ services:
     networks:
       iot_bridge:
         ipv4_address: 172.20.0.19
+    command: tail -f /dev/null  # scanner fica ativo aguardando instruções
+
+
+
+  #### PYOTEST DASHBOARD #####
+
+  dashboard-api:
+    build: ./dashboard/backend
+    container_name: dashboard_api
+    restart: always
+    volumes:
+        - /var/run/docker.sock:/var/run/docker.sock  # necessário para Docker SDK
+        - ./experiments:/app/experiments
+    ports:
+      - "8000:8000"
+    depends_on:
+      - scanner
+    networks:
+      - iot_bridge
+
+  dashboard-ui:
+    build: ./dashboard/frontend
+    container_name: dashboard_ui
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      - API_URL=http://backend:8000   # backend acessível via compose
+    depends_on:
+      - dashboard-api
+    networks:
+      - iot_bridge
 
 networks:
   iot_bridge:
