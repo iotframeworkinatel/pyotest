@@ -170,7 +170,7 @@ services:
     container_name: dashboard_ui
     restart: unless-stopped
     ports:
-      - "5173:5173"
+      - "5173:80"
     environment:
       - API_URL=http://backend:8000   # backend acessível via compose
     depends_on:

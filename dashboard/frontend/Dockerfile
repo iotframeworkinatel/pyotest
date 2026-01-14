@@ -1,29 +1,28 @@
-FROM node:18-bullseye
+# Etapa de build
+FROM node:18-bullseye AS build
 
-# Define diretório de trabalho
 WORKDIR /app
-
-# Copia dependências e instala
 COPY package*.json ./
-RUN npm install
+RUN npm install && npm install -D vite @vitejs/plugin-react tailwindcss postcss autoprefixer
 
-# Copia o resto dos arquivos do projeto
 COPY . .
-
-# Garante que o Tailwind tenha config (sem erro de shell)
-RUN [ ! -f "tailwind.config.js" ] && npx tailwindcss init -p || echo "Tailwind config exists"
-
-# Faz o build de produção do app React/Vite
 RUN npm run build
 
-# Muda o diretório de trabalho para a pasta buildada
-WORKDIR /app/dist
+# Etapa final: servidor Nginx
+FROM nginx:stable-alpine
 
-ENV VITE_API_URL=http://localhost:8000
+COPY --from=build /app/dist /usr/share/nginx/html
 
+RUN rm /etc/nginx/conf.d/default.conf
+RUN echo 'server { \
+  listen 80; \
+  server_name localhost; \
+  root /usr/share/nginx/html; \
+  index index.html; \
+  location / { \
+    try_files $uri /index.html; \
+  } \
+}' > /etc/nginx/conf.d/dashboard.conf
 
-# Expõe a porta padrão do Vite Preview
-EXPOSE 5173
-
-# Roda o preview (servidor de produção do Vite)
-CMD ["npm", "run", "dev", "--", "--host", "--port", "5173"]
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
