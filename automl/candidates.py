@@ -30,3 +30,13 @@ def generate_candidates(iot_devices):
     return pd.DataFrame(rows).drop_duplicates(
         subset=["open_port", "protocol", "test_id"]
     )
+
+
+def filter_candidates(candidates, threshold=0.05):
+    """
+    Remove testes com probabilidade abaixo do limiar definido.
+    """
+    filtered = [c for c in candidates if c.get("risk_score", 0) > threshold]
+    print(f"[AutoML] Mantidos {len(filtered)} de {len(candidates)} candidatos (limiar={threshold})")
+    return filtered
+

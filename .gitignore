@@ -4,3 +4,4 @@ __pycache__/
 .idea/
 generated_tests/
 experiments/exp_*
+.claude

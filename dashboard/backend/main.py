@@ -3,7 +3,7 @@ import docker
 import json
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Extra
+from pydantic import BaseModel
 
 app = FastAPI(title="IoT Vulnerability Dashboard API")
 
@@ -21,22 +21,12 @@ EXPERIMENTS_PATH = "/app/experiments"
 SCANNER_CONTAINER_NAME = "scanner"
 
 
-# =============================
-# 🔧 MODELO DE REQUISIÇÃO
-# =============================
-class ExperimentRequest(BaseModel, extra=Extra.allow):
-    mode: str  # "static" ou "automl"
+class ExperimentRequest(BaseModel):
+    mode: str
     network: str = "172.20.0.0/27"
-    output: str = "html"
-    ports: str = ""
-    verbose: bool = False
-    test: bool = False
-    automl: bool = False
+    extra_args: list[str] = []
 
 
-# =============================
-# 🔹 ROTAS BÁSICAS
-# =============================
 @app.get("/")
 def root():
     return {"status": "ok", "message": "Dashboard API online"}
@@ -44,101 +34,60 @@ def root():
 
 @app.get("/experiments")
 def list_experiments():
-    """Lista experimentos existentes"""
     if not os.path.exists(EXPERIMENTS_PATH):
         return {"experiments": []}
     exps = [f for f in os.listdir(EXPERIMENTS_PATH) if f.startswith("exp_")]
     return {"experiments": sorted(exps, reverse=True)}
 
 
-# =============================
-# 🔹 LOGS UNIFICADOS DE TODOS OS CONTAINERS
-# =============================
 @app.get("/logs")
-def get_all_logs():
+def get_logs():
     """
-    Junta logs do scanner e de todos os containers de teste em execução.
+    Retorna os logs recentes de todos os containers Docker ativos
+    (para o dashboard exibir em tempo real).
     """
     try:
-        all_containers = docker_client.containers.list()
-        logs_summary = ""
+        containers = docker_client.containers.list()
+        logs_data = {}
 
-        for c in all_containers:
-            name = c.name
-            # inclui scanner + containers de testes com prefixos comuns
-            if name.startswith(
-                (
-                    "scanner",
-                    "http_",
-                    "ftp_",
-                    "mqtt_",
-                    "telnet_",
-                    "modbus_",
-                    "coap_",
-                    "dashboard_ui",
-                    "h2o_"
-                )
-            ):
-                try:
-                    logs = c.logs(tail=15).decode(errors="ignore")
-                    if logs.strip():
-                        logs_summary += f"\n=== [{name}] ===\n{logs}\n"
-                except Exception as e:
-                    logs_summary += f"\n[{name}] Erro ao ler logs: {e}\n"
+        for c in containers:
+            try:
+                logs_data[c.name] = c.logs(tail=40).decode(errors="ignore")
+            except Exception as e:
+                logs_data[c.name] = f"[Erro ao ler logs: {e}]"
 
-        return {"logs": logs_summary or "Nenhum log disponível no momento."}
+        return {"containers": list(logs_data.keys()), "logs": logs_data}
 
     except Exception as e:
         return {"error": str(e)}
 
 
-# =============================
-# 🔹 EXECUTAR EXPERIMENTO
-# =============================
 @app.post("/experiments/run")
 def run_experiment(req: ExperimentRequest, background_tasks: BackgroundTasks):
-    """Executa comando dentro do container scanner já em execução"""
-
     cmd_parts = ["python3", ".", "-n", req.network]
-
-    # parâmetros opcionais
-    if req.verbose:
-        cmd_parts.append("-v")
-    if req.test:
-        cmd_parts.append("-t")
-    if req.output:
-        cmd_parts += ["-o", req.output]
-    if req.ports:
-        cmd_parts += ["-p", req.ports]
-    if req.automl or req.mode == "automl":
+    if req.mode == "automl":
         cmd_parts.append("-aml")
+
+    extra_args = getattr(req, "extra_args", [])
+    if isinstance(extra_args, list):
+        cmd_parts.extend(extra_args)
 
     cmd_str = " ".join(cmd_parts)
 
     def _exec():
         try:
             container = docker_client.containers.get(SCANNER_CONTAINER_NAME)
-            print(f"[API] Executando no container '{SCANNER_CONTAINER_NAME}': {cmd_str}")
+            print(f"[API] Executando: {cmd_str}")
             container.exec_run(cmd_str, detach=True, workdir="/app")
         except Exception as e:
             print(f"[ERRO] Falha ao executar experimento: {e}")
 
     background_tasks.add_task(_exec)
-
-    return {
-        "status": "started",
-        "mode": req.mode,
-        "network": req.network,
-        "command": cmd_str,
-    }
+    return {"status": "started", "command": cmd_str}
 
 
-# =============================
-# 🔹 MÉTRICAS
-# =============================
 @app.get("/metrics")
 def get_latest_metrics():
-    """Lê métricas do último experimento"""
     if not os.path.exists(EXPERIMENTS_PATH):
         return {"metrics": []}
 
@@ -156,19 +105,14 @@ def get_latest_metrics():
         if os.path.exists(path):
             with open(path) as f:
                 try:
-                    data = json.load(f)
-                    result.append(data)
+                    result.append(json.load(f))
                 except:
                     pass
     return {"metrics": result}
 
 
-# =============================
-# 🔹 HISTÓRICO DE EXPERIMENTOS
-# =============================
 @app.get("/history")
 def get_history():
-    """Retorna histórico de todos os experimentos"""
     history = []
     if not os.path.exists(EXPERIMENTS_PATH):
         return {"history": []}
@@ -190,9 +134,4 @@ def get_history():
                         history.append(data)
                 except:
                     pass
-
-    return {
-        "history": sorted(
-            history, key=lambda x: x.get("exec_time_sec", 0), reverse=True
-        )
-    }
+    return {"history": sorted(history, key=lambda x: x.get("exec_time_sec", 0), reverse=True)}

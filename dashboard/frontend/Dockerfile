@@ -1,28 +1,21 @@
-# Etapa de build
-FROM node:18-bullseye AS build
+# Etapa 1: Build do Vite/React
+FROM node:18-bullseye AS builder
 
 WORKDIR /app
-COPY package*.json ./
-RUN npm install && npm install -D vite @vitejs/plugin-react tailwindcss postcss autoprefixer
 
+# Copia configs e instala dependências
+COPY package*.json ./
+RUN npm install --include=dev
+
+# Copia o resto dos arquivos
 COPY . .
+
+# Executa o build
 RUN npm run build
 
-# Etapa final: servidor Nginx
+# Etapa 2: Servir com Nginx
 FROM nginx:stable-alpine
 
-COPY --from=build /app/dist /usr/share/nginx/html
-
-RUN rm /etc/nginx/conf.d/default.conf
-RUN echo 'server { \
-  listen 80; \
-  server_name localhost; \
-  root /usr/share/nginx/html; \
-  index index.html; \
-  location / { \
-    try_files $uri /index.html; \
-  } \
-}' > /etc/nginx/conf.d/dashboard.conf
-
+COPY --from=builder /app/dist /usr/share/nginx/html
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
