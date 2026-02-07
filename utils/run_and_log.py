@@ -24,7 +24,9 @@ def run_and_log(
 
     start = time.time()
     try:
-        if args:
+        import inspect
+        sig = inspect.signature(test_func)
+        if args and "args" in sig.parameters:
             result = test_func(device.ip, port, args=args)
         else:
             result = test_func(device.ip, port)

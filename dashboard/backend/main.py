@@ -173,6 +173,10 @@ def _load_history_csv(experiment: Optional[str] = None) -> pd.DataFrame:
 
 def _safe_records(df: pd.DataFrame) -> list[dict]:
     """Convert DataFrame to list of dicts, replacing NaN/inf with 0."""
+    df = df.copy()
+    # Convert categorical columns to strings before fillna
+    for col in df.select_dtypes(include=["category"]).columns:
+        df[col] = df[col].astype(str)
     df = df.fillna(0)
     df = df.replace([np.inf, -np.inf], 0)
     return df.to_dict(orient="records")
@@ -258,7 +262,7 @@ def vulns_by_device(experiment: Optional[str] = None):
     ).reset_index()
     grouped["avg_exec_time"] = grouped["avg_exec_time"].round(0).astype(int)
 
-    return {"data": grouped.to_dict(orient="records")}
+    return {"data": _safe_records(grouped)}
 
 
 @app.get("/history/exec-time-distribution")
@@ -275,7 +279,7 @@ def exec_time_distribution(experiment: Optional[str] = None):
 
     grouped = df.groupby(["time_bucket", "test_strategy"], observed=True).size().reset_index(name="count")
 
-    return {"data": grouped.to_dict(orient="records")}
+    return {"data": _safe_records(grouped)}
 
 
 @app.get("/history/cumulative-vulns")
@@ -324,7 +328,7 @@ def strategy_comparison(experiment: Optional[str] = None):
     grouped["avg_exec_time"] = grouped["avg_exec_time"].round(0).astype(int)
     grouped["efficiency"] = (grouped["vulns_found"] / grouped["total_tests"]).round(3)
 
-    return {"data": grouped.to_dict(orient="records")}
+    return {"data": _safe_records(grouped)}
 
 
 @app.get("/history/automl-scores")
@@ -358,7 +362,7 @@ def automl_scores(experiment: Optional[str] = None):
         combined["risk_score"] = pd.to_numeric(combined["risk_score"], errors="coerce").fillna(0.0).round(4)
         combined = combined.sort_values("risk_score", ascending=False)
 
-    return {"data": combined.head(100).to_dict(orient="records")}
+    return {"data": _safe_records(combined.head(100))}
 
 
 @app.get("/history/detail")
@@ -371,5 +375,5 @@ def get_history_detail(experiment: Optional[str] = None, limit: int = 5000):
     df["execution_time_ms"] = pd.to_numeric(df["execution_time_ms"], errors="coerce").fillna(0).astype(int)
     df["open_port"] = pd.to_numeric(df["open_port"], errors="coerce").fillna(0).astype(int)
 
-    rows = df.head(limit).to_dict(orient="records")
+    rows = _safe_records(df.head(limit))
     return {"rows": rows, "total": len(df)}
