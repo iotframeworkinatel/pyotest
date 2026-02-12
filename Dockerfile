@@ -2,7 +2,7 @@
 FROM python:3.10-slim
 
 # Adiciona um usuário não-root
-RUN useradd -m pyotestuser
+RUN useradd -m emergenceuser
 
 # Definir o diretório de trabalho dentro do contêiner
 WORKDIR /app
@@ -22,10 +22,10 @@ RUN apt-get update && apt-get install -y openjdk-21-jdk-headless
 COPY . .
 
 # chown: comando linux que muda o dono de uma pasta. Nesse caso estamos dando permissao para o usuario jenkins
-RUN chown -R pyotestuser:pyotestuser /app/
+RUN chown -R emergenceuser:emergenceuser /app/
 
 # Troca para o usuário não-root
-USER pyotestuser
+USER emergenceuser
 
 # Comando padrão para executar os testes
 

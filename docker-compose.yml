@@ -26,7 +26,7 @@ services:
         ipv4_address: 172.20.0.20
 
   http_traversal:
-    build: ./pyotest/devices/http-vuln
+    build: ./emergence/devices/http-vuln
     container_name: http_traversal
     restart: unless-stopped
     networks:
@@ -34,7 +34,7 @@ services:
         ipv4_address: 172.20.0.11
 
   telnet_insecure:
-    build: ./pyotest/devices/telnetd
+    build: ./emergence/devices/telnetd
     container_name: telnet_insecure
     restart: unless-stopped
     networks:
@@ -52,7 +52,7 @@ services:
         ipv4_address: 172.20.0.13
 
   http_admin_default_creds:
-    build: ./pyotest/devices/app-admin-panel
+    build: ./emergence/devices/app-admin-panel
     container_name: http_admin_default_creds
 
     restart: unless-stopped
@@ -64,8 +64,8 @@ services:
     image: httpd:2.4
     container_name: http_directory_listing
     volumes:
-      - ./pyotest/devices/httpd/conf.d/directory-listing.conf:/usr/local/apache2/conf/conf.d/directory-listing.conf
-      - ./pyotest/devices/httpd/htdocs:/usr/local/apache2/htdocs
+      - ./emergence/devices/httpd/conf.d/directory-listing.conf:/usr/local/apache2/conf/conf.d/directory-listing.conf
+      - ./emergence/devices/httpd/htdocs:/usr/local/apache2/htdocs
     restart: unless-stopped
     networks:
       iot_bridge:
@@ -77,7 +77,7 @@ services:
     ports:
       - "1883:1883"
     volumes:
-      - ./pyotest/devices/mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./emergence/devices/mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf
     restart: unless-stopped
     networks:
       iot_bridge:
@@ -102,7 +102,7 @@ services:
         ipv4_address: 172.20.0.18
 
   coap_vuln:
-    build: ./pyotest/devices/coap
+    build: ./emergence/devices/coap
     container_name: coap_vuln
     ports:
       - "5683:5683/udp"
@@ -112,7 +112,7 @@ services:
         ipv4_address: 172.20.0.21
 
   modbus_vuln:
-    build: ./pyotest/devices/modbustcp
+    build: ./emergence/devices/modbustcp
     container_name: modbus_vuln
     ports:
       - "502:502"
