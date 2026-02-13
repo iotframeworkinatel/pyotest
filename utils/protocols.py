@@ -10,6 +10,7 @@ PORT_PROTOCOL_MAP = {
     21: "ftp",
     22: "ssh",
     23: "telnet",
+    53: "dns",
     80: "http",
     1883: "mqtt",
     554: "rtsp",

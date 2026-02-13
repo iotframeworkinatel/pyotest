@@ -72,12 +72,10 @@ services:
         ipv4_address: 172.20.0.15
 
   mqtt_no_auth:
-    image: eclipse-mosquitto
+    build: ./pyotest/devices/mqtt
     container_name: mqtt_no_auth
     ports:
       - "1883:1883"
-    volumes:
-      - ./pyotest/devices/mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf
     restart: unless-stopped
     networks:
       iot_bridge:
@@ -121,6 +119,22 @@ services:
       iot_bridge:
         ipv4_address: 172.20.0.22
 
+  http_api_vuln:
+    build: ./pyotest/devices/http-api-vuln
+    container_name: http_api_vuln
+    restart: unless-stopped
+    networks:
+      iot_bridge:
+        ipv4_address: 172.20.0.23
+
+  dns_vuln:
+    build: ./pyotest/devices/dns-vuln
+    container_name: dns_vuln
+    restart: unless-stopped
+    networks:
+      iot_bridge:
+        ipv4_address: 172.20.0.24
+
   scanner:
     build: .
     user: root
@@ -139,6 +153,8 @@ services:
       - ftp_credentials_vuln
       - coap_vuln
       - modbus_vuln
+      - http_api_vuln
+      - dns_vuln
     volumes:
       - ./report:/app/report
       - ./experiments:/app/experiments/

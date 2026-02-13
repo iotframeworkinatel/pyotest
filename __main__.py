@@ -10,6 +10,7 @@ import logging
 
 from reports import html, json, csv
 from utils.run_adaptive_tests import run_adaptive_tests
+from utils.run_random_tests import run_random_tests
 from utils.tester import general_tester
 from reports.objects import Report
 
@@ -17,8 +18,8 @@ from reports.objects import Report
 parser = argparse.ArgumentParser(description="Network scanner for IoT devices")
 parser.add_argument("-v", "--verbose", action="store_true", help="Verbose mode")
 parser.add_argument("-n", "--network", type=str, default="192.168.0.0/27", help="Network to scan (e.g., 192.168.15.0/24)")
-parser.add_argument("-o", "--output", type=str, help="Output file format (e.g., html, json, csv)") 
-parser.add_argument("-p", "--ports", type=str, help="Extra ports to scan (comma-separated e.g., 80,443)") 
+parser.add_argument("-o", "--output", type=str, help="Output file format (e.g., html, json, csv)")
+parser.add_argument("-p", "--ports", type=str, help="Extra ports to scan (comma-separated e.g., 80,443)")
 parser.add_argument("-t", "--test", action="store_true", help="Run vulnerability tests on discovered devices")
 parser.add_argument("-aml", "--automl", action="store_true", help="Run automl to automatic generate test cases")
 
@@ -36,6 +37,7 @@ experiment = ExperimentManager()
 history_path = experiment.path("history.csv")
 metrics_static_path = experiment.path("metrics_static.json")
 metrics_automl_path = experiment.path("metrics_automl.json")
+metrics_random_path = experiment.path("metrics_random.json")
 automl_tests_path = experiment.path("automl_tests.csv")
 
 # scanning with nmap
@@ -48,9 +50,19 @@ for d in result:
 if args.automl:
 
     logging.info(f"Running AutoML to generate test cases for...")
+
+    # Phase 1: Static tests (baseline)
     iot_devices = general_tester(iot_devices, experiment, args)
+
+    # Phase 2: AutoML-guided adaptive tests (run FIRST to get test budget)
     adaptive_tests = run_automl(iot_devices, experiment)
+    n_automl_adaptive = int((adaptive_tests["source"] == "adaptive").sum()) if "source" in adaptive_tests.columns else None
     run_adaptive_tests(adaptive_tests, iot_devices, experiment, args)
+
+    # Phase 3: Random baseline (same test BUDGET as AutoML, randomly chosen)
+    logging.info(f"Running random baseline strategy (budget={n_automl_adaptive} adaptive tests)...")
+    run_random_tests(iot_devices, experiment, args, n_adaptive=n_automl_adaptive)
+
     generate_plots()
 
 elif args.test:

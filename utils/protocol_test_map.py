@@ -1,4 +1,6 @@
 from vulnerability_tester import *
+from vulnerability_tester.dns.dns_open_resolver import test_dns_open_resolver
+from vulnerability_tester.dns.dns_internal_disclosure import test_dns_internal_disclosure
 from vulnerability_tester.coap.coap_core_discovery import test_coap_core_discovery
 from vulnerability_tester.coap.coap_get import test_coap_get
 from vulnerability_tester.coap.coap_open_resource import test_coap_open_resource
@@ -75,5 +77,10 @@ PROTOCOL_TESTS = {
     "modbus": [
         (test_modbus_read_holding_register, "modbus_read_register", "auth", False),
         (test_modbus_device_id, "modbus_device_id", "information_disclosure", False),
+    ],
+
+    "dns": [
+        (test_dns_open_resolver, "dns_open_resolver", "misconfiguration", False),
+        (test_dns_internal_disclosure, "dns_internal_disclosure", "info_disclosure", False),
     ],
 }

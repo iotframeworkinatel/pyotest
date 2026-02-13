@@ -4,7 +4,7 @@ WORKDIR /app
 
 COPY main.py .
 
-RUN pip install fastapi uvicorn docker pydantic pandas
+RUN pip install fastapi uvicorn docker pydantic pandas scipy
 
 EXPOSE 8000
 

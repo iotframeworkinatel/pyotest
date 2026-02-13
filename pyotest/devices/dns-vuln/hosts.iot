@@ -1,0 +1,12 @@
+# Internal IoT network hosts — VULN: exposed via DNS queries
+172.20.0.10  ftp.iot.local
+172.20.0.11  web.iot.local
+172.20.0.14  admin.iot.local
+172.20.0.16  mqtt.iot.local
+172.20.0.17  ssh.iot.local
+172.20.0.18  ml.iot.local
+172.20.0.21  coap.iot.local
+172.20.0.22  modbus.iot.local
+172.20.0.23  api.iot.local
+172.20.0.50  db.internal.iot.local
+172.20.0.51  backup.internal.iot.local

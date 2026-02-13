@@ -18,3 +18,14 @@ RUN echo "Vulnerable HTTP server" > /usr/local/apache2/htdocs/index.html
 RUN mkdir -p /usr/local/apache2/var
 COPY httpd-vuln.conf /usr/local/apache2/conf/extra/httpd-vuln.conf
 RUN echo "Include conf/extra/httpd-vuln.conf" >> /usr/local/apache2/conf/httpd.conf
+
+# --- HIDDEN VULNERABILITIES (only adaptive tests will discover these) ---
+
+# Backup files — NOT in static sensitive_files list [".env", ".git/config", "config.php"]
+RUN echo "DB_PASSWORD=leaked_backup\nOLD_SECRET=abc123" > /usr/local/apache2/htdocs/.env.bak
+RUN echo "-- mysqldump: users table\n-- user: admin, pass: admin123" > /usr/local/apache2/htdocs/backup.sql
+RUN echo "User-agent: *\nDisallow: /admin/\nDisallow: /api/debug" > /usr/local/apache2/htdocs/robots.txt
+
+# Hidden API debug endpoint
+RUN mkdir -p /usr/local/apache2/htdocs/api
+RUN echo '{"debug": true, "version": "1.0", "db_host": "localhost"}' > /usr/local/apache2/htdocs/api/debug
