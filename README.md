@@ -1,6 +1,6 @@
-# Pyotest - IoT Network Vulnerability Scanner
+# Emergence - IoT Network Vulnerability Scanner
 
-**Pyotest** is a Python-based framework for **scanning and testing IoT device vulnerabilities** across local networks.  
+**Emergence** is a Python-based framework for **scanning and testing IoT device vulnerabilities** across local networks.  
 It supports scanning library (Nmap), tests insecure protocols, and helps map vulnerabilities against the **OWASP IoT Top 10**.
 
 ---
@@ -8,7 +8,7 @@ It supports scanning library (Nmap), tests insecure protocols, and helps map vul
 # 1. System Overview
 
 ### Functional overview
-Pyotest scans local networks for IoT devices, identifies open ports, and performs vulnerability tests.
+Emergence scans local networks for IoT devices, identifies open ports, and performs vulnerability tests.
 
 - **IoT Security Testing**: Detect weak authentication, insecure APIs, open ports, and missing encryption.
 - **Multi-Protocol Support**: MQTT, HTTP, Telnet, SSH, etc.

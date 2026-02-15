@@ -26,12 +26,12 @@ Create test functions that ONLY run in the AutoML/adaptive strategy, not in stat
 Add hidden vulnerabilities to containers that ONLY adaptive tests can discover.
 
 **Device changes:**
-1. `pyotest/devices/http-vuln/Dockerfile` — add .env.bak, backup.sql, robots.txt, api/debug endpoint
-2. `pyotest/devices/http-vuln/httpd-vuln.conf` — enable TRACE, server-status, server-info
-3. `pyotest/devices/app-admin-panel/app.py` — add /api/debug, /api/search (SQLi), /api/session (insecure cookies), /api/v2 (extra creds), CORS *, /.env.bak, /robots.txt
-4. `pyotest/devices/httpd/htdocs/` — add .env.bak, backup.sql, robots.txt, .htaccess, web.config, composer.json, package.json
-5. `pyotest/devices/coap/server.py` — add /secret, /config (with PUT/DELETE), /firmware resources
-6. `pyotest/devices/modbustcp/server.py` — expand registers, add non-zero input registers, writable coils, discrete inputs
+1. `emergence/devices/http-vuln/Dockerfile` — add .env.bak, backup.sql, robots.txt, api/debug endpoint
+2. `emergence/devices/http-vuln/httpd-vuln.conf` — enable TRACE, server-status, server-info
+3. `emergence/devices/app-admin-panel/app.py` — add /api/debug, /api/search (SQLi), /api/session (insecure cookies), /api/v2 (extra creds), CORS *, /.env.bak, /robots.txt
+4. `emergence/devices/httpd/htdocs/` — add .env.bak, backup.sql, robots.txt, .htaccess, web.config, composer.json, package.json
+5. `emergence/devices/coap/server.py` — add /secret, /config (with PUT/DELETE), /firmware resources
+6. `emergence/devices/modbustcp/server.py` — expand registers, add non-zero input registers, writable coils, discrete inputs
 7. MQTT — create custom Dockerfile with init script that publishes retained messages on device/config, device/firmware, admin/credentials
 8. `docker-compose.yml` — update mqtt_no_auth to use build instead of image
 

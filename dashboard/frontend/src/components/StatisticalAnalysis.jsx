@@ -296,7 +296,7 @@ export default function StatisticalAnalysis() {
             <div>
               <h2 className="text-xl font-bold">Análise Estatística</h2>
               <p className="text-sm text-white/80">
-                Teste de hipótese: PyoTest+AutoML vs. Suíte Estática
+                Teste de hipótese: Emergence+AutoML vs. Suíte Estática
                 {hasRandom && " vs. Baseline Aleatório"}
               </p>
             </div>

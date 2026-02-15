@@ -123,3 +123,10 @@ export async function fetchLearningCurve() {
   const res = await fetch(`${API_URL}/experiments/learning-curve`);
   return res.json();
 }
+
+// --- Architecture metadata ---
+
+export async function fetchArchitectureMetadata() {
+  const res = await fetch(`${API_URL}/architecture/metadata`);
+  return res.json();
+}

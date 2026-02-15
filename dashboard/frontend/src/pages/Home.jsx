@@ -1,10 +1,11 @@
 import Dashboard from "../components/Dashboard";
 import History from "../components/History";
 import StatisticalAnalysis from "../components/StatisticalAnalysis";
+import Architecture from "../components/Architecture";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useState } from "react";
-import { LayoutDashboard, History as HistoryIcon, FlaskConical } from "lucide-react";
-import pyotestLogo from "../../resources/pyotest_logo.png"
+import { LayoutDashboard, History as HistoryIcon, FlaskConical, Network } from "lucide-react";
+import emergenceLogo from "../../resources/emergence_logo.png"
 
 const isDocker = window.location.hostname !== "localhost";
 const API_URL = isDocker
@@ -15,6 +16,7 @@ const TABS = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "history", label: "Histórico", icon: HistoryIcon },
   { id: "stats", label: "Análise Estatística", icon: FlaskConical },
+  { id: "architecture", label: "Architecture", icon: Network },
 ];
 
 export default function Home() {
@@ -29,12 +31,12 @@ export default function Home() {
           <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2">
             <span className="text-2xl">
               <img
-                src={pyotestLogo}
-                alt="PyoTestLogo"
+                src={emergenceLogo}
+                alt="EmergenceLogo"
                 className="inline w-8 h-8 object-contain"
               />
             </span>
-            PYoTest
+            Emergence
             <span className="text-sm font-normal text-gray-400 ml-1">
               IoT Vulnerability Scanner
             </span>
@@ -49,6 +51,8 @@ export default function Home() {
                   activeTab === id
                     ? id === "stats"
                       ? "bg-white text-violet-600 shadow-sm"
+                      : id === "architecture"
+                      ? "bg-white text-emerald-600 shadow-sm"
                       : "bg-white text-blue-600 shadow-sm"
                     : "text-gray-500 hover:text-gray-700"
                 }`}
@@ -72,6 +76,7 @@ export default function Home() {
         )}
         {activeTab === "history" && <History />}
         {activeTab === "stats" && <StatisticalAnalysis />}
+        {activeTab === "architecture" && <Architecture />}
       </main>
     </div>
   );
