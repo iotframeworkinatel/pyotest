@@ -5,8 +5,12 @@ from utils.protocol_test_map import PROTOCOL_TESTS
 from utils.adaptive_test_map import ADAPTIVE_TESTS
 from utils.protocols import guess_protocol
 
+# Common IoT-relevant ports (matching dataset.py)
+_COMMON_PORTS = {21, 22, 23, 53, 80, 443, 502, 554, 1883, 5683}
 
-def _build_candidate_row(device, port, protocol, test_id, auth_required, source):
+
+def _build_candidate_row(device, port, protocol, test_id, auth_required, source,
+                          port_count=1, protocol_diversity=1):
     """Build a single candidate row dict."""
     return {
         "test_strategy": "automl",
@@ -18,6 +22,10 @@ def _build_candidate_row(device, port, protocol, test_id, auth_required, source)
         "test_id": test_id,
         "auth_required": auth_required,
         "source": source,          # "static" or "adaptive"
+        # Phase 3C: Derived features (matching dataset.py load_history)
+        "port_count": port_count,
+        "protocol_diversity": protocol_diversity,
+        "is_common_port": 1 if port in _COMMON_PORTS else 0,
     }
 
 
@@ -34,7 +42,19 @@ def generate_candidates(iot_devices):
     """
     rows = []
 
+    # Phase 3C: Pre-compute per-device aggregate features
+    device_features = {}
     for d in iot_devices:
+        key = getattr(d, "ip", id(d))
+        port_count = len(d.ports) if d.ports else 1
+        protocols = set(guess_protocol(p) for p in (d.ports or []))
+        protocol_diversity = len(protocols) if protocols else 1
+        device_features[key] = (port_count, protocol_diversity)
+
+    for d in iot_devices:
+        key = getattr(d, "ip", id(d))
+        pc, pd_val = device_features.get(key, (1, 1))
+
         for port in d.ports:
             protocol = guess_protocol(port)
 
@@ -42,14 +62,16 @@ def generate_candidates(iot_devices):
             if protocol in PROTOCOL_TESTS:
                 for _, test_id, _, auth_required in PROTOCOL_TESTS[protocol]:
                     rows.append(_build_candidate_row(
-                        d, port, protocol, test_id, auth_required, source="static"
+                        d, port, protocol, test_id, auth_required, source="static",
+                        port_count=pc, protocol_diversity=pd_val,
                     ))
 
             # Adaptive-only tests — subject to model filtering
             if protocol in ADAPTIVE_TESTS:
                 for _, test_id, _, auth_required in ADAPTIVE_TESTS[protocol]:
                     rows.append(_build_candidate_row(
-                        d, port, protocol, test_id, auth_required, source="adaptive"
+                        d, port, protocol, test_id, auth_required, source="adaptive",
+                        port_count=pc, protocol_diversity=pd_val,
                     ))
 
     df = pd.DataFrame(rows).drop_duplicates(

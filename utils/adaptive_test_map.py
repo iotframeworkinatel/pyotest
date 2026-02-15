@@ -44,6 +44,16 @@ from vulnerability_tester.dns.dns_adaptive import (
     test_dns_any_query,
     test_dns_version_disclosure,
 )
+from vulnerability_tester.telnet.telnet_adaptive import (
+    test_telnet_default_credentials,
+    test_telnet_banner_info_leak,
+    test_telnet_no_encryption,
+)
+from vulnerability_tester.rtsp.rtsp_adaptive import (
+    test_rtsp_default_credentials,
+    test_rtsp_unauthorized_describe,
+    test_rtsp_path_traversal,
+)
 
 
 ADAPTIVE_TESTS = {
@@ -92,5 +102,17 @@ ADAPTIVE_TESTS = {
         (test_dns_cache_snoop, "dns_cache_snoop", "info_disclosure", False),
         (test_dns_any_query, "dns_any_query", "misconfiguration", False),
         (test_dns_version_disclosure, "dns_version_disclosure", "fingerprinting", False),
+    ],
+
+    "telnet": [
+        (test_telnet_default_credentials, "telnet_default_creds", "auth", True),
+        (test_telnet_banner_info_leak, "telnet_banner_leak", "info_disclosure", False),
+        (test_telnet_no_encryption, "telnet_no_encryption", "crypto", False),
+    ],
+
+    "rtsp": [
+        (test_rtsp_default_credentials, "rtsp_default_creds", "auth", True),
+        (test_rtsp_unauthorized_describe, "rtsp_unauth_describe", "auth", False),
+        (test_rtsp_path_traversal, "rtsp_path_traversal", "path_traversal", False),
     ],
 }

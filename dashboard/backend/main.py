@@ -281,6 +281,31 @@ def _safe_records(df: pd.DataFrame) -> list[dict]:
     return df.to_dict(orient="records")
 
 
+def _sanitize(obj):
+    """Recursively sanitize a nested dict/list, replacing NaN/inf floats with None.
+    Prevents 'Out of range float values are not JSON compliant' errors."""
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_sanitize(v) for v in obj]
+    elif isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    elif isinstance(obj, (np.floating,)):
+        val = float(obj)
+        if math.isnan(val) or math.isinf(val):
+            return None
+        return val
+    elif isinstance(obj, (np.integer,)):
+        return int(obj)
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, np.ndarray):
+        return _sanitize(obj.tolist())
+    return obj
+
+
 # ---------------------------------------------------------------------------
 # New analytics endpoints
 # ---------------------------------------------------------------------------
@@ -577,7 +602,32 @@ def get_model_metrics():
                 reverse=True,
             )
 
-    return {"metrics": results, "aggregate": aggregate}
+    # Aggregate CV classification metrics across experiments
+    if aggregate and results:
+        cv_metrics_agg = {}
+        for metric_name in ["cv_auc", "cv_precision", "cv_recall", "cv_f1"]:
+            vals = [r[metric_name] for r in results if r.get(metric_name) is not None]
+            if vals:
+                cv_metrics_agg[metric_name] = {
+                    "mean": round(float(np.mean(vals)), 4),
+                    "std": round(float(np.std(vals, ddof=1)), 4) if len(vals) > 1 else 0.0,
+                    "min": round(float(np.min(vals)), 4),
+                    "max": round(float(np.max(vals)), 4),
+                    "n": len(vals),
+                }
+        if cv_metrics_agg:
+            aggregate["cv_classification_metrics"] = cv_metrics_agg
+
+        # Include latest ROC curve data for visualization
+        latest_roc = None
+        for r in reversed(results):
+            if r.get("roc_curve"):
+                latest_roc = r["roc_curve"]
+                break
+        if latest_roc:
+            aggregate["latest_roc_curve"] = latest_roc
+
+    return _sanitize({"metrics": results, "aggregate": aggregate})
 
 
 # ---------------------------------------------------------------------------
@@ -705,7 +755,39 @@ def learning_curve():
 
         curve.append(point)
 
-    return {"curve": curve}
+    # ------- Phase 2D: Convergence Stability Analysis -------
+    stability = None
+    if len(curve) >= 5:
+        last_5_p = [c["p_value"] for c in curve[-5:]]
+        last_5_sig = [c["significant"] for c in curve[-5:]]
+        last_5_d = [c["cohens_d"] for c in curve[-5:]]
+
+        # Find first N where significance became stable (5 consecutive same direction)
+        min_n_stable = None
+        for i in range(4, len(curve)):
+            window = [curve[j]["significant"] for j in range(i - 4, i + 1)]
+            if len(set(window)) == 1:
+                min_n_stable = curve[i - 4]["n"]
+                break
+
+        stability = {
+            "converged": all(last_5_sig) or not any(last_5_sig),
+            "last_5_p_values": [round(p, 6) for p in last_5_p],
+            "p_value_range": round(max(last_5_p) - min(last_5_p), 6),
+            "direction_consistent": len(set(last_5_sig)) == 1,
+            "cohens_d_range": round(max(last_5_d) - min(last_5_d), 4),
+            "minimum_n_for_stability": min_n_stable,
+            "interpretation": (
+                "Resultados convergidos e estáveis" if (all(last_5_sig) or not any(last_5_sig))
+                else "Resultados ainda oscilando — mais experimentos recomendados"
+            ),
+            "interpretation_en": (
+                "Results converged and stable" if (all(last_5_sig) or not any(last_5_sig))
+                else "Results still oscillating — more experiments recommended"
+            ),
+        }
+
+    return _sanitize({"curve": curve, "stability": stability})
 
 
 # ---------------------------------------------------------------------------
@@ -843,6 +925,146 @@ def _describe(arr):
     }
 
 
+# ---------------------------------------------------------------------------
+# Phase 1A: Multiple Comparison Correction (Holm-Bonferroni & Benjamini-Hochberg)
+# ---------------------------------------------------------------------------
+
+def _holm_bonferroni(p_values):
+    """
+    Holm-Bonferroni step-down correction for multiple comparisons.
+    Controls familywise error rate (FWER). More powerful than Bonferroni.
+    Returns adjusted p-values in the original order.
+    """
+    k = len(p_values)
+    if k == 0:
+        return []
+    indexed = sorted(enumerate(p_values), key=lambda x: x[1])
+    adjusted = [0.0] * k
+    cumulative_max = 0.0
+    for rank, (orig_idx, p) in enumerate(indexed):
+        adj_p = min(p * (k - rank), 1.0)
+        cumulative_max = max(cumulative_max, adj_p)
+        adjusted[orig_idx] = round(cumulative_max, 8)
+    return adjusted
+
+
+def _benjamini_hochberg(p_values):
+    """
+    Benjamini-Hochberg procedure for controlling False Discovery Rate (FDR).
+    Less conservative than Holm; useful for exploratory per-protocol analysis.
+    Returns adjusted p-values in the original order.
+    """
+    k = len(p_values)
+    if k == 0:
+        return []
+    indexed = sorted(enumerate(p_values), key=lambda x: x[1], reverse=True)
+    adjusted = [0.0] * k
+    cumulative_min = 1.0
+    for rank_from_end, (orig_idx, p) in enumerate(indexed):
+        rank_asc = k - rank_from_end
+        adj_p = min(p * k / rank_asc, 1.0)
+        cumulative_min = min(cumulative_min, adj_p)
+        adjusted[orig_idx] = round(cumulative_min, 8)
+    return adjusted
+
+
+# ---------------------------------------------------------------------------
+# Phase 1B: Bootstrap Confidence Intervals
+# ---------------------------------------------------------------------------
+
+def _bootstrap_ci(diffs, n_bootstrap=10000, ci_level=0.95, seed=42):
+    """
+    Non-parametric bootstrap confidence interval for mean difference.
+    Distribution-free; robust with small N or skewed distributions.
+    """
+    rng = np.random.RandomState(seed)
+    n = len(diffs)
+    if n < 2:
+        return {
+            "level": ci_level,
+            "lower": round(float(np.min(diffs)), 4) if n > 0 else 0,
+            "upper": round(float(np.max(diffs)), 4) if n > 0 else 0,
+            "mean_difference": round(float(np.mean(diffs)), 4) if n > 0 else 0,
+            "n_bootstrap": 0,
+            "method": "insufficient_data",
+        }
+    boot_means = np.array([
+        np.mean(rng.choice(diffs, size=n, replace=True))
+        for _ in range(n_bootstrap)
+    ])
+    alpha = 1 - ci_level
+    lower = float(np.percentile(boot_means, 100 * alpha / 2))
+    upper = float(np.percentile(boot_means, 100 * (1 - alpha / 2)))
+    return {
+        "level": ci_level,
+        "lower": round(lower, 4),
+        "upper": round(upper, 4),
+        "mean_difference": round(float(np.mean(diffs)), 4),
+        "n_bootstrap": n_bootstrap,
+        "method": "percentile_bootstrap",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Phase 1C: Post-Hoc Power Analysis
+# ---------------------------------------------------------------------------
+
+def _compute_power(n, cohens_d, alpha=0.05):
+    """
+    Post-hoc statistical power for a one-sided paired t-test.
+    Uses the non-central t-distribution.
+    """
+    from scipy.stats import t as t_dist, nct
+    if n < 2 or cohens_d == 0:
+        return 0.0
+    df = n - 1
+    t_crit = t_dist.ppf(1 - alpha, df)
+    ncp = abs(cohens_d) * np.sqrt(n)
+    power = 1 - nct.cdf(t_crit, df, ncp)
+    return round(float(power), 4)
+
+
+def _required_n(cohens_d, alpha=0.05, power_target=0.80):
+    """
+    Minimum sample size N to achieve target power for a paired t-test
+    with the observed Cohen's d effect size.
+    """
+    if abs(cohens_d) < 0.001:
+        return None  # Effect too small to estimate
+    for n in range(2, 1000):
+        if _compute_power(n, cohens_d, alpha) >= power_target:
+            return n
+    return 1000  # Upper bound
+
+
+# ---------------------------------------------------------------------------
+# Phase 2A: Permutation Test for Robustness Validation
+# ---------------------------------------------------------------------------
+
+def _permutation_test(arr_a, arr_b, n_permutations=10000, seed=42):
+    """
+    Permutation test for paired data (one-sided: arr_a > arr_b).
+    Distribution-free p-value that validates parametric results.
+    """
+    rng = np.random.RandomState(seed)
+    diffs = arr_a - arr_b
+    observed_mean = float(np.mean(diffs))
+    count = 0
+    for _ in range(n_permutations):
+        signs = rng.choice([-1, 1], size=len(diffs))
+        perm_mean = float(np.mean(diffs * signs))
+        if perm_mean >= observed_mean:
+            count += 1
+    p_value = count / n_permutations
+    return {
+        "test_name": "Permutation test (paired, one-sided)",
+        "observed_mean_diff": round(observed_mean, 4),
+        "p_value": round(float(p_value), 6),
+        "n_permutations": n_permutations,
+        "reject_h0": bool(p_value < 0.05),
+    }
+
+
 def _paired_test(arr_a, arr_b, label_a, label_b, n):
     """Run paired hypothesis test (t-test or Wilcoxon) and return results dict."""
     diffs = arr_a - arr_b
@@ -903,6 +1125,9 @@ def _paired_test(arr_a, arr_b, label_a, label_b, n):
     ci_lower = round(mean_diff - t_crit * se, 4)
     ci_upper = round(mean_diff + t_crit * se, 4)
 
+    # Bootstrap CI (Phase 1B)
+    bootstrap_ci = _bootstrap_ci(diffs)
+
     return {
         "normality": normality,
         "primary": primary,
@@ -910,7 +1135,9 @@ def _paired_test(arr_a, arr_b, label_a, label_b, n):
         "confidence_interval": {
             "level": 0.95, "lower": ci_lower, "upper": ci_upper,
             "mean_difference": round(mean_diff, 4), "standard_error": round(se, 4),
+            "method": "parametric_t",
         },
+        "confidence_interval_bootstrap": bootstrap_ci,
     }
 
 
@@ -1080,10 +1307,15 @@ def statistical_analysis(experiments: Optional[str] = None):
     static_tests_arr = np.array([p["static_tests"] for p in paired_data], dtype=float)
     automl_tests_arr = np.array([p["automl_tests"] for p in paired_data], dtype=float)
 
-    # Efficiency = vulns / tests (higher is better — fewer tests to find same vulns)
+    # Overall Efficiency = vulns / tests
     static_eff = np.where(static_tests_arr > 0, static_v / static_tests_arr, 0.0)
     automl_eff = np.where(automl_tests_arr > 0, automl_v / automl_tests_arr, 0.0)
     eff_diffs = automl_eff - static_eff
+
+    # Marginal Efficiency = extra vulns found / extra tests run (by AutoML beyond static)
+    marginal_vulns = automl_v - static_v
+    marginal_tests = automl_tests_arr - static_tests_arr
+    marginal_eff = np.where(marginal_tests > 0, marginal_vulns / marginal_tests, 0.0)
 
     efficiency = {
         "static": {
@@ -1098,7 +1330,41 @@ def statistical_analysis(experiments: Optional[str] = None):
         "automl_improvement_pct": round(
             float((np.mean(automl_eff) - np.mean(static_eff)) / np.mean(static_eff) * 100), 1
         ) if np.mean(static_eff) > 0 else 0.0,
+        "marginal": {
+            "mean": round(float(np.mean(marginal_eff)), 4),
+            "std": round(float(np.std(marginal_eff, ddof=1)), 4) if n > 1 else 0.0,
+            "extra_vulns_mean": round(float(np.mean(marginal_vulns)), 2),
+            "extra_tests_mean": round(float(np.mean(marginal_tests)), 2),
+        },
     }
+
+    # Marginal efficiency test: is it significantly > 0?
+    if n >= 2 and float(np.std(marginal_eff, ddof=1)) > 0:
+        if np.mean(marginal_eff) > 0:
+            try:
+                _, sw_p_marg = scipy_stats.shapiro(marginal_eff)
+            except Exception:
+                sw_p_marg = 1.0
+            if sw_p_marg > 0.05:
+                t_stat_m, t_p_m = scipy_stats.ttest_1samp(marginal_eff, 0)
+                t_p_one_m = float(t_p_m / 2) if t_stat_m > 0 else float(1 - t_p_m / 2)
+                efficiency["marginal"]["test"] = {
+                    "test_name": "One-sample t-test (marginal eff > 0)",
+                    "statistic": round(float(t_stat_m), 6),
+                    "p_value": round(t_p_one_m, 8),
+                    "reject_h0": bool(t_p_one_m < 0.05),
+                }
+            else:
+                try:
+                    w_stat_m, w_p_m = scipy_stats.wilcoxon(marginal_eff[marginal_eff != 0], alternative="greater")
+                    efficiency["marginal"]["test"] = {
+                        "test_name": "Wilcoxon (marginal eff > 0)",
+                        "statistic": round(float(w_stat_m), 6),
+                        "p_value": round(float(w_p_m), 8),
+                        "reject_h0": bool(w_p_m < 0.05),
+                    }
+                except Exception:
+                    pass
 
     # Add random efficiency if available
     if n_with_random >= 2:
@@ -1116,7 +1382,7 @@ def statistical_analysis(experiments: Optional[str] = None):
             "std": round(float(np.std(random_eff, ddof=1)), 4) if len(random_eff) > 1 else 0.0,
         }
 
-    # Paired test on efficiency
+    # Paired test on overall efficiency
     if n >= 2 and np.std(eff_diffs, ddof=1) > 0:
         eff_result = _paired_test(automl_eff, static_eff, "AutoML", "Static", n)
         efficiency["test"] = eff_result["primary"]
@@ -1182,6 +1448,22 @@ def statistical_analysis(experiments: Optional[str] = None):
             except Exception:
                 fisher_p = 1.0
 
+            # Phase 2B: Cramer's V for categorical effect size
+            n_table = s_total + a_total
+            cramers_v = 0.0
+            if n_table > 0:
+                try:
+                    chi2_val = scipy_stats.chi2_contingency(table, correction=False)[0]
+                    cramers_v = float(np.sqrt(chi2_val / n_table))
+                except Exception:
+                    cramers_v = 0.0
+            cramers_v_interp = (
+                "grande" if cramers_v >= 0.5 else
+                "medio" if cramers_v >= 0.3 else
+                "pequeno" if cramers_v >= 0.1 else
+                "negligenciavel"
+            )
+
             row = {
                 "protocol": proto,
                 "static_vulns": s_vuln,
@@ -1192,6 +1474,8 @@ def statistical_analysis(experiments: Optional[str] = None):
                 "automl_rate": round(a_vuln / a_total, 4) if a_total > 0 else 0,
                 "fisher_p": round(float(fisher_p), 6),
                 "significant": bool(fisher_p < 0.05),
+                "cramers_v": round(cramers_v, 4),
+                "cramers_v_interpretation": cramers_v_interp,
             }
 
             # Add random data if available
@@ -1203,6 +1487,28 @@ def statistical_analysis(experiments: Optional[str] = None):
                 row["random_rate"] = round(r_vuln / r_total, 4) if r_total > 0 else 0
 
             per_protocol.append(row)
+
+    # ------- Phase 1A: Multiple comparison correction -------
+    if len(per_protocol) > 1:
+        raw_pvals = [row["fisher_p"] for row in per_protocol]
+        holm_adjusted = _holm_bonferroni(raw_pvals)
+        bh_adjusted = _benjamini_hochberg(raw_pvals)
+        bonf_adjusted = [round(min(p * len(raw_pvals), 1.0), 8) for p in raw_pvals]
+
+        for i, row in enumerate(per_protocol):
+            row["fisher_p_holm"] = holm_adjusted[i]
+            row["fisher_p_bh"] = bh_adjusted[i]
+            row["fisher_p_bonferroni"] = bonf_adjusted[i]
+            row["significant_holm"] = bool(holm_adjusted[i] < 0.05)
+            row["significant_bh"] = bool(bh_adjusted[i] < 0.05)
+            row["n_comparisons"] = len(per_protocol)
+
+    multiple_comparison_correction = {
+        "n_comparisons": len(per_protocol),
+        "methods": ["holm", "benjamini-hochberg", "bonferroni"],
+        "recommended": "holm",
+        "note": "Holm controls FWER (familywise error); B-H controls FDR (less conservative)",
+    } if len(per_protocol) > 1 else None
 
     # ------- Execution time comparison -------
     exec_time = None
@@ -1244,6 +1550,101 @@ def statistical_analysis(experiments: Optional[str] = None):
             )
             exec_time["random_mean_sec"] = round(float(np.mean(random_t)), 2)
 
+    # ------- Phase 1C: Power Analysis -------
+    power_analysis = None
+    if n >= 2 and cohens_d != 0:
+        observed_power = _compute_power(n, cohens_d)
+        req_n_80 = _required_n(cohens_d, power_target=0.80)
+        req_n_90 = _required_n(cohens_d, power_target=0.90)
+        power_analysis = {
+            "observed_power": observed_power,
+            "required_n_80": req_n_80,
+            "required_n_90": req_n_90,
+            "observed_n": n,
+            "observed_cohens_d": round(cohens_d, 4),
+            "interpretation": "Adequado" if observed_power >= 0.80 else (
+                "Marginal" if observed_power >= 0.60 else "Insuficiente (risco de erro Tipo II)"
+            ),
+            "interpretation_en": "Adequate" if observed_power >= 0.80 else (
+                "Marginal" if observed_power >= 0.60 else "Insufficient (Type II error risk)"
+            ),
+            "note": "Post-hoc power analysis; prospective power analysis is preferred",
+        }
+
+    # ------- Phase 2A: Permutation Test -------
+    permutation_test = None
+    if n >= 2 and float(np.std(diffs, ddof=1)) > 0:
+        permutation_test = _permutation_test(automl_v, static_v)
+
+    # ------- Phase 2C: Levene's Test (variance homogeneity) -------
+    variance_homogeneity = None
+    if n_with_random >= 2 and n >= 2:
+        try:
+            random_v_lev = np.array(
+                [p["random_vulns"] for p in paired_data if p["random_vulns"] is not None],
+                dtype=float,
+            )
+            levene_stat, levene_p = scipy_stats.levene(static_v, automl_v, random_v_lev)
+            equal_var = bool(levene_p > 0.05)
+
+            # Compute per-group variances for contextual explanation
+            static_var = round(float(np.var(static_v, ddof=1)), 4) if n > 1 else 0.0
+            automl_var = round(float(np.var(automl_v, ddof=1)), 4) if n > 1 else 0.0
+            random_var = round(float(np.var(random_v_lev, ddof=1)), 4) if len(random_v_lev) > 1 else 0.0
+
+            # Determine if heterogeneity is due to deterministic static baseline
+            static_is_deterministic = static_var < 0.01
+
+            if equal_var:
+                interp_pt = "Variâncias homogêneas"
+                interp_en = "Homogeneous variances"
+                note_pt = "As variâncias dos três grupos são estatisticamente iguais."
+                note_en = "The variances of the three groups are statistically equal."
+            elif static_is_deterministic:
+                interp_pt = "Heterogeneidade esperada"
+                interp_en = "Expected heterogeneity"
+                note_pt = (
+                    "A suíte estática é determinística (variância ≈ 0), enquanto AutoML e Random "
+                    "variam adaptativamente. Isso é esperado pelo design experimental e não invalida "
+                    "os testes pareados (t-test/Wilcoxon), que operam sobre diferenças, não grupos."
+                )
+                note_en = (
+                    "The static suite is deterministic (variance ≈ 0), while AutoML and Random "
+                    "vary adaptively. This is expected by experimental design and does not invalidate "
+                    "the paired tests (t-test/Wilcoxon), which operate on differences, not groups."
+                )
+            else:
+                interp_pt = "Variâncias heterogêneas"
+                interp_en = "Heterogeneous variances"
+                note_pt = (
+                    "As variâncias dos grupos diferem significativamente. Considere testes robustos "
+                    "a heterocedasticidade (ex.: Welch) se usar comparações não pareadas."
+                )
+                note_en = (
+                    "Group variances differ significantly. Consider heteroscedasticity-robust tests "
+                    "(e.g., Welch) if using unpaired comparisons."
+                )
+
+            variance_homogeneity = {
+                "test_name": "Levene's test",
+                "statistic": round(float(levene_stat), 6),
+                "p_value": round(float(levene_p), 6),
+                "equal_variance": equal_var,
+                "static_is_deterministic": static_is_deterministic,
+                "group_variances": {
+                    "static": static_var,
+                    "automl": automl_var,
+                    "random": random_var,
+                },
+                "interpretation": interp_pt,
+                "interpretation_en": interp_en,
+                "note": note_pt,
+                "note_en": note_en,
+                "affects_primary_test": False if static_is_deterministic else (not equal_var),
+            }
+        except Exception:
+            pass
+
     # ------- Conclusion text -------
     conclusion = None
     if primary["p_value"] is not None:
@@ -1265,19 +1666,35 @@ def statistical_analysis(experiments: Optional[str] = None):
                 f"(p = {avr_p:.6f}, d = {avr_d:.2f}), proving that model intelligence matters."
             )
 
+        # Power context for conclusion
+        power_ctx_pt = ""
+        power_ctx_en = ""
+        if power_analysis:
+            pw = power_analysis["observed_power"]
+            power_ctx_pt = f" Poder estatístico observado: {pw:.1%}."
+            power_ctx_en = f" Observed statistical power: {pw:.1%}."
+
+        # Permutation context for conclusion
+        perm_ctx_pt = ""
+        perm_ctx_en = ""
+        if permutation_test:
+            perm_p = permutation_test["p_value"]
+            perm_ctx_pt = f" Teste de permutação confirma: p = {perm_p:.6f}."
+            perm_ctx_en = f" Permutation test confirms: p = {perm_p:.6f}."
+
         if reject:
             conclusion = {
                 "text_pt": (
                     f"Com N={n} experimentos pareados, rejeitamos H₀ (p = {p_str}). "
                     f"O PyoTest+AutoML detecta em média {round(mean_diff, 2)} mais vulnerabilidades "
                     f"por execução (IC 95%: [{ci_lower}, {ci_upper}], d de Cohen = {round(cohens_d, 2)}, "
-                    f"efeito {d_interp}).{random_ctx_pt}"
+                    f"efeito {d_interp}).{power_ctx_pt}{perm_ctx_pt}{random_ctx_pt}"
                 ),
                 "text_en": (
                     f"With N={n} paired experiments, we reject H₀ (p = {p_str}). "
                     f"PyoTest+AutoML detects on average {round(mean_diff, 2)} more vulnerabilities "
                     f"per run (95% CI: [{ci_lower}, {ci_upper}], Cohen's d = {round(cohens_d, 2)}, "
-                    f"{d_interp} effect).{random_ctx_en}"
+                    f"{d_interp} effect).{power_ctx_en}{perm_ctx_en}{random_ctx_en}"
                 ),
             }
         else:
@@ -1286,17 +1703,17 @@ def statistical_analysis(experiments: Optional[str] = None):
                     f"Com N={n} experimentos pareados, não rejeitamos H₀ (p = {p_str}). "
                     f"Não há evidência estatística suficiente de que o AutoML detecta mais "
                     f"vulnerabilidades que a suíte estática (diferença média = {round(mean_diff, 2)}, "
-                    f"IC 95%: [{ci_lower}, {ci_upper}])."
+                    f"IC 95%: [{ci_lower}, {ci_upper}]).{power_ctx_pt}"
                 ),
                 "text_en": (
                     f"With N={n} paired experiments, we fail to reject H₀ (p = {p_str}). "
                     f"There is insufficient statistical evidence that AutoML detects more "
                     f"vulnerabilities than the static suite (mean difference = {round(mean_diff, 2)}, "
-                    f"95% CI: [{ci_lower}, {ci_upper}])."
+                    f"95% CI: [{ci_lower}, {ci_upper}]).{power_ctx_en}"
                 ),
             }
 
-    return {
+    return _sanitize({
         "error": None,
         "sample_size": n,
         "paired_experiments": n,
@@ -1308,11 +1725,16 @@ def statistical_analysis(experiments: Optional[str] = None):
         "primary_test": primary,
         "effect_size": effect_size,
         "confidence_interval": confidence_interval,
+        "confidence_interval_bootstrap": _bootstrap_ci(diffs),
         "independent_test": independent_test,
         "random_baseline": random_baseline,
+        "power_analysis": power_analysis,
+        "permutation_test": permutation_test,
+        "variance_homogeneity": variance_homogeneity,
+        "multiple_comparison_correction": multiple_comparison_correction,
         "efficiency": efficiency,
         "per_protocol": per_protocol,
         "execution_time": exec_time,
         "conclusion": conclusion,
         "raw_pairs": paired_data,
-    }
+    })
