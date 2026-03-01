@@ -13,9 +13,10 @@ import {
   FileText,
   FolderOpen,
   Code,
-  ArrowRight,
   CheckCircle2,
   GitBranch,
+  RefreshCw,
+  Dices,
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -29,6 +30,7 @@ const ICON_MAP = {
   Zap,
   Shuffle,
   BarChart3,
+  Dices,
 };
 
 /* ------------------------------------------------------------------ */
@@ -85,6 +87,16 @@ const COLOR_MAP = {
     number: "bg-gray-600 text-white",
     ring: "ring-gray-200",
   },
+  teal: {
+    bg: "bg-teal-50",
+    border: "border-teal-200",
+    icon_bg: "bg-teal-100",
+    icon: "text-teal-600",
+    badge: "bg-teal-100 text-teal-700",
+    line: "bg-teal-300",
+    number: "bg-teal-600 text-white",
+    ring: "ring-teal-200",
+  },
 };
 
 /* ------------------------------------------------------------------ */
@@ -100,30 +112,17 @@ function FlowConnector({ color = "gray" }) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Decision gate (diamond shaped)                                     */
+/*  Feedback loop arrow (from last phase back to first)                */
 /* ------------------------------------------------------------------ */
-function DecisionGate() {
+function FeedbackLoop() {
   return (
-    <div className="flex flex-col items-center py-1">
-      <div className="w-0.5 h-4 bg-gray-300" />
-      <div className="relative">
-        <div className="w-32 h-16 bg-yellow-50 border-2 border-yellow-300 rotate-45 rounded-lg" />
-        <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-[11px] font-semibold text-yellow-700 text-center leading-tight">
-            AutoML<br />mode?
-          </span>
-        </div>
-      </div>
-      <div className="flex items-center gap-6 mt-2">
-        <div className="flex items-center gap-1">
-          <span className="text-[10px] font-medium text-gray-400">No</span>
-          <ArrowRight className="w-3 h-3 text-gray-300" />
-          <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">END (static only)</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <span className="text-[10px] font-medium text-green-500">Yes</span>
-          <ArrowDown className="w-3 h-3 text-green-400" />
-        </div>
+    <div className="flex flex-col items-center py-2">
+      <div className="w-0.5 h-4 bg-purple-300" />
+      <div className="flex items-center gap-2">
+        <RefreshCw className="w-4 h-4 text-purple-500" />
+        <span className="text-[10px] font-medium text-purple-500 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200">
+          Model retrains after execution
+        </span>
       </div>
     </div>
   );
@@ -132,7 +131,7 @@ function DecisionGate() {
 /* ------------------------------------------------------------------ */
 /*  Phase card                                                         */
 /* ------------------------------------------------------------------ */
-function PhaseCard({ phase, index, isLast }) {
+function PhaseCard({ phase }) {
   const [expanded, setExpanded] = useState(false);
   const Icon = ICON_MAP[phase.icon] || Shield;
   const colors = COLOR_MAP[phase.color] || COLOR_MAP.gray;
@@ -233,14 +232,10 @@ function PhaseCard({ phase, index, isLast }) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Main ExperimentFlow component                                      */
+/*  Main component (renamed from ExperimentFlow)                       */
 /* ------------------------------------------------------------------ */
 export default function ExperimentFlow({ metadata }) {
-  const phases = metadata?.experiment_phases || [];
-
-  // Split phases into pre-decision and post-decision
-  const preDecision = phases.filter((p) => p.id <= 2);
-  const postDecision = phases.filter((p) => p.id >= 3);
+  const phases = metadata?.pipeline_phases || [];
 
   return (
     <div className="space-y-4">
@@ -251,10 +246,11 @@ export default function ExperimentFlow({ metadata }) {
             <GitBranch className="w-5 h-5 text-purple-600" />
           </div>
           <div>
-            <h3 className="font-semibold text-gray-800">Experiment Pipeline</h3>
+            <h3 className="font-semibold text-gray-800">Test Generation Pipeline</h3>
             <p className="text-xs text-gray-500 mt-0.5">
-              PhD thesis methodology: AutoML-guided adaptive vulnerability testing for IoT devices.
-              Click each phase to see details, inputs/outputs, and source modules.
+              IoT test case generation flow: discover devices, select protocols,
+              generate &amp; score tests, export or execute, then learn and improve.
+              Click each phase to see details.
             </p>
           </div>
         </div>
@@ -268,35 +264,25 @@ export default function ExperimentFlow({ metadata }) {
           <span className="text-xs font-semibold text-green-600 uppercase tracking-wider">Start</span>
         </div>
 
-        {/* Pre-decision phases (1-2) */}
-        {preDecision.map((phase, i) => (
+        {/* All phases in order */}
+        {phases.map((phase) => (
           <div key={phase.id} className="w-full flex flex-col items-center">
             <FlowConnector color={phase.color} />
-            <PhaseCard phase={phase} index={i} />
+            <PhaseCard phase={phase} />
           </div>
         ))}
 
-        {/* Decision gate */}
-        <DecisionGate />
-
-        {/* Post-decision phases (3-7) */}
-        {postDecision.map((phase, i) => (
-          <div key={phase.id} className="w-full flex flex-col items-center">
-            <FlowConnector color={phase.color} />
-            <PhaseCard phase={phase} index={i + preDecision.length} isLast={i === postDecision.length - 1} />
-          </div>
-        ))}
+        {/* Feedback loop */}
+        <FeedbackLoop />
 
         {/* END node */}
         <div className="flex flex-col items-center pt-2">
-          <div className="w-0.5 h-4 bg-gray-300" />
-          <ArrowDown className="w-4 h-4 text-gray-400" />
           <div className="flex items-center gap-2 mt-2">
             <CheckCircle2 className="w-5 h-5 text-blue-500" />
             <span className="text-xs font-semibold text-blue-600 uppercase tracking-wider">Complete</span>
           </div>
           <p className="text-[10px] text-gray-400 mt-1 text-center max-w-xs">
-            Results available in Dashboard History and Statistical Analysis tabs
+            Results available in the Results tab. ML model improves with each execution cycle.
           </p>
         </div>
       </div>
@@ -306,11 +292,11 @@ export default function ExperimentFlow({ metadata }) {
         <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-3">Legend</h4>
         <div className="flex flex-wrap gap-4">
           {[
-            { color: "blue", label: "Network Scan / Analysis" },
-            { color: "green", label: "Static Testing" },
+            { color: "blue", label: "User Interaction / I/O" },
+            { color: "green", label: "Static Generation" },
+            { color: "amber", label: "Risk Scoring" },
+            { color: "teal", label: "Environment Simulation" },
             { color: "purple", label: "Machine Learning" },
-            { color: "amber", label: "Adaptive Testing" },
-            { color: "gray", label: "Random Baseline (Control)" },
           ].map(({ color, label }) => (
             <div key={color} className="flex items-center gap-1.5">
               <div className={`w-3 h-3 rounded-full ${COLOR_MAP[color].number.split(" ")[0]}`} />
@@ -319,26 +305,32 @@ export default function ExperimentFlow({ metadata }) {
           ))}
         </div>
 
-        {/* Expected results summary */}
+        {/* Pipeline summary */}
         <div className="mt-4 pt-3 border-t border-gray-100">
-          <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Expected Results</h4>
-          <div className="grid grid-cols-3 gap-3">
+          <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Pipeline Capabilities</h4>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="bg-green-50 rounded-lg p-2.5 text-center">
-              <div className="text-lg font-bold text-green-700">~28</div>
-              <div className="text-[10px] text-green-600">Static vulns</div>
+              <div className="text-lg font-bold text-green-700">62+</div>
+              <div className="text-[10px] text-green-600">Registry tests</div>
             </div>
             <div className="bg-purple-50 rounded-lg p-2.5 text-center">
-              <div className="text-lg font-bold text-purple-700">~48</div>
-              <div className="text-[10px] text-purple-600">AutoML vulns</div>
-              <div className="text-[9px] text-purple-400 mt-0.5">+71% improvement</div>
+              <div className="text-lg font-bold text-purple-700">6</div>
+              <div className="text-[10px] text-purple-600">Composition rules</div>
+              <div className="text-[9px] text-purple-400 mt-0.5">ML-driven variants</div>
             </div>
-            <div className="bg-gray-50 rounded-lg p-2.5 text-center">
-              <div className="text-lg font-bold text-gray-700">~35</div>
-              <div className="text-[10px] text-gray-600">Random vulns</div>
+            <div className="bg-amber-50 rounded-lg p-2.5 text-center">
+              <div className="text-lg font-bold text-amber-700">3</div>
+              <div className="text-[10px] text-amber-600">Generation modes</div>
+              <div className="text-[9px] text-amber-400 mt-0.5">conservative / balanced / aggressive</div>
+            </div>
+            <div className="bg-teal-50 rounded-lg p-2.5 text-center">
+              <div className="text-lg font-bold text-teal-700">5</div>
+              <div className="text-[10px] text-teal-600">Simulation profiles</div>
+              <div className="text-[9px] text-teal-400 mt-0.5">deterministic → realistic</div>
             </div>
           </div>
           <p className="text-[10px] text-gray-400 text-center mt-2">
-            Hypothesis: AutoML &gt; Random &gt; Static (proves model intelligence matters)
+            Intelligence improves with data: the more you test, the smarter generation becomes.
           </p>
         </div>
       </div>

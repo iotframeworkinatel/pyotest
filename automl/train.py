@@ -3,9 +3,17 @@ import math
 import h2o
 from h2o.automl import H2OAutoML
 
+H2O_URL = "http://172.20.0.18:54321"
+
+
 def init_h2o():
-    if not h2o.connection():
-        h2o.init(max_mem_size="2G")
+    try:
+        conn = h2o.connection()
+        if conn and conn.connected:
+            return
+    except Exception:
+        pass
+    h2o.connect(url=H2O_URL)
 
 def train_automl(df, target="vulnerability_found"):
     init_h2o()
@@ -171,6 +179,13 @@ def extract_model_metrics(aml):
         logging.warning(f"[AutoML] Could not extract leaderboard: {e}")
         metrics["leaderboard"] = []
         metrics["total_models_trained"] = 0
+
+    # ── Normalize AUC: prefer cv_auc over training auc ──
+    # Training-set AUC can be None for some algorithms (e.g. DeepLearning
+    # without a separate validation frame).  Cross-validated AUC is more
+    # reliable anyway, so use it as the canonical "auc" field.
+    if metrics.get("auc") is None and metrics.get("cv_auc") is not None:
+        metrics["auc"] = metrics["cv_auc"]
 
     return _sanitize_metrics(metrics)
 

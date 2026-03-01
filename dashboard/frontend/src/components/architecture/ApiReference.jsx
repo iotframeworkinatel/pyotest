@@ -21,11 +21,16 @@ const API_URL =
 /* ------------------------------------------------------------------ */
 const CATEGORY_COLORS = {
   Health: "bg-green-50 text-green-700 border-green-200",
-  Experiments: "bg-blue-50 text-blue-700 border-blue-200",
-  History: "bg-purple-50 text-purple-700 border-purple-200",
-  Analysis: "bg-amber-50 text-amber-700 border-amber-200",
+  Scanning: "bg-blue-50 text-blue-700 border-blue-200",
+  Devices: "bg-cyan-50 text-cyan-700 border-cyan-200",
+  Generation: "bg-purple-50 text-purple-700 border-purple-200",
+  Execution: "bg-amber-50 text-amber-700 border-amber-200",
+  ML: "bg-indigo-50 text-indigo-700 border-indigo-200",
+  History: "bg-pink-50 text-pink-700 border-pink-200",
   Logs: "bg-gray-50 text-gray-700 border-gray-200",
   Architecture: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  Hypothesis: "bg-orange-50 text-orange-700 border-orange-200",
+  Simulation: "bg-teal-50 text-teal-700 border-teal-200",
 };
 
 const METHOD_COLORS = {
@@ -412,6 +417,12 @@ export default function ApiReference({ metadata }) {
             </span>
             <span className="text-[10px] text-gray-400">
               {endpoints.filter((e) => e.method === "POST").length}
+            </span>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${METHOD_COLORS.DELETE}`}>
+              DELETE
+            </span>
+            <span className="text-[10px] text-gray-400">
+              {endpoints.filter((e) => e.method === "DELETE").length}
             </span>
           </div>
         </div>

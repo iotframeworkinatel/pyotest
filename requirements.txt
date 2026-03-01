@@ -4,7 +4,6 @@ paramiko
 h2o
 pandas
 numpy
-scikit-learn
 jinja2
 pytest
 pytest-html
@@ -13,3 +12,4 @@ telnetlib3
 matplotlib
 aiocoap
 pymodbus==2.5.3
+pyyaml

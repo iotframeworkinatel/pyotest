@@ -1,22 +1,42 @@
+"""
+Emergence — IoT Test Case Generator API
+FastAPI backend for device discovery, test generation, and execution.
+"""
 import os
-import math
-import docker
 import json
 import time
+import hashlib
 import threading
+import logging
 from typing import Optional
 from datetime import datetime
+from pathlib import Path
 
-import numpy as np
+import docker
 import pandas as pd
-from scipy import stats as scipy_stats
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
-app = FastAPI(title="Emergence - IoT Vulnerability Dashboard API")
+# ─── Generator imports (add parent to path for module resolution) ───
+import sys
+sys.path.insert(0, "/app")
 
-# CORS liberado
+from generator.registry import get_all_protocols, get_test_count, get_total_test_count
+from generator.engine import generate_test_suite
+from generator.exporter import export_json, export_yaml, export_python
+from generator.scorer import score_test_suite
+from generator.owasp_mapping import OWASP_IOT_MAP
+from models.test_case import TestSuite, TestCase
+
+# ─── Simulation imports ───
+from simulation.config import SimulationConfig
+from simulation.profiles import get_profile, list_profiles, PROFILES
+from simulation.environment import EnvironmentSimulator
+
+app = FastAPI(title="Emergence — IoT Test Case Generator API")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -27,71 +47,99 @@ app.add_middleware(
 docker_client = docker.from_env()
 
 EXPERIMENTS_PATH = "/app/experiments"
+SUITES_PATH = "/app/suites"
+RESULTS_PATH = "/app/results"
 SCANNER_CONTAINER_NAME = "scanner"
 
-# ---------------------------------------------------------------------------
-# In-memory experiment state tracking
-# ---------------------------------------------------------------------------
-_experiment_state = {
-    "status": "idle",        # idle | running | completed | error
-    "command": "",
+os.makedirs(SUITES_PATH, exist_ok=True)
+os.makedirs(RESULTS_PATH, exist_ok=True)
+
+
+# ─── JSON-safe float helper (NaN / Inf → None) ──────────────────────
+import math
+
+def _safe_float(v, decimals=4):
+    """Round a numeric value, converting NaN/Inf to None for JSON safety."""
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(f) or math.isinf(f):
+        return None
+    return round(f, decimals)
+
+# ─── In-memory state tracking ───
+
+_scan_state = {
+    "status": "idle",  # idle | running | completed | error
+    "started_at": None,
+    "devices": [],
+    "error": None,
+}
+_scan_lock = threading.Lock()
+
+_run_state = {
+    "status": "idle",  # idle | running | completed | error
+    "suite_id": None,
     "started_at": None,
     "finished_at": None,
+    "progress": 0,
+    "total_tests": 0,
     "error": None,
-    "experiment_id": None,
 }
-_state_lock = threading.Lock()
+_run_lock = threading.Lock()
 
-# ---------------------------------------------------------------------------
-# In-memory batch experiment state tracking
-# ---------------------------------------------------------------------------
-_batch_state = {
-    "status": "idle",           # idle | running | completed | error
-    "total_runs": 0,
-    "completed_runs": 0,
-    "current_run": 0,
-    "mode": "automl",
-    "network": "172.20.0.0/27",
-    "started_at": None,
-    "finished_at": None,
-    "error": None,
-    "experiment_ids": [],
-}
-_batch_lock = threading.Lock()
+# Manual devices (persisted in memory)
+_manual_devices = []
+_devices_lock = threading.Lock()
 
 
-class ExperimentRequest(BaseModel):
-    mode: str
+# ─── Request/Response Models ───
+
+class ScanRequest(BaseModel):
     network: str = "172.20.0.0/27"
-    extra_args: list[str] = []
+    extra_ports: Optional[str] = None
 
 
-class BatchRequest(BaseModel):
-    mode: str = "automl"
-    network: str = "172.20.0.0/27"
-    runs: int = 30
+class DeviceInput(BaseModel):
+    ip: str
+    ports: list[int]
 
+
+class GenerateRequest(BaseModel):
+    devices: list[dict]  # [{ip, ports}]
+    protocols: Optional[list[str]] = None
+    include_uncommon: bool = True
+    severity_filter: Optional[list[str]] = None
+    name: str = ""
+    force_new: bool = False
+
+
+class RunRequest(BaseModel):
+    pass  # No body needed, suite_id comes from URL
+
+
+class TrainLoopRequest(BaseModel):
+    iterations: int = 3
+    simulation_mode: str = "deterministic"   # profile name or "custom"
+    simulation_seed: int = 42
+    simulation_config: Optional[dict] = None  # custom overrides (only if mode="custom")
+    train_every_n: int = 0  # 0 = train only after last iteration, 1 = every iter, N = every Nth + last
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# HEALTH & INFRASTRUCTURE
+# ═══════════════════════════════════════════════════════════════════════
 
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "Dashboard API online"}
+    return {"status": "ok", "service": "Emergence IoT Test Case Generator API"}
 
 
-@app.get("/experiments")
-def list_experiments():
-    if not os.path.exists(EXPERIMENTS_PATH):
-        return {"experiments": []}
-    exps = [f for f in os.listdir(EXPERIMENTS_PATH) if f.startswith("exp_")]
-    return {"experiments": sorted(exps, reverse=True)}
-
-
-@app.get("/logs")
+@app.get("/api/logs")
 def get_logs(tail: int = 80, filter: Optional[str] = None):
-    """
-    Retorna os logs recentes de todos os containers Docker ativos
-    (para o dashboard exibir em tempo real).
-    Accepts optional `tail` (number of lines) and `filter` (container name substring).
-    """
     try:
         containers = docker_client.containers.list()
         logs_data = {}
@@ -105,9 +153,8 @@ def get_logs(tail: int = 80, filter: Optional[str] = None):
                 raw = c.logs(tail=tail, timestamps=True).decode(errors="ignore")
                 logs_data[name] = raw
             except Exception as e:
-                logs_data[name] = f"[Erro ao ler logs: {e}]"
+                logs_data[name] = f"[Error reading logs: {e}]"
 
-            # Gather container metadata
             try:
                 container_info.append({
                     "name": name,
@@ -122,2130 +169,2585 @@ def get_logs(tail: int = 80, filter: Optional[str] = None):
             "container_info": sorted(container_info, key=lambda x: x["name"]),
             "logs": logs_data,
         }
-
     except Exception as e:
         return {"error": str(e)}
 
 
-@app.post("/experiments/run")
-def run_experiment(req: ExperimentRequest, background_tasks: BackgroundTasks):
-    # Prevent concurrent experiments
-    with _state_lock:
-        if _experiment_state["status"] == "running":
-            return {"status": "error", "message": "Um experimento já está em execução."}
-
-    cmd_parts = ["python3", ".", "-n", req.network]
-    if req.mode == "automl":
-        cmd_parts.append("-aml")
-
-    extra_args = getattr(req, "extra_args", [])
-    if isinstance(extra_args, list):
-        cmd_parts.extend(extra_args)
-
-    cmd_str = " ".join(cmd_parts)
-
-    with _state_lock:
-        _experiment_state["status"] = "running"
-        _experiment_state["command"] = cmd_str
-        _experiment_state["started_at"] = datetime.now().isoformat()
-        _experiment_state["finished_at"] = None
-        _experiment_state["error"] = None
-        _experiment_state["experiment_id"] = None
-
-    def _exec():
-        try:
-            container = docker_client.containers.get(SCANNER_CONTAINER_NAME)
-            print(f"[API] Executando: {cmd_str}")
-            # Run synchronously (not detached) so we know when it finishes
-            exit_code, output = container.exec_run(cmd_str, detach=False, workdir="/app")
-            with _state_lock:
-                if exit_code == 0:
-                    _experiment_state["status"] = "completed"
-                else:
-                    _experiment_state["status"] = "error"
-                    _experiment_state["error"] = f"Exit code {exit_code}"
-                _experiment_state["finished_at"] = datetime.now().isoformat()
-                # Try to detect the experiment ID from directory listing
-                try:
-                    exps = sorted(
-                        [f for f in os.listdir(EXPERIMENTS_PATH) if f.startswith("exp_")],
-                        reverse=True,
-                    )
-                    if exps:
-                        _experiment_state["experiment_id"] = exps[0]
-                except Exception:
-                    pass
-        except Exception as e:
-            print(f"[ERRO] Falha ao executar experimento: {e}")
-            with _state_lock:
-                _experiment_state["status"] = "error"
-                _experiment_state["error"] = str(e)
-                _experiment_state["finished_at"] = datetime.now().isoformat()
-
-    background_tasks.add_task(_exec)
-    return {"status": "started", "command": cmd_str}
-
-
-@app.get("/experiments/status")
-def experiment_status():
-    """Return current experiment execution state for the dashboard to poll."""
-    with _state_lock:
-        state = dict(_experiment_state)
-
-    # Calculate elapsed time if running
-    if state["status"] == "running" and state["started_at"]:
-        started = datetime.fromisoformat(state["started_at"])
-        elapsed = (datetime.now() - started).total_seconds()
-        state["elapsed_seconds"] = round(elapsed, 1)
-    else:
-        state["elapsed_seconds"] = 0
-
-    # If running, try to get the scanner container's latest log lines for progress
-    if state["status"] == "running":
-        try:
-            container = docker_client.containers.get(SCANNER_CONTAINER_NAME)
-            raw = container.logs(tail=10).decode(errors="ignore")
-            state["scanner_output"] = raw
-        except Exception:
-            state["scanner_output"] = ""
-    else:
-        state["scanner_output"] = ""
-
-    return state
-
-
-
-@app.get("/history")
-def get_history():
-    history = []
-    if not os.path.exists(EXPERIMENTS_PATH):
-        return {"history": []}
-
-    exps = sorted(
-        [f for f in os.listdir(EXPERIMENTS_PATH) if f.startswith("exp_")],
-        reverse=True,
-    )
-
-    for exp in exps:
-        exp_path = os.path.join(EXPERIMENTS_PATH, exp)
-        for file in ["metrics_static.json", "metrics_random.json", "metrics_automl.json"]:
-            path = os.path.join(exp_path, file)
-            if os.path.exists(path):
-                try:
-                    with open(path) as f:
-                        data = json.load(f)
-                        data["experiment"] = exp
-                        history.append(data)
-                except:
-                    pass
-    return {"history": sorted(history, key=lambda x: x.get("exec_time_sec", 0), reverse=True)}
-
-
-# ---------------------------------------------------------------------------
-# Helper: load history.csv from one or all experiments
-# ---------------------------------------------------------------------------
-
-def _load_history_csv(experiment: Optional[str] = None) -> pd.DataFrame:
-    if not os.path.exists(EXPERIMENTS_PATH):
-        return pd.DataFrame()
-
-    exps = sorted(
-        [f for f in os.listdir(EXPERIMENTS_PATH) if f.startswith("exp_")],
-        reverse=True,
-    )
-    if experiment:
-        exps = [e for e in exps if e == experiment]
-
-    frames = []
-    for exp in exps:
-        csv_path = os.path.join(EXPERIMENTS_PATH, exp, "history.csv")
-        if os.path.exists(csv_path):
-            try:
-                df = pd.read_csv(csv_path)
-                df["experiment"] = exp
-                frames.append(df)
-            except Exception:
-                pass
-
-    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
-
-
-def _safe_records(df: pd.DataFrame) -> list[dict]:
-    """Convert DataFrame to list of dicts, replacing NaN/inf with 0."""
-    df = df.copy()
-    # Convert categorical columns to strings before fillna
-    for col in df.select_dtypes(include=["category"]).columns:
-        df[col] = df[col].astype(str)
-    df = df.fillna(0)
-    df = df.replace([np.inf, -np.inf], 0)
-    return df.to_dict(orient="records")
-
-
-def _sanitize(obj):
-    """Recursively sanitize a nested dict/list, replacing NaN/inf floats with None.
-    Prevents 'Out of range float values are not JSON compliant' errors."""
-    if isinstance(obj, dict):
-        return {k: _sanitize(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [_sanitize(v) for v in obj]
-    elif isinstance(obj, float):
-        if math.isnan(obj) or math.isinf(obj):
-            return None
-        return obj
-    elif isinstance(obj, (np.floating,)):
-        val = float(obj)
-        if math.isnan(val) or math.isinf(val):
-            return None
-        return val
-    elif isinstance(obj, (np.integer,)):
-        return int(obj)
-    elif isinstance(obj, np.bool_):
-        return bool(obj)
-    elif isinstance(obj, np.ndarray):
-        return _sanitize(obj.tolist())
-    return obj
-
-
-# ---------------------------------------------------------------------------
-# New analytics endpoints
-# ---------------------------------------------------------------------------
-
-@app.get("/history/summary")
-def history_summary(experiment: Optional[str] = None):
-    df = _load_history_csv(experiment)
-    if df.empty:
-        return {"summary": {}}
-
-    df["vulnerability_found"] = pd.to_numeric(df["vulnerability_found"], errors="coerce").fillna(0).astype(int)
-    df["execution_time_ms"] = pd.to_numeric(df["execution_time_ms"], errors="coerce").fillna(0)
-
-    most_vuln = "N/A"
-    if df["vulnerability_found"].sum() > 0:
-        mode_series = df[df["vulnerability_found"] == 1]["protocol"].mode()
-        if len(mode_series) > 0:
-            most_vuln = mode_series.iloc[0]
-
-    return {"summary": {
-        "total_experiments": int(df["experiment"].nunique()) if "experiment" in df.columns else 0,
-        "total_tests": len(df),
-        "total_vulns": int(df["vulnerability_found"].sum()),
-        "total_devices": int(df["container_id"].nunique()),
-        "total_protocols": int(df["protocol"].nunique()),
-        "detection_rate": round(float(df["vulnerability_found"].mean() * 100), 1),
-        "avg_exec_time_ms": int(df["execution_time_ms"].mean()),
-        "most_vulnerable_protocol": most_vuln,
-    }}
-
-
-@app.get("/history/vulns-by-protocol")
-def vulns_by_protocol(experiment: Optional[str] = None):
-    df = _load_history_csv(experiment)
-    if df.empty:
-        return {"data": []}
-
-    df["vulnerability_found"] = pd.to_numeric(df["vulnerability_found"], errors="coerce").fillna(0).astype(int)
-
-    grouped = df.groupby(["protocol", "test_strategy"]).agg(
-        total_tests=("test_id", "count"),
-        vulns_found=("vulnerability_found", "sum"),
-    ).reset_index()
-
-    return {"data": _safe_records(grouped)}
-
-
-@app.get("/history/vulns-by-type")
-def vulns_by_type(experiment: Optional[str] = None):
-    df = _load_history_csv(experiment)
-    if df.empty:
-        return {"data": []}
-
-    df["vulnerability_found"] = pd.to_numeric(df["vulnerability_found"], errors="coerce").fillna(0).astype(int)
-
-    grouped = df.groupby("test_type").agg(
-        total_tests=("test_id", "count"),
-        vulns_found=("vulnerability_found", "sum"),
-    ).reset_index()
-    grouped["detection_rate"] = (grouped["vulns_found"] / grouped["total_tests"] * 100).round(1)
-
-    return {"data": _safe_records(grouped)}
-
-
-@app.get("/history/vulns-by-device")
-def vulns_by_device(experiment: Optional[str] = None):
-    df = _load_history_csv(experiment)
-    if df.empty:
-        return {"data": []}
-
-    df["vulnerability_found"] = pd.to_numeric(df["vulnerability_found"], errors="coerce").fillna(0).astype(int)
-    df["execution_time_ms"] = pd.to_numeric(df["execution_time_ms"], errors="coerce").fillna(0)
-
-    grouped = df.groupby(["container_id", "protocol"]).agg(
-        total_tests=("test_id", "count"),
-        vulns_found=("vulnerability_found", "sum"),
-        avg_exec_time=("execution_time_ms", "mean"),
-    ).reset_index()
-    grouped["avg_exec_time"] = grouped["avg_exec_time"].round(0).astype(int)
-
-    return {"data": _safe_records(grouped)}
-
-
-@app.get("/history/exec-time-distribution")
-def exec_time_distribution(experiment: Optional[str] = None):
-    df = _load_history_csv(experiment)
-    if df.empty:
-        return {"data": []}
-
-    df["execution_time_ms"] = pd.to_numeric(df["execution_time_ms"], errors="coerce").fillna(0)
-
-    bins = [0, 100, 500, 1000, 5000, 10000, float("inf")]
-    labels = ["<100ms", "100-500ms", "500ms-1s", "1-5s", "5-10s", ">10s"]
-    df["time_bucket"] = pd.cut(df["execution_time_ms"], bins=bins, labels=labels, right=False)
-
-    grouped = df.groupby(["time_bucket", "test_strategy"], observed=True).size().reset_index(name="count")
-
-    return {"data": _safe_records(grouped)}
-
-
-@app.get("/history/cumulative-vulns")
-def cumulative_vulns(experiment: Optional[str] = None):
-    df = _load_history_csv(experiment)
-    if df.empty:
-        return {"data": []}
-
-    df["vulnerability_found"] = pd.to_numeric(df["vulnerability_found"], errors="coerce").fillna(0).astype(int)
-    df = df.sort_values("timestamp")
-
-    result = []
-    for strategy in df["test_strategy"].unique():
-        subset = df[df["test_strategy"] == strategy].reset_index(drop=True)
-        subset["cumulative"] = subset["vulnerability_found"].cumsum()
-        subset["test_index"] = range(1, len(subset) + 1)
-        for _, row in subset.iterrows():
-            result.append({
-                "test_strategy": strategy,
-                "test_index": int(row["test_index"]),
-                "cumulative_vulns": int(row["cumulative"]),
-            })
-
-    return {"data": result}
-
-
-@app.get("/history/strategy-comparison")
-def strategy_comparison(experiment: Optional[str] = None):
-    df = _load_history_csv(experiment)
-    if df.empty:
-        return {"data": []}
-
-    df["vulnerability_found"] = pd.to_numeric(df["vulnerability_found"], errors="coerce").fillna(0).astype(int)
-    df["execution_time_ms"] = pd.to_numeric(df["execution_time_ms"], errors="coerce").fillna(0)
-
-    grouped = df.groupby("test_strategy").agg(
-        total_tests=("test_id", "count"),
-        vulns_found=("vulnerability_found", "sum"),
-        avg_exec_time=("execution_time_ms", "mean"),
-        total_exec_time=("execution_time_ms", "sum"),
-        unique_devices=("container_id", "nunique"),
-        unique_protocols=("protocol", "nunique"),
-    ).reset_index()
-
-    grouped["detection_rate"] = (grouped["vulns_found"] / grouped["total_tests"] * 100).round(1)
-    grouped["avg_exec_time"] = grouped["avg_exec_time"].round(0).astype(int)
-    grouped["efficiency"] = (grouped["vulns_found"] / grouped["total_tests"]).round(3)
-
-    return {"data": _safe_records(grouped)}
-
-
-@app.get("/history/automl-scores")
-def automl_scores(experiment: Optional[str] = None):
-    if not os.path.exists(EXPERIMENTS_PATH):
-        return {"data": []}
-
-    exps = sorted(
-        [f for f in os.listdir(EXPERIMENTS_PATH) if f.startswith("exp_")],
-        reverse=True,
-    )
-    if experiment:
-        exps = [e for e in exps if e == experiment]
-
-    frames = []
-    for exp in exps:
-        csv_path = os.path.join(EXPERIMENTS_PATH, exp, "automl_tests.csv")
-        if os.path.exists(csv_path):
-            try:
-                df = pd.read_csv(csv_path)
-                df["experiment"] = exp
-                frames.append(df)
-            except Exception:
-                pass
-
-    if not frames:
-        return {"data": []}
-
-    combined = pd.concat(frames, ignore_index=True)
-    if "risk_score" in combined.columns:
-        combined["risk_score"] = pd.to_numeric(combined["risk_score"], errors="coerce").fillna(0.0).round(4)
-        combined = combined.sort_values("risk_score", ascending=False)
-
-    return {"data": _safe_records(combined.head(100))}
-
-
-@app.get("/history/detail")
-def get_history_detail(experiment: Optional[str] = None, limit: int = 5000):
-    df = _load_history_csv(experiment)
-    if df.empty:
-        return {"rows": [], "total": 0}
-
-    df["vulnerability_found"] = pd.to_numeric(df["vulnerability_found"], errors="coerce").fillna(0).astype(int)
-    df["execution_time_ms"] = pd.to_numeric(df["execution_time_ms"], errors="coerce").fillna(0).astype(int)
-    df["open_port"] = pd.to_numeric(df["open_port"], errors="coerce").fillna(0).astype(int)
-
-    rows = _safe_records(df.head(limit))
-    return {"rows": rows, "total": len(df)}
-
-
-# ---------------------------------------------------------------------------
-# Model metrics endpoint
-# ---------------------------------------------------------------------------
-
-@app.get("/experiments/model-metrics")
-def get_model_metrics():
-    """Return H2O AutoML model performance metrics from all experiments."""
-    if not os.path.exists(EXPERIMENTS_PATH):
-        return {"metrics": [], "aggregate": None}
-
-    all_exps = sorted(
-        [f for f in os.listdir(EXPERIMENTS_PATH) if f.startswith("exp_")]
-    )
-
-    results = []
-    for exp in all_exps:
-        path = os.path.join(EXPERIMENTS_PATH, exp, "model_metrics.json")
-        if os.path.exists(path):
-            try:
-                with open(path) as f:
-                    data = json.load(f)
-                    data["experiment"] = exp
-                    results.append(data)
-            except Exception:
-                pass
-
-    # Aggregate stats across experiments
-    aggregate = None
-    if results:
-        aucs = [r["auc"] for r in results if r.get("auc") is not None]
-        if aucs:
-            aggregate = {
-                "n_experiments": len(results),
-                "auc_mean": round(float(np.mean(aucs)), 4),
-                "auc_std": round(float(np.std(aucs, ddof=1)), 4) if len(aucs) > 1 else 0.0,
-                "auc_min": round(float(np.min(aucs)), 4),
-                "auc_max": round(float(np.max(aucs)), 4),
-            }
-
-            # Aggregate feature importance (average across experiments)
-            all_varimp = {}
-            for r in results:
-                for fi in r.get("feature_importance", []):
-                    var = fi["variable"]
-                    if var not in all_varimp:
-                        all_varimp[var] = []
-                    all_varimp[var].append(fi["percentage"])
-
-            aggregate["feature_importance"] = sorted(
-                [
-                    {
-                        "variable": var,
-                        "mean_percentage": round(float(np.mean(vals)), 4),
-                        "std_percentage": round(float(np.std(vals, ddof=1)), 4) if len(vals) > 1 else 0.0,
-                    }
-                    for var, vals in all_varimp.items()
-                ],
-                key=lambda x: x["mean_percentage"],
-                reverse=True,
-            )
-
-            # Most common leader algorithm
-            algos = [r.get("leader_algo", "unknown") for r in results]
-            from collections import Counter
-            algo_counts = Counter(algos)
-            aggregate["most_common_algo"] = algo_counts.most_common(1)[0][0] if algo_counts else "unknown"
-            aggregate["algo_distribution"] = dict(algo_counts)
-
-            # Per-algorithm AUC comparison across ALL leaderboard entries
-            algo_aucs = {}
-            for r in results:
-                for model in r.get("leaderboard", []):
-                    model_id = model.get("model_id", "")
-                    # Extract algorithm from model_id (e.g., "GBM_1_AutoML_..." → "GBM")
-                    algo = model_id.split("_")[0] if model_id else "unknown"
-                    if algo == "StackedEnsemble":
-                        algo = "Stacked Ensemble"
-                    auc_val = model.get("auc")
-                    if auc_val is not None:
-                        if algo not in algo_aucs:
-                            algo_aucs[algo] = []
-                        algo_aucs[algo].append(float(auc_val))
-
-            aggregate["model_comparison"] = sorted(
-                [
-                    {
-                        "algorithm": algo,
-                        "n_models": len(vals),
-                        "auc_mean": round(float(np.mean(vals)), 4),
-                        "auc_std": round(float(np.std(vals, ddof=1)), 4) if len(vals) > 1 else 0.0,
-                        "auc_min": round(float(np.min(vals)), 4),
-                        "auc_max": round(float(np.max(vals)), 4),
-                    }
-                    for algo, vals in algo_aucs.items()
-                ],
-                key=lambda x: x["auc_mean"],
-                reverse=True,
-            )
-
-    # Aggregate CV classification metrics across experiments
-    if aggregate and results:
-        cv_metrics_agg = {}
-        for metric_name in ["cv_auc", "cv_precision", "cv_recall", "cv_f1"]:
-            vals = [r[metric_name] for r in results if r.get(metric_name) is not None]
-            if vals:
-                cv_metrics_agg[metric_name] = {
-                    "mean": round(float(np.mean(vals)), 4),
-                    "std": round(float(np.std(vals, ddof=1)), 4) if len(vals) > 1 else 0.0,
-                    "min": round(float(np.min(vals)), 4),
-                    "max": round(float(np.max(vals)), 4),
-                    "n": len(vals),
-                }
-        if cv_metrics_agg:
-            aggregate["cv_classification_metrics"] = cv_metrics_agg
-
-        # Include latest ROC curve data for visualization
-        latest_roc = None
-        for r in reversed(results):
-            if r.get("roc_curve"):
-                latest_roc = r["roc_curve"]
-                break
-        if latest_roc:
-            aggregate["latest_roc_curve"] = latest_roc
-
-    return _sanitize({"metrics": results, "aggregate": aggregate})
-
-
-# ---------------------------------------------------------------------------
-# Learning curve endpoint
-# ---------------------------------------------------------------------------
-
-@app.get("/experiments/learning-curve")
-def learning_curve():
-    """
-    Compute cumulative statistical metrics as N experiments grow.
-    Shows how p-value, effect size, and mean difference evolve over time.
-    """
-    if not os.path.exists(EXPERIMENTS_PATH):
-        return {"curve": []}
-
-    all_exps = sorted(
-        [f for f in os.listdir(EXPERIMENTS_PATH) if f.startswith("exp_")]
-    )
-
-    # Collect all paired observations in chronological order
-    pairs = []
-    for exp in all_exps:
-        exp_path = os.path.join(EXPERIMENTS_PATH, exp)
-        static_path = os.path.join(exp_path, "metrics_static.json")
-        automl_path = os.path.join(exp_path, "metrics_automl.json")
-        random_path = os.path.join(exp_path, "metrics_random.json")
-
-        if os.path.exists(static_path) and os.path.exists(automl_path):
-            try:
-                with open(static_path) as f:
-                    s = json.load(f)
-                with open(automl_path) as f:
-                    a = json.load(f)
-                row = {
-                    "experiment": exp,
-                    "static_vulns": int(s.get("vulns_detected", 0)),
-                    "automl_vulns": int(a.get("vulns_detected", 0)),
-                    "static_tests": int(s.get("tests_executed", 0)),
-                    "automl_tests": int(a.get("tests_executed", 0)),
-                    "random_vulns": None,
-                }
-                if os.path.exists(random_path):
-                    try:
-                        with open(random_path) as f:
-                            r = json.load(f)
-                        row["random_vulns"] = int(r.get("vulns_detected", 0))
-                    except Exception:
-                        pass
-                pairs.append(row)
-            except Exception:
-                continue
-
-    if len(pairs) < 2:
-        return {"curve": []}
-
-    # Build cumulative curve: at each N (2..len), compute stats
-    curve = []
-    for n in range(2, len(pairs) + 1):
-        subset = pairs[:n]
-        sv = np.array([p["static_vulns"] for p in subset], dtype=float)
-        av = np.array([p["automl_vulns"] for p in subset], dtype=float)
-        diffs = av - sv
-
-        mean_diff = float(np.mean(diffs))
-        std_diff = float(np.std(diffs, ddof=1)) if n > 1 else 0.0
-
-        # Cohen's d
-        cohens_d = mean_diff / std_diff if std_diff > 0 else 0.0
-
-        # P-value (use appropriate test)
-        p_value = 1.0
-        if std_diff > 0:
-            try:
-                _, sw_p = scipy_stats.shapiro(diffs)
-                if sw_p > 0.05:
-                    _, p_two = scipy_stats.ttest_rel(av, sv)
-                    t_stat = float(np.mean(diffs)) / (std_diff / np.sqrt(n))
-                    p_value = float(p_two / 2) if t_stat > 0 else float(1 - p_two / 2)
-                else:
-                    nonzero = diffs[diffs != 0]
-                    if len(nonzero) > 0:
-                        _, p_value = scipy_stats.wilcoxon(nonzero, alternative="greater")
-                        p_value = float(p_value)
-            except Exception:
-                p_value = 1.0
-
-        # Efficiency
-        st_arr = np.array([p["static_tests"] for p in subset], dtype=float)
-        at_arr = np.array([p["automl_tests"] for p in subset], dtype=float)
-        static_eff = float(np.mean(np.where(st_arr > 0, sv / st_arr, 0)))
-        automl_eff = float(np.mean(np.where(at_arr > 0, av / at_arr, 0)))
-
-        # AUC from model metrics if available
-        auc = None
-        exp_name = subset[-1]["experiment"]
-        metrics_path = os.path.join(EXPERIMENTS_PATH, exp_name, "model_metrics.json")
-        if os.path.exists(metrics_path):
-            try:
-                with open(metrics_path) as f:
-                    mm = json.load(f)
-                auc = mm.get("auc")
-            except Exception:
-                pass
-
-        point = {
-            "n": n,
-            "experiment": exp_name,
-            "mean_diff": round(mean_diff, 4),
-            "cohens_d": round(cohens_d, 4),
-            "p_value": round(p_value, 8),
-            "significant": bool(p_value < 0.05),
-            "static_mean": round(float(np.mean(sv)), 2),
-            "automl_mean": round(float(np.mean(av)), 2),
-            "static_efficiency": round(static_eff, 4),
-            "automl_efficiency": round(automl_eff, 4),
-        }
-        if auc is not None:
-            point["model_auc"] = round(float(auc), 4)
-
-        # Random if available
-        random_subset = [p for p in subset if p["random_vulns"] is not None]
-        if len(random_subset) >= 2:
-            rv = np.array([p["random_vulns"] for p in random_subset], dtype=float)
-            point["random_mean"] = round(float(np.mean(rv)), 2)
-
-        curve.append(point)
-
-    # ------- Phase 2D: Convergence Stability Analysis -------
-    stability = None
-    if len(curve) >= 5:
-        last_5_p = [c["p_value"] for c in curve[-5:]]
-        last_5_sig = [c["significant"] for c in curve[-5:]]
-        last_5_d = [c["cohens_d"] for c in curve[-5:]]
-
-        # Find first N where significance became stable (5 consecutive same direction)
-        min_n_stable = None
-        for i in range(4, len(curve)):
-            window = [curve[j]["significant"] for j in range(i - 4, i + 1)]
-            if len(set(window)) == 1:
-                min_n_stable = curve[i - 4]["n"]
-                break
-
-        stability = {
-            "converged": all(last_5_sig) or not any(last_5_sig),
-            "last_5_p_values": [round(p, 6) for p in last_5_p],
-            "p_value_range": round(max(last_5_p) - min(last_5_p), 6),
-            "direction_consistent": len(set(last_5_sig)) == 1,
-            "cohens_d_range": round(max(last_5_d) - min(last_5_d), 4),
-            "minimum_n_for_stability": min_n_stable,
-            "interpretation": (
-                "Resultados convergidos e estáveis" if (all(last_5_sig) or not any(last_5_sig))
-                else "Resultados ainda oscilando — mais experimentos recomendados"
-            ),
-            "interpretation_en": (
-                "Results converged and stable" if (all(last_5_sig) or not any(last_5_sig))
-                else "Results still oscillating — more experiments recommended"
-            ),
-        }
-
-    return _sanitize({"curve": curve, "stability": stability})
-
-
-# ---------------------------------------------------------------------------
-# Batch experiment runner
-# ---------------------------------------------------------------------------
-
-@app.post("/experiments/batch")
-def start_batch(req: BatchRequest, background_tasks: BackgroundTasks):
-    """Run N experiments sequentially for statistical analysis."""
-    with _batch_lock:
-        if _batch_state["status"] == "running":
-            return {"status": "error", "message": "Um lote já está em execução."}
-
-    if req.runs < 2:
-        return {"status": "error", "message": "Mínimo de 2 execuções."}
-
-    cmd_parts = ["python3", ".", "-n", req.network]
-    if req.mode == "automl":
-        cmd_parts.append("-aml")
-    else:
-        cmd_parts.append("-t")
-    cmd_str = " ".join(cmd_parts)
-
-    with _batch_lock:
-        _batch_state["status"] = "running"
-        _batch_state["total_runs"] = req.runs
-        _batch_state["completed_runs"] = 0
-        _batch_state["current_run"] = 0
-        _batch_state["mode"] = req.mode
-        _batch_state["network"] = req.network
-        _batch_state["started_at"] = datetime.now().isoformat()
-        _batch_state["finished_at"] = None
-        _batch_state["error"] = None
-        _batch_state["experiment_ids"] = []
-
-    def _exec_batch():
-        try:
-            container = docker_client.containers.get(SCANNER_CONTAINER_NAME)
-            # Snapshot existing experiment dirs before starting
-            existing_exps = set()
-            if os.path.exists(EXPERIMENTS_PATH):
-                existing_exps = set(
-                    f for f in os.listdir(EXPERIMENTS_PATH) if f.startswith("exp_")
-                )
-
-            for i in range(req.runs):
-                with _batch_lock:
-                    _batch_state["current_run"] = i + 1
-
-                print(f"[BATCH] Executando {i + 1}/{req.runs}: {cmd_str}")
-                exit_code, output = container.exec_run(
-                    cmd_str, detach=False, workdir="/app"
-                )
-
-                # Detect new experiment folder
-                if os.path.exists(EXPERIMENTS_PATH):
-                    current_exps = set(
-                        f for f in os.listdir(EXPERIMENTS_PATH) if f.startswith("exp_")
-                    )
-                    new_exps = current_exps - existing_exps
-                    existing_exps = current_exps
-                    with _batch_lock:
-                        for exp_id in sorted(new_exps):
-                            if exp_id not in _batch_state["experiment_ids"]:
-                                _batch_state["experiment_ids"].append(exp_id)
-                        _batch_state["completed_runs"] = i + 1
-
-                if exit_code != 0:
-                    print(f"[BATCH] Run {i + 1} exit code {exit_code}, continuing...")
-
-                # Brief pause between runs
-                if i < req.runs - 1:
-                    time.sleep(2)
-
-            with _batch_lock:
-                _batch_state["status"] = "completed"
-                _batch_state["finished_at"] = datetime.now().isoformat()
-
-        except Exception as e:
-            print(f"[BATCH ERRO] {e}")
-            with _batch_lock:
-                _batch_state["status"] = "error"
-                _batch_state["error"] = str(e)
-                _batch_state["finished_at"] = datetime.now().isoformat()
-
-    background_tasks.add_task(_exec_batch)
-    return {"status": "started", "total_runs": req.runs, "command": cmd_str}
-
-
-@app.get("/experiments/batch/status")
-def batch_status():
-    """Return current batch execution state."""
-    with _batch_lock:
-        state = dict(_batch_state)
-        state["experiment_ids"] = list(_batch_state["experiment_ids"])
-
-    # Calculate elapsed time
-    if state["status"] == "running" and state["started_at"]:
-        started = datetime.fromisoformat(state["started_at"])
-        state["elapsed_seconds"] = round(
-            (datetime.now() - started).total_seconds(), 1
-        )
-    else:
-        state["elapsed_seconds"] = 0
-
-    # Get scanner output if currently running
-    if state["status"] == "running":
-        try:
-            container = docker_client.containers.get(SCANNER_CONTAINER_NAME)
-            state["scanner_output"] = container.logs(tail=8).decode(errors="ignore")
-        except Exception:
-            state["scanner_output"] = ""
-    else:
-        state["scanner_output"] = ""
-
-    return state
-
-
-# ---------------------------------------------------------------------------
-# Statistical hypothesis testing analysis
-# ---------------------------------------------------------------------------
-
-def _describe(arr):
-    """Descriptive statistics for a numeric array."""
-    a = np.array(arr, dtype=float)
-    if len(a) == 0:
-        return {"n": 0, "mean": 0, "std": 0, "median": 0, "min": 0, "max": 0}
-    return {
-        "n": int(len(a)),
-        "mean": round(float(np.mean(a)), 4),
-        "std": round(float(np.std(a, ddof=1)), 4) if len(a) > 1 else 0,
-        "median": round(float(np.median(a)), 4),
-        "min": round(float(np.min(a)), 4),
-        "max": round(float(np.max(a)), 4),
-    }
-
-
-# ---------------------------------------------------------------------------
-# Phase 1A: Multiple Comparison Correction (Holm-Bonferroni & Benjamini-Hochberg)
-# ---------------------------------------------------------------------------
-
-def _holm_bonferroni(p_values):
-    """
-    Holm-Bonferroni step-down correction for multiple comparisons.
-    Controls familywise error rate (FWER). More powerful than Bonferroni.
-    Returns adjusted p-values in the original order.
-    """
-    k = len(p_values)
-    if k == 0:
-        return []
-    indexed = sorted(enumerate(p_values), key=lambda x: x[1])
-    adjusted = [0.0] * k
-    cumulative_max = 0.0
-    for rank, (orig_idx, p) in enumerate(indexed):
-        adj_p = min(p * (k - rank), 1.0)
-        cumulative_max = max(cumulative_max, adj_p)
-        adjusted[orig_idx] = round(cumulative_max, 8)
-    return adjusted
-
-
-def _benjamini_hochberg(p_values):
-    """
-    Benjamini-Hochberg procedure for controlling False Discovery Rate (FDR).
-    Less conservative than Holm; useful for exploratory per-protocol analysis.
-    Returns adjusted p-values in the original order.
-    """
-    k = len(p_values)
-    if k == 0:
-        return []
-    indexed = sorted(enumerate(p_values), key=lambda x: x[1], reverse=True)
-    adjusted = [0.0] * k
-    cumulative_min = 1.0
-    for rank_from_end, (orig_idx, p) in enumerate(indexed):
-        rank_asc = k - rank_from_end
-        adj_p = min(p * k / rank_asc, 1.0)
-        cumulative_min = min(cumulative_min, adj_p)
-        adjusted[orig_idx] = round(cumulative_min, 8)
-    return adjusted
-
-
-# ---------------------------------------------------------------------------
-# Phase 1B: Bootstrap Confidence Intervals
-# ---------------------------------------------------------------------------
-
-def _bootstrap_ci(diffs, n_bootstrap=10000, ci_level=0.95, seed=42):
-    """
-    Non-parametric bootstrap confidence interval for mean difference.
-    Distribution-free; robust with small N or skewed distributions.
-    """
-    rng = np.random.RandomState(seed)
-    n = len(diffs)
-    if n < 2:
+@app.get("/api/docker-ps")
+def docker_ps():
+    try:
+        containers = docker_client.containers.list()
         return {
-            "level": ci_level,
-            "lower": round(float(np.min(diffs)), 4) if n > 0 else 0,
-            "upper": round(float(np.max(diffs)), 4) if n > 0 else 0,
-            "mean_difference": round(float(np.mean(diffs)), 4) if n > 0 else 0,
-            "n_bootstrap": 0,
-            "method": "insufficient_data",
-        }
-    boot_means = np.array([
-        np.mean(rng.choice(diffs, size=n, replace=True))
-        for _ in range(n_bootstrap)
-    ])
-    alpha = 1 - ci_level
-    lower = float(np.percentile(boot_means, 100 * alpha / 2))
-    upper = float(np.percentile(boot_means, 100 * (1 - alpha / 2)))
-    return {
-        "level": ci_level,
-        "lower": round(lower, 4),
-        "upper": round(upper, 4),
-        "mean_difference": round(float(np.mean(diffs)), 4),
-        "n_bootstrap": n_bootstrap,
-        "method": "percentile_bootstrap",
-    }
-
-
-# ---------------------------------------------------------------------------
-# Phase 1C: Post-Hoc Power Analysis
-# ---------------------------------------------------------------------------
-
-def _compute_power(n, cohens_d, alpha=0.05):
-    """
-    Post-hoc statistical power for a one-sided paired t-test.
-    Uses the non-central t-distribution.
-    """
-    from scipy.stats import t as t_dist, nct
-    if n < 2 or cohens_d == 0:
-        return 0.0
-    df = n - 1
-    t_crit = t_dist.ppf(1 - alpha, df)
-    ncp = abs(cohens_d) * np.sqrt(n)
-    power = 1 - nct.cdf(t_crit, df, ncp)
-    return round(float(power), 4)
-
-
-def _required_n(cohens_d, alpha=0.05, power_target=0.80):
-    """
-    Minimum sample size N to achieve target power for a paired t-test
-    with the observed Cohen's d effect size.
-    """
-    if abs(cohens_d) < 0.001:
-        return None  # Effect too small to estimate
-    for n in range(2, 1000):
-        if _compute_power(n, cohens_d, alpha) >= power_target:
-            return n
-    return 1000  # Upper bound
-
-
-# ---------------------------------------------------------------------------
-# Phase 2A: Permutation Test for Robustness Validation
-# ---------------------------------------------------------------------------
-
-def _permutation_test(arr_a, arr_b, n_permutations=10000, seed=42):
-    """
-    Permutation test for paired data (one-sided: arr_a > arr_b).
-    Distribution-free p-value that validates parametric results.
-    """
-    rng = np.random.RandomState(seed)
-    diffs = arr_a - arr_b
-    observed_mean = float(np.mean(diffs))
-    count = 0
-    for _ in range(n_permutations):
-        signs = rng.choice([-1, 1], size=len(diffs))
-        perm_mean = float(np.mean(diffs * signs))
-        if perm_mean >= observed_mean:
-            count += 1
-    p_value = count / n_permutations
-    return {
-        "test_name": "Permutation test (paired, one-sided)",
-        "observed_mean_diff": round(observed_mean, 4),
-        "p_value": round(float(p_value), 6),
-        "n_permutations": n_permutations,
-        "reject_h0": bool(p_value < 0.05),
-    }
-
-
-def _paired_test(arr_a, arr_b, label_a, label_b, n):
-    """Run paired hypothesis test (t-test or Wilcoxon) and return results dict."""
-    diffs = arr_a - arr_b
-
-    # Normality
-    normality = {"test": "Shapiro-Wilk", "statistic": None, "p_value": None, "is_normal": None}
-    if n >= 3:
-        try:
-            sw_stat, sw_p = scipy_stats.shapiro(diffs)
-            normality["statistic"] = round(float(sw_stat), 6)
-            normality["p_value"] = round(float(sw_p), 6)
-            normality["is_normal"] = bool(sw_p > 0.05)
-        except Exception:
-            normality["is_normal"] = True
-    else:
-        normality["is_normal"] = True
-
-    primary = {
-        "test_name": None, "statistic": None, "p_value": None,
-        "df": None, "reject_h0": None, "significance_level": 0.05,
-    }
-
-    if np.std(diffs, ddof=1) == 0:
-        primary["test_name"] = "N/A — variância zero"
-        primary["statistic"] = 0
-        primary["p_value"] = 1.0
-        primary["reject_h0"] = False
-    elif normality["is_normal"]:
-        t_stat, t_p_two = scipy_stats.ttest_rel(arr_a, arr_b)
-        t_p_one = t_p_two / 2 if t_stat > 0 else 1 - t_p_two / 2
-        primary["test_name"] = f"Paired t-test ({label_a} > {label_b})"
-        primary["statistic"] = round(float(t_stat), 6)
-        primary["p_value"] = round(float(t_p_one), 8)
-        primary["df"] = int(n - 1)
-        primary["reject_h0"] = bool(t_p_one < 0.05)
-    else:
-        try:
-            w_stat, w_p = scipy_stats.wilcoxon(diffs[diffs != 0], alternative="greater")
-            primary["test_name"] = f"Wilcoxon ({label_a} > {label_b})"
-            primary["statistic"] = round(float(w_stat), 6)
-            primary["p_value"] = round(float(w_p), 8)
-            primary["reject_h0"] = bool(w_p < 0.05)
-        except Exception as e:
-            primary["test_name"] = f"Wilcoxon failed: {e}"
-            primary["p_value"] = 1.0
-            primary["reject_h0"] = False
-
-    # Effect size
-    d_std = float(np.std(diffs, ddof=1)) if n > 1 else 1.0
-    cohens_d = float(np.mean(diffs)) / d_std if d_std > 0 else 0.0
-    abs_d = abs(cohens_d)
-    d_interp = "grande" if abs_d >= 0.8 else "médio" if abs_d >= 0.5 else "pequeno" if abs_d >= 0.2 else "negligenciável"
-
-    # CI
-    mean_diff = float(np.mean(diffs))
-    se = d_std / math.sqrt(n) if n > 0 else 0
-    t_crit = float(scipy_stats.t.ppf(0.975, df=n - 1)) if n > 1 else 1.96
-    ci_lower = round(mean_diff - t_crit * se, 4)
-    ci_upper = round(mean_diff + t_crit * se, 4)
-
-    # Bootstrap CI (Phase 1B)
-    bootstrap_ci = _bootstrap_ci(diffs)
-
-    return {
-        "normality": normality,
-        "primary": primary,
-        "effect_size": {"cohens_d": round(cohens_d, 4), "interpretation": d_interp},
-        "confidence_interval": {
-            "level": 0.95, "lower": ci_lower, "upper": ci_upper,
-            "mean_difference": round(mean_diff, 4), "standard_error": round(se, 4),
-            "method": "parametric_t",
-        },
-        "confidence_interval_bootstrap": bootstrap_ci,
-    }
-
-
-@app.get("/experiments/analysis")
-def statistical_analysis(experiments: Optional[str] = None):
-    """
-    Full statistical hypothesis testing — 3-way comparison:
-      H₁: AutoML > Static  (primary)
-      H₂: AutoML > Random  (proves model intelligence, not just more tests)
-      H₃: Random > Static  (sanity check)
-    """
-    if not os.path.exists(EXPERIMENTS_PATH):
-        return {"error": "Nenhum experimento encontrado.", "sample_size": 0}
-
-    all_exps = sorted(
-        [f for f in os.listdir(EXPERIMENTS_PATH) if f.startswith("exp_")]
-    )
-
-    if experiments:
-        requested = set(experiments.split(","))
-        all_exps = [e for e in all_exps if e in requested]
-
-    # Collect paired observations (static + automl + optional random)
-    paired_data = []
-    static_only_vulns = []
-
-    for exp in all_exps:
-        exp_path = os.path.join(EXPERIMENTS_PATH, exp)
-        static_path = os.path.join(exp_path, "metrics_static.json")
-        automl_path = os.path.join(exp_path, "metrics_automl.json")
-        random_path = os.path.join(exp_path, "metrics_random.json")
-
-        has_static = os.path.exists(static_path)
-        has_automl = os.path.exists(automl_path)
-        has_random = os.path.exists(random_path)
-
-        if has_static:
-            try:
-                with open(static_path) as f:
-                    s = json.load(f)
-            except Exception:
-                continue
-
-            if has_automl:
-                try:
-                    with open(automl_path) as f:
-                        a = json.load(f)
-                    row = {
-                        "experiment": exp,
-                        "static_vulns": int(s.get("vulns_detected", 0)),
-                        "automl_vulns": int(a.get("vulns_detected", 0)),
-                        "static_tests": int(s.get("tests_executed", 0)),
-                        "automl_tests": int(a.get("tests_executed", 0)),
-                        "static_time": float(s.get("exec_time_sec", 0)),
-                        "automl_time": float(a.get("exec_time_sec", 0)),
-                        "random_vulns": None,
-                        "random_tests": None,
-                        "random_time": None,
-                    }
-                    if has_random:
-                        try:
-                            with open(random_path) as f:
-                                r = json.load(f)
-                            row["random_vulns"] = int(r.get("vulns_detected", 0))
-                            row["random_tests"] = int(r.get("tests_executed", 0))
-                            row["random_time"] = float(r.get("exec_time_sec", 0))
-                        except Exception:
-                            pass
-                    paired_data.append(row)
-                except Exception:
-                    continue
-            else:
-                static_only_vulns.append(int(s.get("vulns_detected", 0)))
-
-    n = len(paired_data)
-    # Check how many have random data
-    n_with_random = sum(1 for p in paired_data if p["random_vulns"] is not None)
-
-    if n < 2:
-        return {
-            "error": None,
-            "sample_size": n,
-            "paired_experiments": n,
-            "static_only_experiments": len(static_only_vulns),
-            "experiments_with_random": n_with_random,
-            "experiments_used": [p["experiment"] for p in paired_data],
-            "message": f"Necessário pelo menos 2 experimentos pareados. Encontrado(s): {n}.",
-            "descriptive": None,
-            "normality_test": None,
-            "primary_test": None,
-            "effect_size": None,
-            "confidence_interval": None,
-            "independent_test": None,
-            "random_baseline": None,
-            "per_protocol": [],
-            "execution_time": None,
-            "conclusion": None,
-            "raw_pairs": paired_data,
-        }
-
-    # ------- Arrays -------
-    static_v = np.array([p["static_vulns"] for p in paired_data], dtype=float)
-    automl_v = np.array([p["automl_vulns"] for p in paired_data], dtype=float)
-    diffs = automl_v - static_v
-
-    static_t = np.array([p["static_time"] for p in paired_data], dtype=float)
-    automl_t = np.array([p["automl_time"] for p in paired_data], dtype=float)
-    time_diffs = automl_t - static_t
-
-    # ------- Descriptive statistics -------
-    descriptive = {
-        "static": _describe(static_v),
-        "automl": _describe(automl_v),
-        "difference": _describe(diffs),
-    }
-
-    # Add random descriptive stats if available
-    if n_with_random >= 2:
-        random_v = np.array(
-            [p["random_vulns"] for p in paired_data if p["random_vulns"] is not None],
-            dtype=float,
-        )
-        descriptive["random"] = _describe(random_v)
-
-    # ------- Primary test: AutoML > Static -------
-    result_primary = _paired_test(automl_v, static_v, "AutoML", "Static", n)
-    normality = result_primary["normality"]
-    primary = result_primary["primary"]
-    effect_size = result_primary["effect_size"]
-    confidence_interval = result_primary["confidence_interval"]
-    cohens_d = effect_size["cohens_d"]
-    d_interp = effect_size["interpretation"]
-    mean_diff = confidence_interval["mean_difference"]
-    ci_lower = confidence_interval["lower"]
-    ci_upper = confidence_interval["upper"]
-
-    # ------- Random baseline analysis -------
-    random_baseline = None
-    if n_with_random >= 2:
-        random_pairs = [p for p in paired_data if p["random_vulns"] is not None]
-        n_r = len(random_pairs)
-        random_v = np.array([p["random_vulns"] for p in random_pairs], dtype=float)
-        automl_v_r = np.array([p["automl_vulns"] for p in random_pairs], dtype=float)
-        static_v_r = np.array([p["static_vulns"] for p in random_pairs], dtype=float)
-
-        # AutoML vs Random (proves model intelligence)
-        automl_vs_random = _paired_test(automl_v_r, random_v, "AutoML", "Random", n_r)
-        # Random vs Static (sanity check)
-        random_vs_static = _paired_test(random_v, static_v_r, "Random", "Static", n_r)
-
-        random_baseline = {
-            "n": n_r,
-            "descriptive": _describe(random_v),
-            "automl_vs_random": {
-                "primary": automl_vs_random["primary"],
-                "effect_size": automl_vs_random["effect_size"],
-                "confidence_interval": automl_vs_random["confidence_interval"],
-            },
-            "random_vs_static": {
-                "primary": random_vs_static["primary"],
-                "effect_size": random_vs_static["effect_size"],
-                "confidence_interval": random_vs_static["confidence_interval"],
-            },
-        }
-
-    # ------- Efficiency metric: vulns per test -------
-    static_tests_arr = np.array([p["static_tests"] for p in paired_data], dtype=float)
-    automl_tests_arr = np.array([p["automl_tests"] for p in paired_data], dtype=float)
-
-    # Overall Efficiency = vulns / tests
-    static_eff = np.where(static_tests_arr > 0, static_v / static_tests_arr, 0.0)
-    automl_eff = np.where(automl_tests_arr > 0, automl_v / automl_tests_arr, 0.0)
-    eff_diffs = automl_eff - static_eff
-
-    # Marginal Efficiency = extra vulns found / extra tests run (by AutoML beyond static)
-    marginal_vulns = automl_v - static_v
-    marginal_tests = automl_tests_arr - static_tests_arr
-    marginal_eff = np.where(marginal_tests > 0, marginal_vulns / marginal_tests, 0.0)
-
-    efficiency = {
-        "static": {
-            "mean": round(float(np.mean(static_eff)), 4),
-            "std": round(float(np.std(static_eff, ddof=1)), 4) if n > 1 else 0.0,
-        },
-        "automl": {
-            "mean": round(float(np.mean(automl_eff)), 4),
-            "std": round(float(np.std(automl_eff, ddof=1)), 4) if n > 1 else 0.0,
-        },
-        "difference_mean": round(float(np.mean(eff_diffs)), 4),
-        "automl_improvement_pct": round(
-            float((np.mean(automl_eff) - np.mean(static_eff)) / np.mean(static_eff) * 100), 1
-        ) if np.mean(static_eff) > 0 else 0.0,
-        "marginal": {
-            "mean": round(float(np.mean(marginal_eff)), 4),
-            "std": round(float(np.std(marginal_eff, ddof=1)), 4) if n > 1 else 0.0,
-            "extra_vulns_mean": round(float(np.mean(marginal_vulns)), 2),
-            "extra_tests_mean": round(float(np.mean(marginal_tests)), 2),
-        },
-    }
-
-    # Marginal efficiency test: is it significantly > 0?
-    if n >= 2 and float(np.std(marginal_eff, ddof=1)) > 0:
-        if np.mean(marginal_eff) > 0:
-            try:
-                _, sw_p_marg = scipy_stats.shapiro(marginal_eff)
-            except Exception:
-                sw_p_marg = 1.0
-            if sw_p_marg > 0.05:
-                t_stat_m, t_p_m = scipy_stats.ttest_1samp(marginal_eff, 0)
-                t_p_one_m = float(t_p_m / 2) if t_stat_m > 0 else float(1 - t_p_m / 2)
-                efficiency["marginal"]["test"] = {
-                    "test_name": "One-sample t-test (marginal eff > 0)",
-                    "statistic": round(float(t_stat_m), 6),
-                    "p_value": round(t_p_one_m, 8),
-                    "reject_h0": bool(t_p_one_m < 0.05),
+            "containers": [
+                {
+                    "name": c.name,
+                    "status": c.status,
+                    "image": c.image.tags[0] if c.image.tags else str(c.image.id)[:12],
                 }
-            else:
-                try:
-                    w_stat_m, w_p_m = scipy_stats.wilcoxon(marginal_eff[marginal_eff != 0], alternative="greater")
-                    efficiency["marginal"]["test"] = {
-                        "test_name": "Wilcoxon (marginal eff > 0)",
-                        "statistic": round(float(w_stat_m), 6),
-                        "p_value": round(float(w_p_m), 8),
-                        "reject_h0": bool(w_p_m < 0.05),
-                    }
-                except Exception:
-                    pass
-
-    # Add random efficiency if available
-    if n_with_random >= 2:
-        random_tests_arr = np.array(
-            [p["random_tests"] for p in paired_data if p["random_tests"] is not None],
-            dtype=float,
-        )
-        random_v_eff = np.array(
-            [p["random_vulns"] for p in paired_data if p["random_vulns"] is not None],
-            dtype=float,
-        )
-        random_eff = np.where(random_tests_arr > 0, random_v_eff / random_tests_arr, 0.0)
-        efficiency["random"] = {
-            "mean": round(float(np.mean(random_eff)), 4),
-            "std": round(float(np.std(random_eff, ddof=1)), 4) if len(random_eff) > 1 else 0.0,
+                for c in containers
+            ]
         }
-
-    # Paired test on overall efficiency
-    if n >= 2 and np.std(eff_diffs, ddof=1) > 0:
-        eff_result = _paired_test(automl_eff, static_eff, "AutoML", "Static", n)
-        efficiency["test"] = eff_result["primary"]
-        efficiency["effect_size"] = eff_result["effect_size"]
-
-    # ------- Independent test (Mann-Whitney) -------
-    independent_test = None
-    if len(static_only_vulns) >= 2 and n >= 2:
-        try:
-            u_stat, u_p = scipy_stats.mannwhitneyu(
-                automl_v, np.array(static_only_vulns, dtype=float),
-                alternative="greater",
-            )
-            independent_test = {
-                "test_name": "Mann-Whitney U (one-sided, greater)",
-                "automl_n": int(n),
-                "static_only_n": len(static_only_vulns),
-                "statistic": round(float(u_stat), 6),
-                "p_value": round(float(u_p), 8),
-                "reject_h0": bool(u_p < 0.05),
-            }
-        except Exception:
-            pass
-
-    # ------- Per-protocol breakdown (Fisher's exact) -------
-    per_protocol = []
-    paired_exp_ids = [p["experiment"] for p in paired_data]
-    frames = []
-    for exp_id in paired_exp_ids:
-        csv_path = os.path.join(EXPERIMENTS_PATH, exp_id, "history.csv")
-        if os.path.exists(csv_path):
-            try:
-                df = pd.read_csv(csv_path)
-                frames.append(df)
-            except Exception:
-                pass
-
-    if frames:
-        all_df = pd.concat(frames, ignore_index=True)
-        all_df["vulnerability_found"] = (
-            pd.to_numeric(all_df["vulnerability_found"], errors="coerce")
-            .fillna(0)
-            .astype(int)
-        )
-        for proto in sorted(all_df["protocol"].unique()):
-            pdf = all_df[all_df["protocol"] == proto]
-
-            s_df = pdf[pdf["test_strategy"] == "static"]
-            a_df = pdf[pdf["test_strategy"] == "automl"]
-            r_df = pdf[pdf["test_strategy"] == "random"]
-
-            if s_df.empty or a_df.empty:
-                continue
-
-            s_vuln = int(s_df["vulnerability_found"].sum())
-            s_total = len(s_df)
-            a_vuln = int(a_df["vulnerability_found"].sum())
-            a_total = len(a_df)
-
-            table = [[s_vuln, s_total - s_vuln], [a_vuln, a_total - a_vuln]]
-            try:
-                _, fisher_p = scipy_stats.fisher_exact(table, alternative="two-sided")
-            except Exception:
-                fisher_p = 1.0
-
-            # Phase 2B: Cramer's V for categorical effect size
-            n_table = s_total + a_total
-            cramers_v = 0.0
-            if n_table > 0:
-                try:
-                    chi2_val = scipy_stats.chi2_contingency(table, correction=False)[0]
-                    cramers_v = float(np.sqrt(chi2_val / n_table))
-                except Exception:
-                    cramers_v = 0.0
-            cramers_v_interp = (
-                "grande" if cramers_v >= 0.5 else
-                "medio" if cramers_v >= 0.3 else
-                "pequeno" if cramers_v >= 0.1 else
-                "negligenciavel"
-            )
-
-            row = {
-                "protocol": proto,
-                "static_vulns": s_vuln,
-                "static_tests": s_total,
-                "static_rate": round(s_vuln / s_total, 4) if s_total > 0 else 0,
-                "automl_vulns": a_vuln,
-                "automl_tests": a_total,
-                "automl_rate": round(a_vuln / a_total, 4) if a_total > 0 else 0,
-                "fisher_p": round(float(fisher_p), 6),
-                "significant": bool(fisher_p < 0.05),
-                "cramers_v": round(cramers_v, 4),
-                "cramers_v_interpretation": cramers_v_interp,
-            }
-
-            # Add random data if available
-            if not r_df.empty:
-                r_vuln = int(r_df["vulnerability_found"].sum())
-                r_total = len(r_df)
-                row["random_vulns"] = r_vuln
-                row["random_tests"] = r_total
-                row["random_rate"] = round(r_vuln / r_total, 4) if r_total > 0 else 0
-
-            per_protocol.append(row)
-
-    # ------- Phase 1A: Multiple comparison correction -------
-    if len(per_protocol) > 1:
-        raw_pvals = [row["fisher_p"] for row in per_protocol]
-        holm_adjusted = _holm_bonferroni(raw_pvals)
-        bh_adjusted = _benjamini_hochberg(raw_pvals)
-        bonf_adjusted = [round(min(p * len(raw_pvals), 1.0), 8) for p in raw_pvals]
-
-        for i, row in enumerate(per_protocol):
-            row["fisher_p_holm"] = holm_adjusted[i]
-            row["fisher_p_bh"] = bh_adjusted[i]
-            row["fisher_p_bonferroni"] = bonf_adjusted[i]
-            row["significant_holm"] = bool(holm_adjusted[i] < 0.05)
-            row["significant_bh"] = bool(bh_adjusted[i] < 0.05)
-            row["n_comparisons"] = len(per_protocol)
-
-    multiple_comparison_correction = {
-        "n_comparisons": len(per_protocol),
-        "methods": ["holm", "benjamini-hochberg", "bonferroni"],
-        "recommended": "holm",
-        "note": "Holm controls FWER (familywise error); B-H controls FDR (less conservative)",
-    } if len(per_protocol) > 1 else None
-
-    # ------- Execution time comparison -------
-    exec_time = None
-    if n >= 2 and np.std(time_diffs, ddof=1) > 0:
-        try:
-            _, time_sw_p = scipy_stats.shapiro(time_diffs)
-        except Exception:
-            time_sw_p = 1.0
-
-        if time_sw_p > 0.05:
-            t_stat_t, t_p_t = scipy_stats.ttest_rel(automl_t, static_t)
-            exec_time = {
-                "static_mean_sec": round(float(np.mean(static_t)), 2),
-                "automl_mean_sec": round(float(np.mean(automl_t)), 2),
-                "test_name": "Paired t-test",
-                "statistic": round(float(t_stat_t), 6),
-                "p_value": round(float(t_p_t), 8),
-                "significant": bool(t_p_t < 0.05),
-            }
-        else:
-            try:
-                w_stat_t, w_p_t = scipy_stats.wilcoxon(time_diffs)
-                exec_time = {
-                    "static_mean_sec": round(float(np.mean(static_t)), 2),
-                    "automl_mean_sec": round(float(np.mean(automl_t)), 2),
-                    "test_name": "Wilcoxon signed-rank",
-                    "statistic": round(float(w_stat_t), 6),
-                    "p_value": round(float(w_p_t), 8),
-                    "significant": bool(w_p_t < 0.05),
-                }
-            except Exception:
-                pass
-
-        # Add random time if available
-        if exec_time and n_with_random >= 2:
-            random_t = np.array(
-                [p["random_time"] for p in paired_data if p["random_time"] is not None],
-                dtype=float,
-            )
-            exec_time["random_mean_sec"] = round(float(np.mean(random_t)), 2)
-
-    # ------- Phase 1C: Power Analysis -------
-    power_analysis = None
-    if n >= 2 and cohens_d != 0:
-        observed_power = _compute_power(n, cohens_d)
-        req_n_80 = _required_n(cohens_d, power_target=0.80)
-        req_n_90 = _required_n(cohens_d, power_target=0.90)
-        power_analysis = {
-            "observed_power": observed_power,
-            "required_n_80": req_n_80,
-            "required_n_90": req_n_90,
-            "observed_n": n,
-            "observed_cohens_d": round(cohens_d, 4),
-            "interpretation": "Adequado" if observed_power >= 0.80 else (
-                "Marginal" if observed_power >= 0.60 else "Insuficiente (risco de erro Tipo II)"
-            ),
-            "interpretation_en": "Adequate" if observed_power >= 0.80 else (
-                "Marginal" if observed_power >= 0.60 else "Insufficient (Type II error risk)"
-            ),
-            "note": "Post-hoc power analysis; prospective power analysis is preferred",
-        }
-
-    # ------- Phase 2A: Permutation Test -------
-    permutation_test = None
-    if n >= 2 and float(np.std(diffs, ddof=1)) > 0:
-        permutation_test = _permutation_test(automl_v, static_v)
-
-    # ------- Phase 2C: Levene's Test (variance homogeneity) -------
-    variance_homogeneity = None
-    if n_with_random >= 2 and n >= 2:
-        try:
-            random_v_lev = np.array(
-                [p["random_vulns"] for p in paired_data if p["random_vulns"] is not None],
-                dtype=float,
-            )
-            levene_stat, levene_p = scipy_stats.levene(static_v, automl_v, random_v_lev)
-            equal_var = bool(levene_p > 0.05)
-
-            # Compute per-group variances for contextual explanation
-            static_var = round(float(np.var(static_v, ddof=1)), 4) if n > 1 else 0.0
-            automl_var = round(float(np.var(automl_v, ddof=1)), 4) if n > 1 else 0.0
-            random_var = round(float(np.var(random_v_lev, ddof=1)), 4) if len(random_v_lev) > 1 else 0.0
-
-            # Determine if heterogeneity is due to deterministic static baseline
-            static_is_deterministic = static_var < 0.01
-
-            if equal_var:
-                interp_pt = "Variâncias homogêneas"
-                interp_en = "Homogeneous variances"
-                note_pt = "As variâncias dos três grupos são estatisticamente iguais."
-                note_en = "The variances of the three groups are statistically equal."
-            elif static_is_deterministic:
-                interp_pt = "Heterogeneidade esperada"
-                interp_en = "Expected heterogeneity"
-                note_pt = (
-                    "A suíte estática é determinística (variância ≈ 0), enquanto AutoML e Random "
-                    "variam adaptativamente. Isso é esperado pelo design experimental e não invalida "
-                    "os testes pareados (t-test/Wilcoxon), que operam sobre diferenças, não grupos."
-                )
-                note_en = (
-                    "The static suite is deterministic (variance ≈ 0), while AutoML and Random "
-                    "vary adaptively. This is expected by experimental design and does not invalidate "
-                    "the paired tests (t-test/Wilcoxon), which operate on differences, not groups."
-                )
-            else:
-                interp_pt = "Variâncias heterogêneas"
-                interp_en = "Heterogeneous variances"
-                note_pt = (
-                    "As variâncias dos grupos diferem significativamente. Considere testes robustos "
-                    "a heterocedasticidade (ex.: Welch) se usar comparações não pareadas."
-                )
-                note_en = (
-                    "Group variances differ significantly. Consider heteroscedasticity-robust tests "
-                    "(e.g., Welch) if using unpaired comparisons."
-                )
-
-            variance_homogeneity = {
-                "test_name": "Levene's test",
-                "statistic": round(float(levene_stat), 6),
-                "p_value": round(float(levene_p), 6),
-                "equal_variance": equal_var,
-                "static_is_deterministic": static_is_deterministic,
-                "group_variances": {
-                    "static": static_var,
-                    "automl": automl_var,
-                    "random": random_var,
-                },
-                "interpretation": interp_pt,
-                "interpretation_en": interp_en,
-                "note": note_pt,
-                "note_en": note_en,
-                "affects_primary_test": False if static_is_deterministic else (not equal_var),
-            }
-        except Exception:
-            pass
-
-    # ------- Conclusion text -------
-    conclusion = None
-    if primary["p_value"] is not None:
-        p_str = f"{primary['p_value']:.6f}" if primary["p_value"] >= 0.000001 else f"{primary['p_value']:.2e}"
-        reject = primary["reject_h0"]
-
-        # Build random baseline context for conclusion
-        random_ctx_pt = ""
-        random_ctx_en = ""
-        if random_baseline and random_baseline["automl_vs_random"]["primary"]["reject_h0"]:
-            avr_p = random_baseline["automl_vs_random"]["primary"]["p_value"]
-            avr_d = random_baseline["automl_vs_random"]["effect_size"]["cohens_d"]
-            random_ctx_pt = (
-                f" Além disso, AutoML supera significativamente a seleção aleatória "
-                f"(p = {avr_p:.6f}, d = {avr_d:.2f}), comprovando que a inteligência do modelo importa."
-            )
-            random_ctx_en = (
-                f" Furthermore, AutoML significantly outperforms random selection "
-                f"(p = {avr_p:.6f}, d = {avr_d:.2f}), proving that model intelligence matters."
-            )
-
-        # Power context for conclusion
-        power_ctx_pt = ""
-        power_ctx_en = ""
-        if power_analysis:
-            pw = power_analysis["observed_power"]
-            power_ctx_pt = f" Poder estatístico observado: {pw:.1%}."
-            power_ctx_en = f" Observed statistical power: {pw:.1%}."
-
-        # Permutation context for conclusion
-        perm_ctx_pt = ""
-        perm_ctx_en = ""
-        if permutation_test:
-            perm_p = permutation_test["p_value"]
-            perm_ctx_pt = f" Teste de permutação confirma: p = {perm_p:.6f}."
-            perm_ctx_en = f" Permutation test confirms: p = {perm_p:.6f}."
-
-        if reject:
-            conclusion = {
-                "text_pt": (
-                    f"Com N={n} experimentos pareados, rejeitamos H₀ (p = {p_str}). "
-                    f"O Emergence+AutoML detecta em média {round(mean_diff, 2)} mais vulnerabilidades "
-                    f"por execução (IC 95%: [{ci_lower}, {ci_upper}], d de Cohen = {round(cohens_d, 2)}, "
-                    f"efeito {d_interp}).{power_ctx_pt}{perm_ctx_pt}{random_ctx_pt}"
-                ),
-                "text_en": (
-                    f"With N={n} paired experiments, we reject H₀ (p = {p_str}). "
-                    f"Emergence+AutoML detects on average {round(mean_diff, 2)} more vulnerabilities "
-                    f"per run (95% CI: [{ci_lower}, {ci_upper}], Cohen's d = {round(cohens_d, 2)}, "
-                    f"{d_interp} effect).{power_ctx_en}{perm_ctx_en}{random_ctx_en}"
-                ),
-            }
-        else:
-            conclusion = {
-                "text_pt": (
-                    f"Com N={n} experimentos pareados, não rejeitamos H₀ (p = {p_str}). "
-                    f"Não há evidência estatística suficiente de que o AutoML detecta mais "
-                    f"vulnerabilidades que a suíte estática (diferença média = {round(mean_diff, 2)}, "
-                    f"IC 95%: [{ci_lower}, {ci_upper}]).{power_ctx_pt}"
-                ),
-                "text_en": (
-                    f"With N={n} paired experiments, we fail to reject H₀ (p = {p_str}). "
-                    f"There is insufficient statistical evidence that AutoML detects more "
-                    f"vulnerabilities than the static suite (mean difference = {round(mean_diff, 2)}, "
-                    f"95% CI: [{ci_lower}, {ci_upper}]).{power_ctx_en}"
-                ),
-            }
-
-    return _sanitize({
-        "error": None,
-        "sample_size": n,
-        "paired_experiments": n,
-        "static_only_experiments": len(static_only_vulns),
-        "experiments_with_random": n_with_random,
-        "experiments_used": [p["experiment"] for p in paired_data],
-        "descriptive": descriptive,
-        "normality_test": normality,
-        "primary_test": primary,
-        "effect_size": effect_size,
-        "confidence_interval": confidence_interval,
-        "confidence_interval_bootstrap": _bootstrap_ci(diffs),
-        "independent_test": independent_test,
-        "random_baseline": random_baseline,
-        "power_analysis": power_analysis,
-        "permutation_test": permutation_test,
-        "variance_homogeneity": variance_homogeneity,
-        "multiple_comparison_correction": multiple_comparison_correction,
-        "efficiency": efficiency,
-        "per_protocol": per_protocol,
-        "execution_time": exec_time,
-        "conclusion": conclusion,
-        "raw_pairs": paired_data,
-    })
+    except Exception as e:
+        return {"error": str(e)}
 
 
-# ---------------------------------------------------------------------------
-# Architecture metadata endpoint
-# ---------------------------------------------------------------------------
+@app.get("/api/protocols")
+def list_protocols():
+    return {
+        "protocols": get_all_protocols(),
+        "test_counts": get_test_count(),
+        "total_tests": get_total_test_count(),
+        "owasp_categories": OWASP_IOT_MAP,
+    }
+
 
 @app.get("/architecture/metadata")
-def get_architecture_metadata():
-    """Return comprehensive architecture metadata for the Architecture tab."""
+def architecture_metadata():
+    """Return architecture metadata for the Architecture dashboard tab."""
+    from generator.registry import TEST_REGISTRY
+    from utils.protocols import PORT_PROTOCOL_MAP
+
+    # Build protocol info
+    protocols = {}
+    proto_port_map = {v: k for k, v in PORT_PROTOCOL_MAP.items()}
+    for proto in get_all_protocols():
+        tests = TEST_REGISTRY.get(proto, [])
+        test_ids = [t["test_id"] for t in tests]
+        protocols[proto.upper()] = {
+            "port": proto_port_map.get(proto, 0),
+            "tests": len(tests),
+            "test_ids": test_ids,
+            "description": f"Vulnerability tests for {proto.upper()} protocol",
+        }
+    # Banner grabbing special case
+    if "banner_grabbing" in TEST_REGISTRY:
+        tests = TEST_REGISTRY["banner_grabbing"]
+        protocols["Banner Grabbing"] = {
+            "port": "any",
+            "tests": len(tests),
+            "test_ids": [t["test_id"] for t in tests],
+            "description": "Service fingerprinting via banner grabbing",
+        }
+
+    # Docker containers
+    containers = []
+    try:
+        for c in docker_client.containers.list():
+            info = {
+                "name": c.name,
+                "ip": None,
+                "ports": [],
+                "protocol": None,
+                "tech": c.image.tags[0] if c.image.tags else "unknown",
+                "description": f"Docker container: {c.name}",
+                "role": "infrastructure",
+            }
+
+            # Try to get IP from network settings
+            try:
+                networks = c.attrs.get("NetworkSettings", {}).get("Networks", {})
+                for net_name, net_info in networks.items():
+                    if net_info.get("IPAddress"):
+                        info["ip"] = net_info["IPAddress"]
+                        break
+            except Exception:
+                pass
+
+            # Classify container role
+            infra_names = {"dashboard_ui", "dashboard_api", "scanner", "h2o-automl"}
+            if c.name not in infra_names:
+                info["role"] = "vulnerable_device"
+                # Guess protocol from container name
+                for proto_name in ["ftp", "http", "ssh", "telnet", "mqtt", "rtsp", "coap", "modbus", "dns"]:
+                    if proto_name in c.name.lower():
+                        info["protocol"] = proto_name.upper()
+                        info["ports"] = [proto_port_map.get(proto_name, 0)]
+                        break
+
+            containers.append(info)
+    except Exception:
+        pass
+
+    # API endpoints
+    api_endpoints = [
+        {
+            "method": "GET", "path": "/", "summary": "Health check",
+            "description": "Returns service status and name.",
+            "category": "Health",
+            "response_example": {"status": "ok", "service": "Emergence IoT Test Case Generator API"},
+        },
+        {
+            "method": "POST", "path": "/api/scan", "summary": "Start network scan",
+            "description": "Triggers an Nmap scan on the specified network via the scanner Docker container.",
+            "category": "Scanning",
+            "request_body": {
+                "network": {"type": "string", "default": "172.20.0.0/27", "description": "CIDR network range to scan"},
+                "extra_ports": {"type": "string", "default": None, "description": "Comma-separated extra ports"},
+            },
+            "response_example": {"status": "started", "network": "172.20.0.0/27"},
+        },
+        {
+            "method": "GET", "path": "/api/scan/status", "summary": "Scan progress",
+            "description": "Returns the current scan status (idle, running, completed, error).",
+            "category": "Scanning",
+            "response_example": {"status": "completed", "devices": []},
+        },
+        {
+            "method": "GET", "path": "/api/scan/results", "summary": "Scan results",
+            "description": "Returns discovered devices from the last scan.",
+            "category": "Scanning",
+        },
+        {
+            "method": "POST", "path": "/api/devices", "summary": "Add device manually",
+            "description": "Adds a device to the inventory with specified IP and ports.",
+            "category": "Devices",
+            "request_body": {
+                "ip": {"type": "string", "description": "Device IP address"},
+                "ports": {"type": "array", "description": "List of open port numbers"},
+            },
+        },
+        {
+            "method": "GET", "path": "/api/devices", "summary": "List all devices",
+            "description": "Returns merged list of scanned and manually-added devices.",
+            "category": "Devices",
+        },
+        {
+            "method": "DELETE", "path": "/api/devices/{ip}", "summary": "Remove a device",
+            "description": "Removes a manually-added device by IP address.",
+            "category": "Devices",
+        },
+        {
+            "method": "POST", "path": "/api/generate", "summary": "Generate test suite",
+            "description": "Generates a test suite for selected devices and protocols. Uses static registry and ML risk scoring.",
+            "category": "Generation",
+            "request_body": {
+                "devices": {"type": "array", "description": "List of {ip, ports} objects"},
+                "protocols": {"type": "array", "default": None, "description": "Protocols to test (null = all detected)"},
+                "include_uncommon": {"type": "boolean", "default": True, "description": "Include uncommon tests"},
+                "severity_filter": {"type": "array", "default": None, "description": "Filter by severity levels"},
+                "name": {"type": "string", "default": "", "description": "Suite name"},
+            },
+        },
+        {
+            "method": "GET", "path": "/api/suites", "summary": "List test suites",
+            "description": "Returns all generated test suites with summary metadata.",
+            "category": "Generation",
+        },
+        {
+            "method": "GET", "path": "/api/suites/{id}", "summary": "Get suite detail",
+            "description": "Returns full test suite with all test cases.",
+            "category": "Generation",
+        },
+        {
+            "method": "GET", "path": "/api/suites/{id}/export", "summary": "Export suite",
+            "description": "Export test suite in JSON, YAML, or Python (pytest) format.",
+            "category": "Generation",
+            "parameters": [
+                {"name": "format", "type": "string", "default": "json", "description": "Export format: json, yaml, or python"},
+            ],
+        },
+        {
+            "method": "DELETE", "path": "/api/suites/{id}", "summary": "Delete suite",
+            "description": "Permanently deletes a generated test suite.",
+            "category": "Generation",
+        },
+        {
+            "method": "POST", "path": "/api/suites/{id}/run", "summary": "Run test suite",
+            "description": "Executes test suite against target devices via the scanner container.",
+            "category": "Execution",
+        },
+        {
+            "method": "GET", "path": "/api/suites/{id}/run/status", "summary": "Run progress",
+            "description": "Returns execution progress for the currently running suite.",
+            "category": "Execution",
+        },
+        {
+            "method": "GET", "path": "/api/results", "summary": "List results",
+            "description": "Returns all past execution results.",
+            "category": "Execution",
+        },
+        {
+            "method": "GET", "path": "/api/results/{filename}", "summary": "Get result detail",
+            "description": "Returns detailed execution result by filename.",
+            "category": "Execution",
+        },
+        {
+            "method": "GET", "path": "/api/ml/status", "summary": "ML model status",
+            "description": "Returns whether the H2O AutoML model is trained and its metrics.",
+            "category": "ML",
+        },
+        {
+            "method": "GET", "path": "/api/ml/metrics", "summary": "ML metrics",
+            "description": "Returns model performance metrics (AUC, feature importance, etc.).",
+            "category": "ML",
+        },
+        {
+            "method": "POST", "path": "/api/ml/retrain", "summary": "Retrain model",
+            "description": "Manually triggers H2O AutoML model retraining from accumulated test history.",
+            "category": "ML",
+        },
+        {
+            "method": "GET", "path": "/api/history/summary", "summary": "History KPIs",
+            "description": "Aggregate KPIs (total tests, vulns, detection rate, protocols tested).",
+            "category": "History",
+        },
+        {
+            "method": "GET", "path": "/api/history/vulns-by-protocol", "summary": "Vulns by protocol",
+            "description": "Vulnerability counts grouped by protocol.",
+            "category": "History",
+        },
+        {
+            "method": "GET", "path": "/api/history/vulns-by-type", "summary": "Vulns by type",
+            "description": "Vulnerability counts grouped by test type.",
+            "category": "History",
+        },
+        {
+            "method": "GET", "path": "/api/history/vulns-by-device", "summary": "Vulns by device",
+            "description": "Vulnerability counts grouped by device IP.",
+            "category": "History",
+        },
+        {
+            "method": "GET", "path": "/api/logs", "summary": "Docker logs",
+            "description": "Returns logs from all Docker containers.",
+            "category": "Logs",
+            "parameters": [
+                {"name": "tail", "type": "int", "default": 80, "description": "Number of log lines"},
+                {"name": "filter", "type": "string", "default": None, "description": "Container name filter"},
+            ],
+        },
+        {
+            "method": "GET", "path": "/api/docker-ps", "summary": "Container list",
+            "description": "Returns running Docker containers and their status.",
+            "category": "Logs",
+        },
+        {
+            "method": "GET", "path": "/api/protocols", "summary": "Available protocols",
+            "description": "Returns all supported protocols, test counts, and OWASP mappings.",
+            "category": "Architecture",
+        },
+        # ── Train-Loop endpoints ──
+        {
+            "method": "POST", "path": "/api/suites/{id}/train-loop",
+            "summary": "Start auto-train loop",
+            "description": "Starts an iterative execute-retrain loop: runs the test suite, optionally retrains the ML model, and repeats. Supports environment simulation profiles and configurable training frequency.",
+            "category": "Execution",
+            "request_body": {
+                "iterations": {"type": "integer", "default": 3, "description": "Number of execute cycles (1–100)"},
+                "train_every_n": {"type": "integer", "default": 0, "description": "Train every Nth iteration (0 = only after last, 1 = every iter, N = every Nth + last)"},
+                "simulation_mode": {"type": "string", "default": "deterministic", "description": "Simulation profile: deterministic, easy, medium, hard, realistic, or custom"},
+                "simulation_seed": {"type": "integer", "default": 42, "description": "RNG seed for reproducible simulation events"},
+                "simulation_config": {"type": "object", "default": None, "description": "Custom probability overrides (only when mode=custom)"},
+            },
+            "response_example": {"status": "started", "suite_id": "abc123", "total_iterations": 3, "train_every_n": 0},
+        },
+        {
+            "method": "GET", "path": "/api/suites/{id}/train-loop/status",
+            "summary": "Train loop status",
+            "description": "Returns current train loop progress including iteration count, phase, per-iteration metrics, and simulation events.",
+            "category": "Execution",
+        },
+        {
+            "method": "POST", "path": "/api/suites/{id}/train-loop/cancel",
+            "summary": "Cancel train loop",
+            "description": "Gracefully cancels a running train loop after the current iteration completes. Restores simulation environment to original state.",
+            "category": "Execution",
+        },
+        {
+            "method": "GET", "path": "/api/run/active",
+            "summary": "Active run status",
+            "description": "Global run status without suite_id. Used to resume UI polling after tab switches.",
+            "category": "Execution",
+        },
+        {
+            "method": "GET", "path": "/api/loop/active",
+            "summary": "Active loop status",
+            "description": "Global train loop status without suite_id. Used to resume UI polling after tab switches.",
+            "category": "Execution",
+        },
+        {
+            "method": "GET", "path": "/api/ml/retrain/status",
+            "summary": "Retrain status",
+            "description": "Returns the current status of an in-progress ML model retrain operation.",
+            "category": "ML",
+        },
+        # ── Hypothesis endpoints ──
+        {
+            "method": "GET", "path": "/api/hypothesis/iteration-metrics",
+            "summary": "Iteration metrics (H1/H3)",
+            "description": "Per-experiment detection rates and metrics over time for hypothesis validation. Supports simulation_mode filter.",
+            "category": "Hypothesis",
+            "parameters": [
+                {"name": "simulation_mode", "type": "string", "default": None, "description": "Filter by simulation mode: deterministic, realistic, or null for all"},
+            ],
+        },
+        {
+            "method": "GET", "path": "/api/hypothesis/model-evolution",
+            "summary": "Model evolution",
+            "description": "ML model performance snapshot (AUC, feature importance, ROC curve).",
+            "category": "Hypothesis",
+        },
+        {
+            "method": "GET", "path": "/api/hypothesis/composition-analysis",
+            "summary": "Composition analysis",
+            "description": "Effectiveness of test strategies and composition rules.",
+            "category": "Hypothesis",
+        },
+        {
+            "method": "GET", "path": "/api/hypothesis/statistical-tests",
+            "summary": "Statistical tests (H1)",
+            "description": "Spearman, Mann-Whitney U, Cohen's d for detection-rate convergence hypothesis. Supports simulation_mode filter.",
+            "category": "Hypothesis",
+            "parameters": [
+                {"name": "simulation_mode", "type": "string", "default": None, "description": "Filter by simulation mode"},
+            ],
+        },
+        {
+            "method": "GET", "path": "/api/hypothesis/recommendation-effectiveness",
+            "summary": "Recommendation effectiveness (H2)",
+            "description": "Compares ML-recommended vs non-recommended test detection rates using Fisher's exact test and threshold sweep analysis. Supports simulation_mode filter.",
+            "category": "Hypothesis",
+            "parameters": [
+                {"name": "simulation_mode", "type": "string", "default": None, "description": "Filter by simulation mode"},
+            ],
+        },
+        {
+            "method": "GET", "path": "/api/hypothesis/protocol-convergence",
+            "summary": "Protocol convergence (H3)",
+            "description": "Analyses per-protocol detection rate convergence across iterations using Spearman rank correlation and slope estimation. Supports simulation_mode filter.",
+            "category": "Hypothesis",
+            "parameters": [
+                {"name": "simulation_mode", "type": "string", "default": None, "description": "Filter by simulation mode"},
+            ],
+        },
+        {
+            "method": "GET", "path": "/api/hypothesis/risk-calibration",
+            "summary": "Risk calibration (H4)",
+            "description": "Analyses calibration of ML-predicted risk scores vs observed vulnerability rates using calibration curves and Brier score. Supports simulation_mode filter.",
+            "category": "Hypothesis",
+            "parameters": [
+                {"name": "simulation_mode", "type": "string", "default": None, "description": "Filter by simulation mode"},
+            ],
+        },
+        {
+            "method": "GET", "path": "/api/hypothesis/execution-efficiency",
+            "summary": "Execution efficiency (H5)",
+            "description": "Compares detection coverage of ML-recommended subset vs full suite, computing efficiency ratio and theoretical time savings. Supports simulation_mode filter.",
+            "category": "Hypothesis",
+            "parameters": [
+                {"name": "simulation_mode", "type": "string", "default": None, "description": "Filter by simulation mode"},
+            ],
+        },
+        {
+            "method": "GET", "path": "/api/hypothesis/available-simulation-modes",
+            "summary": "Available simulation modes",
+            "description": "Returns distinct simulation_mode values found in history data. Used by Hypothesis tab to populate filter dropdown.",
+            "category": "Hypothesis",
+        },
+        {
+            "method": "GET", "path": "/api/hypothesis/debug-experiments",
+            "summary": "Debug experiments",
+            "description": "Debug endpoint to inspect experiment directories, history files, and data integrity.",
+            "category": "Hypothesis",
+        },
+        # ── Simulation endpoints ──
+        {
+            "method": "GET", "path": "/api/simulation/profiles",
+            "summary": "List simulation profiles",
+            "description": "Returns all available simulation profiles (deterministic, easy, medium, hard, realistic) with descriptions and probability parameters.",
+            "category": "Simulation",
+            "response_example": {"profiles": [{"name": "realistic", "description": "PhD thesis primary simulation"}]},
+        },
+        {
+            "method": "GET", "path": "/api/simulation/profiles/{name}",
+            "summary": "Get simulation profile",
+            "description": "Returns a specific simulation profile by name with full configuration including probabilities and academic use case.",
+            "category": "Simulation",
+        },
+        {
+            "method": "POST", "path": "/api/simulation/preview",
+            "summary": "Preview simulation (dry-run)",
+            "description": "Dry-run a simulation to preview what events (outages, patches, credential rotations, regressions) would fire across iterations without touching any containers. Useful to verify seed reproducibility and probability distributions.",
+            "category": "Simulation",
+            "request_body": {
+                "mode": {"type": "string", "default": "realistic", "description": "Simulation profile name or 'custom'"},
+                "seed": {"type": "integer", "default": 42, "description": "RNG seed for deterministic event generation"},
+                "iterations": {"type": "integer", "default": 10, "description": "Number of iterations to preview"},
+                "config": {"type": "object", "default": None, "description": "Custom probability config (only when mode=custom)"},
+            },
+            "response_example": {"mode": "realistic", "seed": 42, "iterations": 10, "log": [], "summary": {}},
+        },
+    ]
+
+    # Tech stack
+    tech_stack = {
+        "frontend": {
+            "label": "Frontend Dashboard",
+            "description": "React-based SPA for device management, test generation, and results visualization",
+            "color": "blue",
+            "technologies": [
+                {"name": "React", "version": "18", "role": "UI framework"},
+                {"name": "Vite", "version": "5", "role": "Build tool and dev server"},
+                {"name": "Tailwind CSS", "version": "3", "role": "Utility-first CSS framework"},
+                {"name": "Recharts", "version": "2", "role": "Data visualization charts"},
+                {"name": "Lucide React", "version": "latest", "role": "Icon library"},
+                {"name": "Axios", "version": "latest", "role": "HTTP client"},
+            ],
+            "files": ["dashboard/frontend/src/", "dashboard/frontend/vite.config.js"],
+        },
+        "backend": {
+            "label": "Backend API",
+            "description": "REST API for device scanning, test generation, suite management, and ML integration",
+            "color": "purple",
+            "technologies": [
+                {"name": "FastAPI", "version": "latest", "role": "Web framework"},
+                {"name": "Docker SDK", "version": "latest", "role": "Container orchestration"},
+                {"name": "Pandas", "version": "latest", "role": "Data analysis for history aggregation"},
+                {"name": "Pydantic", "version": "2", "role": "Request/response validation"},
+                {"name": "Jinja2", "version": "latest", "role": "Test template rendering"},
+                {"name": "PyYAML", "version": "latest", "role": "YAML export format"},
+            ],
+            "files": ["dashboard/backend/main.py"],
+        },
+        "scanner": {
+            "label": "Scanner & Test Engine",
+            "description": "Nmap-based network scanner and vulnerability test execution engine with 10 protocol testers",
+            "color": "green",
+            "technologies": [
+                {"name": "python-nmap", "version": "latest", "role": "Network port scanning"},
+                {"name": "requests", "version": "latest", "role": "HTTP vulnerability testing"},
+                {"name": "paramiko", "version": "latest", "role": "SSH testing"},
+                {"name": "paho-mqtt", "version": "latest", "role": "MQTT testing"},
+                {"name": "aiocoap", "version": "latest", "role": "CoAP testing"},
+                {"name": "pymodbus", "version": "latest", "role": "Modbus TCP testing"},
+            ],
+            "files": ["scanners/", "vulnerability_tester/", "utils/", "templates/"],
+        },
+        "automl": {
+            "label": "ML Intelligence Engine",
+            "description": "H2O AutoML for risk scoring and live model retraining",
+            "color": "amber",
+            "technologies": [
+                {"name": "H2O-3", "version": "latest", "role": "AutoML model training and prediction"},
+                {"name": "GBM/XGBoost", "version": "N/A", "role": "Gradient boosting classifiers"},
+                {"name": "Pandas", "version": "latest", "role": "Feature engineering and data prep"},
+            ],
+            "files": ["automl/", "generator/scorer.py", "generator/retrain.py"],
+        },
+        "devices": {
+            "label": "Vulnerable IoT Lab",
+            "description": "Docker-based lab with intentionally vulnerable IoT devices for testing and demos",
+            "color": "red",
+            "technologies": [
+                {"name": "Docker Compose", "version": "latest", "role": "Multi-container orchestration"},
+                {"name": "vsftpd", "version": "2.3.4", "role": "FTP with backdoor vulnerability"},
+                {"name": "OpenSSH", "version": "various", "role": "SSH with weak configurations"},
+                {"name": "Mosquitto", "version": "latest", "role": "MQTT broker (open access)"},
+                {"name": "lighttpd", "version": "latest", "role": "HTTP with misconfigurations"},
+                {"name": "BIND9", "version": "latest", "role": "DNS with open resolver"},
+            ],
+            "files": ["docker-compose.yml", "Dockerfile.*"],
+        },
+        "simulation": {
+            "label": "Environment Simulation Layer",
+            "description": "Probability-based IoT lab mutation for realistic train-loop testing with reproducible RNG",
+            "color": "teal",
+            "technologies": [
+                {"name": "EnvironmentSimulator", "version": "N/A", "role": "Orchestrates per-iteration Docker container manipulation (outages, patches, cred rotations)"},
+                {"name": "SimulationConfig", "version": "N/A", "role": "Dataclass with 6 probability parameters and safety constraints"},
+                {"name": "Simulation Profiles", "version": "N/A", "role": "5 named presets (deterministic, easy, medium, hard, realistic) for academic experiments"},
+                {"name": "PATCHABLE_VULNS", "version": "N/A", "role": "Registry of 15 vulnerability patches across 10 containers with Docker exec commands"},
+                {"name": "ROTATABLE_CREDS", "version": "N/A", "role": "Registry of 3 credential rotation targets (Telnet, HTTP, FTP)"},
+                {"name": "FP/FN Noise Layer", "version": "N/A", "role": "Post-execution noise injection in suite_runner for false positives/negatives"},
+            ],
+            "files": ["simulation/", "simulation/config.py", "simulation/profiles.py", "simulation/actions.py", "simulation/environment.py"],
+        },
+        "infrastructure": {
+            "label": "Generator Framework",
+            "description": "Core test case generation pipeline: registry, engine, scorer, exporter",
+            "color": "gray",
+            "technologies": [
+                {"name": "Test Registry", "version": "N/A", "role": f"Unified registry with {get_total_test_count()} vulnerability tests"},
+                {"name": "Generation Engine", "version": "N/A", "role": "Matches devices to relevant tests from registry"},
+                {"name": "ML Composer", "version": "N/A", "role": "Generates new test variants using composition rules"},
+                {"name": "Risk Scorer", "version": "N/A", "role": "Scores tests by ML-predicted vulnerability probability"},
+                {"name": "Exporter", "version": "N/A", "role": "Exports to JSON, YAML, and executable Python (pytest)"},
+            ],
+            "files": ["generator/", "models/", "templates/"],
+        },
+    }
+
+    # Pipeline phases (replaces old experiment flow)
+    pipeline_phases = [
+        {
+            "id": 1, "name": "Network Discovery", "icon": "Radar", "color": "blue",
+            "description": "Scan the target network or manually add IoT devices.",
+            "details": "Uses Nmap via Docker to scan a CIDR range and discover live hosts with open ports. Devices can also be added manually with IP and port specification. Each discovered device gets protocol classification based on its open ports.",
+            "inputs": ["CIDR network range", "Manual device entries"],
+            "outputs": ["Device inventory with IPs, ports, protocols"],
+            "module": "scanners/nmap_scanner.py",
+        },
+        {
+            "id": 2, "name": "Protocol Selection", "icon": "Shield", "color": "green",
+            "description": "Select which protocols and severity levels to test.",
+            "details": "Users choose which protocols to generate tests for (auto-suggested based on discovered ports). Options include severity filtering, common/uncommon test inclusion, and ML generation mode (conservative/balanced/aggressive).",
+            "inputs": ["Device inventory", "User protocol selection"],
+            "outputs": ["Generation parameters"],
+            "module": "dashboard/frontend/src/components/TestGenerator.jsx",
+        },
+        {
+            "id": 3, "name": "Static Test Generation", "icon": "ListChecks", "color": "green",
+            "description": "Generate test cases from the unified test registry.",
+            "details": f"The test registry contains {get_total_test_count()} vulnerability tests across {len(get_all_protocols())} protocols. For each selected device and protocol, relevant tests are instantiated as TestCase objects with target IP, port, description, OWASP mapping, and severity.",
+            "inputs": ["Generation parameters", "Test Registry"],
+            "outputs": ["Base test suite (static tests)"],
+            "module": "generator/engine.py",
+        },
+        {
+            "id": 4, "name": "Risk Scoring", "icon": "Zap", "color": "amber",
+            "description": "Score all tests by ML-predicted vulnerability probability.",
+            "details": "Uses a trained H2O AutoML model to predict the likelihood of each test finding a vulnerability. Features include port count, protocol diversity, authentication requirements, and test type. Tests are sorted by risk score and high-confidence ones marked as 'recommended'.",
+            "inputs": ["Complete test suite", "Trained H2O model"],
+            "outputs": ["Risk-scored and ranked test suite"],
+            "module": "generator/scorer.py",
+        },
+        {
+            "id": 5, "name": "Export & Execute", "icon": "ListChecks", "color": "blue",
+            "description": "View, export, or execute the generated test suite.",
+            "details": "Test suites can be exported as structured JSON, YAML specs, or executable Python pytest scripts (rendered via Jinja2 templates). Suites can also be executed directly against target devices, with results logged for ML model improvement.",
+            "inputs": ["Scored test suite"],
+            "outputs": ["Exported files (JSON/YAML/Python)", "Execution results"],
+            "module": "generator/exporter.py",
+        },
+        {
+            "id": 6, "name": "Environment Simulation", "icon": "Dices", "color": "teal",
+            "description": "Mutate the IoT lab between train-loop iterations for realistic testing.",
+            "details": "The simulation layer wraps each train-loop iteration with probabilistic environment changes. Before execution, Bernoulli trials decide which containers go offline (service outages), which vulnerabilities get patched, and which credentials are rotated. After execution, changes are restored. A separate FP/FN noise layer in the test runner injects measurement error. All events are deterministic via seeded RNG (seed + iteration × prime) for full reproducibility. Five named profiles (deterministic, easy, medium, hard, realistic) provide preset probability configurations for academic experiments.",
+            "inputs": ["Simulation profile", "RNG seed", "IoT lab containers"],
+            "outputs": ["Mutated environment state", "Simulation event log", "FP/FN noise annotations"],
+            "module": "simulation/environment.py",
+        },
+        {
+            "id": 7, "name": "Learn & Improve", "icon": "Shuffle", "color": "purple",
+            "description": "Retrain the ML model with new execution data for smarter future generation.",
+            "details": "After test execution, results are logged to history with simulation metadata (mode, iteration). The H2O AutoML model retrains on accumulated data, with simulation columns excluded from features to keep the model blind to simulation state. The system gets smarter with every execution cycle. Hypothesis validation endpoints support filtering by simulation mode.",
+            "inputs": ["Execution results", "Accumulated history.csv"],
+            "outputs": ["Updated ML model", "Improved risk scores"],
+            "module": "generator/retrain.py",
+        },
+    ]
+
     return {
-        "api_endpoints": [
-            {
-                "method": "GET",
-                "path": "/",
-                "summary": "Health check",
-                "description": "Returns API status. Use to verify the backend is online.",
-                "category": "Health",
-                "parameters": [],
-                "request_body": None,
-                "response_example": {"status": "ok", "message": "Dashboard API online"},
-            },
-            {
-                "method": "GET",
-                "path": "/experiments",
-                "summary": "List all experiments",
-                "description": "Returns a reverse-chronologically sorted list of experiment folder names (e.g. exp_2025-02-15_10-43-22).",
-                "category": "Experiments",
-                "parameters": [],
-                "request_body": None,
-                "response_example": {"experiments": ["exp_2025-02-15_10-43-22", "exp_2025-02-14_09-20-11"]},
-            },
-            {
-                "method": "GET",
-                "path": "/logs",
-                "summary": "Docker container logs",
-                "description": "Returns recent logs from all running Docker containers. Use the filter parameter to narrow down to a specific container.",
-                "category": "Logs",
-                "parameters": [
-                    {"name": "tail", "type": "int", "default": 80, "description": "Number of log lines to return per container"},
-                    {"name": "filter", "type": "string", "default": None, "description": "Container name substring filter (e.g. 'scanner')"},
-                ],
-                "request_body": None,
-                "response_example": {"logs": {"scanner": "...", "mqtt_no_auth": "..."}},
-            },
-            {
-                "method": "POST",
-                "path": "/experiments/run",
-                "summary": "Run a single experiment",
-                "description": "Starts a single experiment execution in the scanner container. The experiment runs in the background; poll /experiments/status for progress.",
-                "category": "Experiments",
-                "parameters": [],
-                "request_body": {
-                    "mode": {"type": "string", "enum": ["static", "automl"], "description": "Testing strategy"},
-                    "network": {"type": "string", "default": "172.20.0.0/27", "description": "Target network CIDR"},
-                    "extra_args": {"type": "array", "default": [], "description": "Additional CLI arguments"},
-                },
-                "response_example": {"status": "started", "command": "python3 . -n 172.20.0.0/27 -aml"},
-            },
-            {
-                "method": "GET",
-                "path": "/experiments/status",
-                "summary": "Poll experiment status",
-                "description": "Returns the current experiment execution state. Poll every 2s while status is 'running'.",
-                "category": "Experiments",
-                "parameters": [],
-                "request_body": None,
-                "response_example": {"status": "running", "elapsed_seconds": 42.5, "command": "python3 . -n 172.20.0.0/27 -aml"},
-            },
-            {
-                "method": "POST",
-                "path": "/experiments/batch",
-                "summary": "Run batch experiments",
-                "description": "Starts N sequential experiment runs for statistical significance. Poll /experiments/batch/status for progress.",
-                "category": "Experiments",
-                "parameters": [],
-                "request_body": {
-                    "mode": {"type": "string", "default": "automl", "description": "Testing strategy for all runs"},
-                    "network": {"type": "string", "default": "172.20.0.0/27", "description": "Target network CIDR"},
-                    "runs": {"type": "int", "default": 30, "description": "Number of sequential experiments (2-30)"},
-                },
-                "response_example": {"status": "started", "total_runs": 30},
-            },
-            {
-                "method": "GET",
-                "path": "/experiments/batch/status",
-                "summary": "Poll batch execution status",
-                "description": "Returns current batch execution state including completed/total runs and experiment IDs.",
-                "category": "Experiments",
-                "parameters": [],
-                "request_body": None,
-                "response_example": {"status": "running", "completed_runs": 5, "total_runs": 30, "current_run": 6},
-            },
-            {
-                "method": "GET",
-                "path": "/history",
-                "summary": "All experiment metrics",
-                "description": "Returns metrics JSON data from all experiment folders (metrics_static.json, metrics_automl.json, metrics_random.json).",
-                "category": "History",
-                "parameters": [],
-                "request_body": None,
-                "response_example": {"history": [{"experiment": "exp_...", "metrics": {}}]},
-            },
-            {
-                "method": "GET",
-                "path": "/history/summary",
-                "summary": "Aggregate KPIs",
-                "description": "Returns summary statistics: total tests, vulnerabilities found, detection rate, most vulnerable protocol, etc.",
-                "category": "History",
-                "parameters": [
-                    {"name": "experiment", "type": "string", "default": None, "description": "Filter to specific experiment folder"},
-                ],
-                "request_body": None,
-                "response_example": {"summary": {"total_tests": 84, "total_vulns": 48, "detection_rate": 57.1}},
-            },
-            {
-                "method": "GET",
-                "path": "/history/vulns-by-protocol",
-                "summary": "Vulnerabilities grouped by protocol",
-                "description": "Returns vulnerability counts grouped by protocol and test strategy. Used for the protocol bar chart.",
-                "category": "History",
-                "parameters": [
-                    {"name": "experiment", "type": "string", "default": None, "description": "Filter to specific experiment"},
-                ],
-                "request_body": None,
-                "response_example": {"data": [{"protocol": "http", "test_strategy": "automl", "vulns_found": 12}]},
-            },
-            {
-                "method": "GET",
-                "path": "/history/vulns-by-type",
-                "summary": "Vulnerabilities grouped by type",
-                "description": "Returns vulnerability counts grouped by test type (auth, misconfiguration, info_disclosure, etc.).",
-                "category": "History",
-                "parameters": [
-                    {"name": "experiment", "type": "string", "default": None, "description": "Filter to specific experiment"},
-                ],
-                "request_body": None,
-                "response_example": {"data": [{"test_type": "auth", "vulns_found": 15, "detection_rate": 62.5}]},
-            },
-            {
-                "method": "GET",
-                "path": "/history/vulns-by-device",
-                "summary": "Vulnerabilities grouped by device",
-                "description": "Returns vulnerability counts grouped by container ID and protocol, with average execution time.",
-                "category": "History",
-                "parameters": [
-                    {"name": "experiment", "type": "string", "default": None, "description": "Filter to specific experiment"},
-                ],
-                "request_body": None,
-                "response_example": {"data": [{"container_id": "mqtt_no_auth", "protocol": "mqtt", "vulns_found": 4}]},
-            },
-            {
-                "method": "GET",
-                "path": "/history/exec-time-distribution",
-                "summary": "Execution time distribution",
-                "description": "Returns test counts bucketed by execution time ranges (<100ms, 100-500ms, 500ms-1s, 1-5s, 5-10s, >10s).",
-                "category": "History",
-                "parameters": [
-                    {"name": "experiment", "type": "string", "default": None, "description": "Filter to specific experiment"},
-                ],
-                "request_body": None,
-                "response_example": {"data": [{"time_bucket": "<100ms", "test_strategy": "static", "count": 12}]},
-            },
-            {
-                "method": "GET",
-                "path": "/history/cumulative-vulns",
-                "summary": "Cumulative vulnerability discovery curve",
-                "description": "Returns time-series cumulative vulnerability count per strategy. Shows discovery rate over test iterations.",
-                "category": "History",
-                "parameters": [
-                    {"name": "experiment", "type": "string", "default": None, "description": "Filter to specific experiment"},
-                ],
-                "request_body": None,
-                "response_example": {"data": [{"test_strategy": "automl", "test_index": 5, "cumulative_vulns": 8}]},
-            },
-            {
-                "method": "GET",
-                "path": "/history/strategy-comparison",
-                "summary": "Strategy comparison metrics",
-                "description": "Returns aggregated metrics per strategy: total tests, vulns found, detection rate, efficiency, execution time.",
-                "category": "History",
-                "parameters": [
-                    {"name": "experiment", "type": "string", "default": None, "description": "Filter to specific experiment"},
-                ],
-                "request_body": None,
-                "response_example": {"data": [{"test_strategy": "automl", "total_tests": 43, "vulns_found": 48, "efficiency": 1.116}]},
-            },
-            {
-                "method": "GET",
-                "path": "/history/automl-scores",
-                "summary": "AutoML risk scores",
-                "description": "Returns the top 100 test candidates ranked by model-predicted risk score from automl_tests.csv.",
-                "category": "History",
-                "parameters": [
-                    {"name": "experiment", "type": "string", "default": None, "description": "Filter to specific experiment"},
-                ],
-                "request_body": None,
-                "response_example": {"data": [{"test_id": "http_sqli_probe", "risk_score": 0.9234, "selected": True}]},
-            },
-            {
-                "method": "GET",
-                "path": "/history/detail",
-                "summary": "Raw test execution data",
-                "description": "Returns raw CSV rows from history.csv with all 16 columns. Supports pagination via limit parameter.",
-                "category": "History",
-                "parameters": [
-                    {"name": "experiment", "type": "string", "default": None, "description": "Filter to specific experiment"},
-                    {"name": "limit", "type": "int", "default": 5000, "description": "Maximum number of rows to return"},
-                ],
-                "request_body": None,
-                "response_example": {"rows": [{"test_id": "http_directory_listing", "vulnerability_found": 1}], "total": 84},
-            },
-            {
-                "method": "GET",
-                "path": "/experiments/model-metrics",
-                "summary": "H2O AutoML model performance",
-                "description": "Returns the leader model metrics from the most recent experiment: AUC, logloss, feature importance, leaderboard, and ROC curve data.",
-                "category": "Analysis",
-                "parameters": [],
-                "request_body": None,
-                "response_example": {"auc": 0.92, "logloss": 0.31, "feature_importance": [], "leaderboard": []},
-            },
-            {
-                "method": "GET",
-                "path": "/experiments/learning-curve",
-                "summary": "Statistical learning curve",
-                "description": "Returns cumulative statistical metrics (p-value, Cohen's d, power) as experiments accumulate. Shows convergence to significance.",
-                "category": "Analysis",
-                "parameters": [],
-                "request_body": None,
-                "response_example": {"data": [{"n": 5, "p_value": 0.12, "cohens_d": 0.8, "power": 0.65}]},
-            },
-            {
-                "method": "GET",
-                "path": "/experiments/analysis",
-                "summary": "Full statistical hypothesis testing",
-                "description": "Performs comprehensive statistical analysis: normality tests, paired t-test/Wilcoxon, effect size (Cohen's d), confidence intervals, power analysis, permutation test, per-protocol Fisher's exact test, multiple comparison corrections, and efficiency metrics.",
-                "category": "Analysis",
-                "parameters": [
-                    {"name": "experiments", "type": "string", "default": None, "description": "Comma-separated list of experiment IDs to analyze"},
-                ],
-                "request_body": None,
-                "response_example": {"descriptive": {}, "primary_test": {"p_value": 0.003}, "effect_size": {"cohens_d": 1.24}},
-            },
-            {
-                "method": "GET",
-                "path": "/architecture/metadata",
-                "summary": "Architecture metadata",
-                "description": "Returns comprehensive architecture metadata including API endpoints, Docker containers, protocols, experiment phases, and tech stack.",
-                "category": "Architecture",
-                "parameters": [],
-                "request_body": None,
-                "response_example": {"api_endpoints": [], "containers": [], "protocols": {}, "tech_stack": {}},
-            },
-        ],
-        "containers": [
-            {"name": "ftp_anonymous", "ip": "172.20.0.10", "ports": [21], "role": "vulnerable_device", "protocol": "FTP", "tech": "fauria/vsftpd", "description": "FTP server with anonymous access enabled"},
-            {"name": "ftp_credentials_vuln", "ip": "172.20.0.20", "ports": [21], "role": "vulnerable_device", "protocol": "FTP", "tech": "stilliard/pure-ftpd", "description": "FTP server with weak credentials (admin/admin)"},
-            {"name": "ftp_banner", "ip": "172.20.0.13", "ports": [21], "role": "vulnerable_device", "protocol": "FTP", "tech": "stilliard/pure-ftpd:hardened", "description": "FTP server exposing banner information"},
-            {"name": "http_traversal", "ip": "172.20.0.11", "ports": [80], "role": "vulnerable_device", "protocol": "HTTP", "tech": "Custom (Flask)", "description": "HTTP server vulnerable to directory traversal"},
-            {"name": "http_admin_default_creds", "ip": "172.20.0.14", "ports": [80], "role": "vulnerable_device", "protocol": "HTTP", "tech": "Custom (Flask)", "description": "Admin panel with default credentials"},
-            {"name": "http_directory_listing", "ip": "172.20.0.15", "ports": [80], "role": "vulnerable_device", "protocol": "HTTP", "tech": "httpd:2.4 (Apache)", "description": "HTTP server with directory listing enabled"},
-            {"name": "http_api_vuln", "ip": "172.20.0.23", "ports": [80], "role": "vulnerable_device", "protocol": "HTTP", "tech": "Custom (Flask)", "description": "HTTP API with various vulnerabilities"},
-            {"name": "telnet_insecure", "ip": "172.20.0.12", "ports": [23], "role": "vulnerable_device", "protocol": "Telnet", "tech": "Custom (telnetd)", "description": "Insecure telnet service with no encryption"},
-            {"name": "mqtt_no_auth", "ip": "172.20.0.16", "ports": [1883], "role": "vulnerable_device", "protocol": "MQTT", "tech": "Custom (Mosquitto)", "description": "MQTT broker without authentication"},
-            {"name": "ssh_old_banner", "ip": "172.20.0.17", "ports": [22], "role": "vulnerable_device", "protocol": "SSH", "tech": "rastasheep/ubuntu-sshd", "description": "SSH server with old version and weak configuration"},
-            {"name": "coap_vuln", "ip": "172.20.0.21", "ports": [5683], "role": "vulnerable_device", "protocol": "CoAP", "tech": "Custom (aiocoap)", "description": "CoAP server with exposed resources"},
-            {"name": "modbus_vuln", "ip": "172.20.0.22", "ports": [502], "role": "vulnerable_device", "protocol": "Modbus", "tech": "Custom (pymodbus)", "description": "Modbus TCP device with unauthenticated access"},
-            {"name": "dns_vuln", "ip": "172.20.0.24", "ports": [53], "role": "vulnerable_device", "protocol": "DNS", "tech": "Custom (dnslib)", "description": "DNS server configured as open resolver"},
-            {"name": "h2o-automl", "ip": "172.20.0.18", "ports": [54321], "role": "infrastructure", "protocol": "HTTP", "tech": "h2oai/h2o-open-source-k8s-minimal", "description": "H2O AutoML server for model training and prediction"},
-            {"name": "scanner", "ip": "172.20.0.19", "ports": [], "role": "infrastructure", "protocol": None, "tech": "Python 3.10 + nmap", "description": "Main scanner container that runs vulnerability tests and AutoML pipeline"},
-            {"name": "dashboard_api", "ip": None, "ports": [8000], "role": "infrastructure", "protocol": "HTTP", "tech": "Python 3.10 + FastAPI", "description": "REST API backend for the dashboard UI"},
-            {"name": "dashboard_ui", "ip": None, "ports": [5173], "role": "infrastructure", "protocol": "HTTP", "tech": "React 18 + Vite + Nginx", "description": "Single-page application dashboard frontend"},
-        ],
-        "protocols": {
-            "FTP": {
-                "port": 21,
-                "static_tests": 1,
-                "adaptive_tests": 2,
-                "static_test_ids": ["ftp_anonymous_login"],
-                "adaptive_test_ids": ["ftp_anonymous_real", "ftp_weak_creds_ext"],
-                "description": "File Transfer Protocol - tests for anonymous access and weak credentials",
-            },
-            "HTTP": {
-                "port": 80,
-                "static_tests": 9,
-                "adaptive_tests": 8,
-                "static_test_ids": ["http_default_credentials", "http_directory_listing", "http_directory_traversal", "http_dangerous_methods", "http_missing_sec_headers", "http_sensitive_files", "http_open_admin", "http_verbose_server", "http_no_auth"],
-                "adaptive_test_ids": ["http_sensitive_files_ext", "http_open_admin_ext", "http_cors_misconfig", "http_insecure_cookies", "http_trace_method", "http_default_creds_ext", "http_traversal_encoded", "http_sqli_probe"],
-                "description": "Hypertext Transfer Protocol - comprehensive web vulnerability testing",
-            },
-            "SSH": {
-                "port": 22,
-                "static_tests": 6,
-                "adaptive_tests": 2,
-                "static_test_ids": ["ssh_weak_auth", "ssh_root_login", "ssh_password_auth", "ssh_old_version", "ssh_weak_crypto", "ssh_no_auth_limit"],
-                "adaptive_test_ids": ["ssh_weak_auth_ext", "ssh_weak_kex"],
-                "description": "Secure Shell - tests for weak authentication, crypto, and configuration",
-            },
-            "Telnet": {
-                "port": 23,
-                "static_tests": 1,
-                "adaptive_tests": 3,
-                "static_test_ids": ["telnet_open"],
-                "adaptive_test_ids": ["telnet_default_creds", "telnet_banner_leak", "telnet_no_encryption"],
-                "description": "Telnet Protocol - tests for open service, default credentials, and info leaks",
-            },
-            "MQTT": {
-                "port": 1883,
-                "static_tests": 4,
-                "adaptive_tests": 3,
-                "static_test_ids": ["mqtt_open_access", "mqtt_anon_publish", "mqtt_acl_bypass", "mqtt_topic_enum"],
-                "adaptive_test_ids": ["mqtt_retained_messages", "mqtt_wildcard_sub", "mqtt_sensitive_topics"],
-                "description": "Message Queuing Telemetry Transport - IoT messaging protocol vulnerability tests",
-            },
-            "RTSP": {
-                "port": 554,
-                "static_tests": 1,
-                "adaptive_tests": 3,
-                "static_test_ids": ["rtsp_open"],
-                "adaptive_test_ids": ["rtsp_default_creds", "rtsp_unauth_describe", "rtsp_path_traversal"],
-                "description": "Real-Time Streaming Protocol - tests for unauthorized media access",
-            },
-            "CoAP": {
-                "port": 5683,
-                "static_tests": 3,
-                "adaptive_tests": 3,
-                "static_test_ids": ["coap_core_discovery", "coap_open_resource", "coap_get"],
-                "adaptive_test_ids": ["coap_hidden_resource", "coap_put_allowed", "coap_delete_allowed"],
-                "description": "Constrained Application Protocol - lightweight IoT protocol vulnerability tests",
-            },
-            "Modbus": {
-                "port": 502,
-                "static_tests": 2,
-                "adaptive_tests": 5,
-                "static_test_ids": ["modbus_read_register", "modbus_device_id"],
-                "adaptive_test_ids": ["modbus_write_coil", "modbus_read_input_reg", "modbus_read_discrete", "modbus_read_coils", "modbus_write_register"],
-                "description": "Modbus TCP - industrial protocol tests for unauthorized register access",
-            },
-            "DNS": {
-                "port": 53,
-                "static_tests": 2,
-                "adaptive_tests": 3,
-                "static_test_ids": ["dns_open_resolver", "dns_internal_disclosure"],
-                "adaptive_test_ids": ["dns_cache_snoop", "dns_any_query", "dns_version_disclosure"],
-                "description": "Domain Name System - tests for open resolver, cache snooping, and info disclosure",
-            },
+        "containers": containers,
+        "api_endpoints": api_endpoints,
+        "protocols": protocols,
+        "tech_stack": tech_stack,
+        "pipeline_phases": pipeline_phases,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# SCANNING & DEVICES
+# ═══════════════════════════════════════════════════════════════════════
+
+@app.post("/api/scan")
+def start_scan(req: ScanRequest, background_tasks: BackgroundTasks):
+    with _scan_lock:
+        if _scan_state["status"] == "running":
+            return {"status": "error", "message": "Scan already running"}
+
+        _scan_state["status"] = "running"
+        _scan_state["started_at"] = datetime.now().isoformat()
+        _scan_state["devices"] = []
+        _scan_state["error"] = None
+
+    def _do_scan():
+        try:
+            container = docker_client.containers.get(SCANNER_CONTAINER_NAME)
+            cmd = f"python3 -c \"from scanners.nmap_scanner import explore; import argparse; args=argparse.Namespace(network='{req.network}', ports='{req.extra_ports or ''}', verbose=False); devices=explore(args); import json; print(json.dumps([{{'ip':d.ip,'mac':d.mac,'hostname':d.hostname,'ports':d.ports,'is_iot':d.is_iot,'os':d.os,'device_type':d.device_type}} for d in devices]))\""
+
+            exit_code, output = container.exec_run(cmd, demux=False)
+            output_str = output.decode(errors="ignore").strip()
+
+            # Parse JSON output from the last line
+            lines = output_str.split("\n")
+            json_line = ""
+            for line in reversed(lines):
+                line = line.strip()
+                if line.startswith("["):
+                    json_line = line
+                    break
+
+            if json_line:
+                devices = json.loads(json_line)
+            else:
+                devices = []
+
+            with _scan_lock:
+                _scan_state["status"] = "completed"
+                _scan_state["devices"] = devices
+
+        except Exception as e:
+            with _scan_lock:
+                _scan_state["status"] = "error"
+                _scan_state["error"] = str(e)
+
+    background_tasks.add_task(_do_scan)
+    return {"status": "started", "network": req.network}
+
+
+@app.get("/api/scan/status")
+def scan_status():
+    with _scan_lock:
+        return dict(_scan_state)
+
+
+@app.get("/api/scan/results")
+def scan_results():
+    with _scan_lock:
+        return {"devices": _scan_state.get("devices", []), "status": _scan_state["status"]}
+
+
+@app.post("/api/devices")
+def add_device(device: DeviceInput):
+    from utils.protocols import PORT_PROTOCOL_MAP
+
+    protocols = sorted(set(
+        PORT_PROTOCOL_MAP.get(p, "generic")
+        for p in device.ports
+        if PORT_PROTOCOL_MAP.get(p) is not None
+    ))
+
+    dev = {
+        "ip": device.ip,
+        "mac": None,
+        "hostname": None,
+        "ports": device.ports,
+        "is_iot": True,
+        "os": None,
+        "device_type": "manual",
+        "protocols": protocols,
+    }
+
+    with _devices_lock:
+        # Replace if same IP exists
+        _manual_devices[:] = [d for d in _manual_devices if d["ip"] != device.ip]
+        _manual_devices.append(dev)
+
+    return {"status": "ok", "device": dev}
+
+
+@app.get("/api/devices")
+def list_devices():
+    with _scan_lock:
+        scanned = _scan_state.get("devices", [])
+    with _devices_lock:
+        manual = list(_manual_devices)
+
+    # Merge: scanned + manual (manual overrides same IP)
+    all_ips = set()
+    merged = []
+    for d in manual:
+        all_ips.add(d["ip"])
+        merged.append({**d, "source": "manual"})
+    for d in scanned:
+        if d["ip"] not in all_ips:
+            merged.append({**d, "source": "scanned"})
+
+    return {"devices": merged, "total": len(merged)}
+
+
+@app.delete("/api/devices/{ip}")
+def remove_device(ip: str):
+    with _devices_lock:
+        before = len(_manual_devices)
+        _manual_devices[:] = [d for d in _manual_devices if d["ip"] != ip]
+        removed = before - len(_manual_devices)
+    return {"status": "ok", "removed": removed}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# TEST GENERATION
+# ═══════════════════════════════════════════════════════════════════════
+
+@app.post("/api/generate")
+def generate_tests(req: GenerateRequest):
+    """Generate or enhance a test suite for the selected devices and protocols."""
+    if not req.devices:
+        raise HTTPException(400, "No devices provided")
+
+    # Step 1: Compute fingerprint for this configuration
+    fingerprint = _compute_suite_fingerprint(
+        req.devices, req.protocols, req.severity_filter, req.include_uncommon
+    )
+
+    # Step 2: Check for existing matching suite (unless force_new)
+    existing = None
+    if not req.force_new:
+        existing = _find_matching_suite(fingerprint)
+
+    if existing:
+        # ── ENHANCE existing suite ──────────────────────────────────────
+        suite = TestSuite.from_dict(existing)
+
+        # Update name if user provided a new one
+        if req.name:
+            suite.name = req.name
+
+        # Detect new tests from registry that aren't in the suite yet
+        fresh_suite = generate_test_suite(
+            devices=req.devices,
+            selected_protocols=req.protocols,
+            severity_filter=req.severity_filter,
+            include_uncommon=req.include_uncommon,
+            name="",
+        )
+        existing_keys = {
+            (tc.test_id, tc.target_ip, tc.port) for tc in suite.test_cases
+        }
+        new_tests = [
+            tc for tc in fresh_suite.test_cases
+            if (tc.test_id, tc.target_ip, tc.port) not in existing_keys
+        ]
+        if new_tests:
+            suite.test_cases.extend(new_tests)
+
+        # Re-score ALL tests with the latest ML model
+        try:
+            suite = score_test_suite(suite)
+        except Exception as e:
+            logging.warning(f"[API] Scorer error during enhancement (non-fatal): {e}")
+
+        # Update metadata
+        enhancement_count = suite.metadata.get("enhancement_count", 0) + 1
+        suite.metadata["enhancement_count"] = enhancement_count
+        suite.metadata["last_enhanced_at"] = datetime.utcnow().isoformat()
+        suite.metadata["tests_added_on_enhance"] = len(new_tests)
+        suite.metadata["fingerprint"] = fingerprint
+
+        _save_suite(suite)
+
+        result = suite.to_dict()
+        result["action"] = "enhanced"
+        result["tests_added"] = len(new_tests)
+        return result
+    else:
+        # ── CREATE new suite ────────────────────────────────────────────
+        suite = generate_test_suite(
+            devices=req.devices,
+            selected_protocols=req.protocols,
+            severity_filter=req.severity_filter,
+            include_uncommon=req.include_uncommon,
+            name=req.name,
+        )
+
+        try:
+            suite = score_test_suite(suite)
+        except Exception as e:
+            logging.warning(f"[API] Scorer error (non-fatal): {e}")
+
+        # Set fingerprint and initial metadata
+        suite.metadata["fingerprint"] = fingerprint
+        suite.metadata["enhancement_count"] = 0
+        suite.metadata["last_enhanced_at"] = None
+        suite.metadata["tests_added_on_enhance"] = 0
+
+        _save_suite(suite)
+
+        result = suite.to_dict()
+        result["action"] = "created"
+        result["tests_added"] = 0
+        return result
+
+
+@app.get("/api/suites")
+def list_suites():
+    suites = []
+    if os.path.exists(SUITES_PATH):
+        for fname in sorted(os.listdir(SUITES_PATH), reverse=True):
+            if fname.endswith(".json"):
+                fpath = os.path.join(SUITES_PATH, fname)
+                try:
+                    with open(fpath) as f:
+                        data = json.load(f)
+                    meta = data.get("metadata", {})
+                    suites.append({
+                        "suite_id": data.get("suite_id"),
+                        "name": data.get("name"),
+                        "created_at": data.get("created_at"),
+                        "total_tests": data.get("total_tests", 0),
+                        "protocols": data.get("protocols", []),
+                        "recommended_count": data.get("recommended_count", 0),
+                        "device_count": len(data.get("devices", [])),
+                        "enhancement_count": meta.get("enhancement_count", 0),
+                        "last_enhanced_at": meta.get("last_enhanced_at"),
+                        "fingerprint": meta.get("fingerprint"),
+                    })
+                except Exception:
+                    continue
+
+    return {"suites": suites}
+
+
+@app.get("/api/suites/{suite_id}")
+def get_suite(suite_id: str):
+    suite_data = _load_suite(suite_id)
+    if not suite_data:
+        raise HTTPException(404, f"Suite {suite_id} not found")
+    return suite_data
+
+
+@app.get("/api/suites/{suite_id}/export")
+def export_suite(suite_id: str, format: str = "json"):
+    suite_data = _load_suite(suite_id)
+    if not suite_data:
+        raise HTTPException(404, f"Suite {suite_id} not found")
+
+    suite = TestSuite.from_dict(suite_data)
+
+    if format == "json":
+        return PlainTextResponse(export_json(suite), media_type="application/json")
+    elif format == "yaml":
+        return PlainTextResponse(export_yaml(suite), media_type="text/yaml")
+    elif format == "python":
+        return PlainTextResponse(export_python(suite), media_type="text/x-python")
+    else:
+        raise HTTPException(400, f"Unsupported format: {format}. Use json, yaml, or python.")
+
+
+@app.delete("/api/suites/{suite_id}")
+def delete_suite(suite_id: str):
+    fpath = os.path.join(SUITES_PATH, f"suite_{suite_id}.json")
+    if os.path.exists(fpath):
+        os.remove(fpath)
+        return {"status": "ok", "deleted": suite_id}
+    raise HTTPException(404, f"Suite {suite_id} not found")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# TEST EXECUTION
+# ═══════════════════════════════════════════════════════════════════════
+
+def _execute_suite_and_retrain(
+    suite_id: str,
+    suite: "TestSuite",
+    on_phase: "Optional[callable]" = None,
+    simulation_context: "Optional[dict]" = None,
+    skip_training: bool = False,
+) -> dict:
+    """Core run + retrain logic shared by single-run and auto-train loop.
+
+    *on_phase* is an optional ``(phase: str) -> None`` callback so the
+    caller (e.g. the loop) can track the current phase ("running" →
+    "training").
+
+    *simulation_context* is an optional dict with simulation parameters
+    (mode, seed, iteration, false_positive_rate, false_negative_rate)
+    that gets passed to the suite runner for FP/FN noise injection.
+
+    *skip_training* when True skips Phase 2 (retrain) and Phase 3
+    (re-score), only executing the suite. Used by train_every_n to
+    batch executions before training.
+
+    Returns ``{"run_result": dict, "retrain_result": dict | None}``.
+    """
+    retrain_result = None
+
+    try:
+        # ── Phase 1: Execute suite via Docker ──────────────────────────
+        if on_phase:
+            on_phase("running")
+
+        with _run_lock:
+            _run_state["status"] = "running"
+            _run_state["suite_id"] = suite_id
+            _run_state["started_at"] = datetime.now().isoformat()
+            _run_state["finished_at"] = None
+            _run_state["progress"] = 0
+            _run_state["total_tests"] = suite.total_tests
+            _run_state["error"] = None
+
+        container = docker_client.containers.get(SCANNER_CONTAINER_NAME)
+
+        # Write simulation context to shared volume for the scanner to pick up
+        _sim_context_path = os.path.join("/app", "simulation", "runner_context.json")
+        try:
+            os.makedirs(os.path.dirname(_sim_context_path), exist_ok=True)
+            if simulation_context:
+                with open(_sim_context_path, "w") as _sf:
+                    json.dump(simulation_context, _sf)
+            elif os.path.exists(_sim_context_path):
+                os.remove(_sim_context_path)
+        except Exception as e:
+            logging.warning(f"[API] Could not write simulation context: {e}")
+
+        cmd = (
+            f"python3 -c \""
+            f"import json, sys; "
+            f"sys.path.insert(0, '/app'); "
+            f"from utils.suite_runner import run_suite_from_json; "
+            f"result = run_suite_from_json('{os.path.join(SUITES_PATH, f'suite_{suite_id}.json')}'); "
+            f"print(json.dumps(result))"
+            f"\""
+        )
+
+        exit_code, output = container.exec_run(cmd, demux=False)
+        output_str = output.decode(errors="ignore").strip()
+
+        if exit_code != 0:
+            logging.error(f"[API] Scanner exited with code {exit_code}")
+            result = {
+                "status": "error",
+                "error": f"Scanner exited with code {exit_code}",
+                "output": output_str[-2000:] if len(output_str) > 2000 else output_str,
+                "tests_executed": 0,
+                "vulns_detected": 0,
+            }
+        else:
+            result = {"status": "completed", "output": output_str}
+            try:
+                lines = output_str.split("\n")
+                for line in reversed(lines):
+                    if line.strip().startswith("{"):
+                        result = json.loads(line.strip())
+                        break
+            except Exception:
+                pass
+
+        # Save result
+        result["suite_id"] = suite_id
+        result["finished_at"] = datetime.now().isoformat()
+        result_path = os.path.join(RESULTS_PATH, f"result_{suite_id}_{int(time.time())}.json")
+        with open(result_path, "w") as f:
+            json.dump(result, f, indent=2, default=str)
+
+        # Log experiment directory info for debugging hypothesis data
+        exp_dir = result.get("experiment_dir")
+        history_csv = result.get("history_csv")
+        logging.info(f"[API] Run completed. experiment_dir={exp_dir}, history_csv={history_csv}")
+        if history_csv:
+            logging.info(f"[API] history_csv exists: {os.path.exists(str(history_csv))}")
+        # Verify experiment files are visible to dashboard-api
+        import glob as _glob
+        _exp_files = _glob.glob(os.path.join(EXPERIMENTS_PATH, "exp_*", "history.csv"))
+        logging.info(f"[API] Total experiment history files visible: {len(_exp_files)}")
+
+        with _run_lock:
+            _run_state["status"] = result.get("status", "completed")
+            _run_state["finished_at"] = datetime.now().isoformat()
+            _run_state["progress"] = suite.total_tests
+            if result.get("status") == "error":
+                _run_state["error"] = result.get("error", "Unknown execution error")
+
+        # ── Phase 2: Retrain ML model (skipped when skip_training=True) ─
+        if skip_training:
+            logging.info(f"[API] Skipping training for suite {suite_id} (skip_training=True)")
+        else:
+            if on_phase:
+                on_phase("training")
+
+            try:
+                from generator.retrain import retrain_model_after_execution, aggregate_history
+
+                with _train_lock:
+                    _train_state["status"] = "training"
+                    _train_state["started_at"] = datetime.now().isoformat()
+                    _train_state["finished_at"] = None
+                    _train_state["error"] = None
+                    _train_state["auc"] = None
+                    _train_state["training_rows"] = None
+
+                agg_path = aggregate_history(EXPERIMENTS_PATH)
+                if not agg_path:
+                    retrain_result = {"status": "error", "message": "No history data to train on"}
+                    with _train_lock:
+                        _train_state["status"] = "error"
+                        _train_state["finished_at"] = datetime.now().isoformat()
+                        _train_state["error"] = "No history data to train on"
+                else:
+                    retrain_result = retrain_model_after_execution(agg_path)
+                    with _train_lock:
+                        if retrain_result.get("status") in ("error", "insufficient_data"):
+                            _train_state["status"] = "error"
+                            _train_state["error"] = retrain_result.get("message", "Training failed")
+                        else:
+                            _train_state["status"] = "completed"
+                            _train_state["auc"] = retrain_result.get("auc")
+                            _train_state["training_rows"] = retrain_result.get("training_rows")
+                        _train_state["finished_at"] = datetime.now().isoformat()
+            except Exception as e:
+                logging.warning(f"[API] Retrain error (non-fatal): {e}")
+                retrain_result = {"status": "error", "message": str(e)}
+                with _train_lock:
+                    _train_state["status"] = "error"
+                    _train_state["finished_at"] = datetime.now().isoformat()
+                    _train_state["error"] = str(e)
+
+        # ── Phase 3: Re-score suite with updated model ─────────────────
+        score_result = None
+        if not skip_training and retrain_result and retrain_result.get("status") not in ("error", "insufficient_data"):
+            if on_phase:
+                on_phase("scoring")
+            try:
+                # Reload suite from disk (may have changed) and re-score
+                suite_data = _load_suite(suite_id)
+                if suite_data:
+                    from generator.scorer import score_test_suite as _score
+
+                    fresh_suite = TestSuite.from_dict(suite_data)
+                    fresh_suite = _score(fresh_suite)
+
+                    # Update metadata to reflect auto-scoring
+                    fresh_suite.metadata["last_scored_at"] = datetime.utcnow().isoformat()
+                    fresh_suite.metadata["scored_with_auc"] = retrain_result.get("auc")
+
+                    _save_suite(fresh_suite)
+
+                    scored = sum(1 for tc in fresh_suite.test_cases if tc.risk_score is not None)
+                    recommended = sum(1 for tc in fresh_suite.test_cases if tc.is_recommended)
+                    score_result = {
+                        "status": "scored",
+                        "scored_tests": scored,
+                        "recommended_tests": recommended,
+                    }
+                    logging.info(
+                        f"[API] Suite {suite_id} auto-scored after training: "
+                        f"{scored} scored, {recommended} recommended"
+                    )
+            except Exception as e:
+                logging.warning(f"[API] Auto-score after retrain failed (non-fatal): {e}")
+                score_result = {"status": "error", "message": str(e)}
+
+        return {"run_result": result, "retrain_result": retrain_result, "score_result": score_result}
+
+    except Exception as e:
+        with _run_lock:
+            _run_state["status"] = "error"
+            _run_state["error"] = str(e)
+            _run_state["finished_at"] = datetime.now().isoformat()
+        return {
+            "run_result": {"status": "error", "error": str(e), "tests_executed": 0, "vulns_detected": 0},
+            "retrain_result": None,
+            "score_result": None,
+        }
+
+
+@app.post("/api/suites/{suite_id}/run")
+def run_suite(suite_id: str, background_tasks: BackgroundTasks):
+    with _run_lock:
+        if _run_state["status"] == "running":
+            return {"status": "error", "message": "A test suite is already running"}
+
+    suite_data = _load_suite(suite_id)
+    if not suite_data:
+        raise HTTPException(404, f"Suite {suite_id} not found")
+
+    suite = TestSuite.from_dict(suite_data)
+
+    def _do_run():
+        _execute_suite_and_retrain(suite_id, suite)
+
+    background_tasks.add_task(_do_run)
+    return {"status": "started", "suite_id": suite_id, "total_tests": suite.total_tests}
+
+
+@app.get("/api/suites/{suite_id}/run/status")
+def run_status(suite_id: str):
+    with _run_lock:
+        return dict(_run_state)
+
+
+@app.get("/api/run/active")
+def run_active():
+    """Global run status (no suite_id needed). Used to resume UI polling after tab switch."""
+    with _run_lock:
+        return dict(_run_state)
+
+
+@app.get("/api/loop/active")
+def loop_active():
+    """Global loop status (no suite_id needed). Used to resume UI polling after tab switch."""
+    with _loop_lock:
+        return dict(_loop_state)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# AUTO-TRAIN LOOP
+# ═══════════════════════════════════════════════════════════════════════
+
+_loop_lock = threading.Lock()
+_loop_state = {
+    "status": "idle",           # idle | running | completed | error | cancelled
+    "suite_id": None,
+    "current_iteration": 0,
+    "total_iterations": 0,
+    "phase": "idle",            # idle | running | training | between_iterations
+    "started_at": None,
+    "finished_at": None,
+    "error": None,
+    "cancelled": False,
+    "iterations": [],           # per-iteration metrics
+    "train_every_n": 0,         # 0 = train only last, N = every Nth + last
+}
+
+
+@app.post("/api/suites/{suite_id}/train-loop")
+def start_train_loop(suite_id: str, req: TrainLoopRequest, background_tasks: BackgroundTasks):
+    if req.iterations < 1 or req.iterations > 100:
+        raise HTTPException(400, "Iterations must be between 1 and 100")
+    if req.train_every_n < 0 or req.train_every_n > req.iterations:
+        raise HTTPException(400, f"train_every_n must be between 0 and {req.iterations}")
+
+    with _run_lock:
+        if _run_state["status"] == "running":
+            return {"status": "error", "message": "A test suite is already running"}
+    with _loop_lock:
+        if _loop_state["status"] == "running":
+            return {"status": "error", "message": "An auto-train loop is already running"}
+
+    suite_data = _load_suite(suite_id)
+    if not suite_data:
+        raise HTTPException(404, f"Suite {suite_id} not found")
+
+    suite = TestSuite.from_dict(suite_data)
+
+    # ── Build simulation config ──
+    if req.simulation_mode == "custom" and req.simulation_config:
+        sim_config = SimulationConfig.from_dict({
+            **req.simulation_config,
+            "mode": "custom",
+            "seed": req.simulation_seed,
+        })
+    else:
+        try:
+            sim_config = get_profile(req.simulation_mode)
+            sim_config.seed = req.simulation_seed
+        except ValueError:
+            raise HTTPException(400, f"Unknown simulation mode: {req.simulation_mode}")
+
+    with _loop_lock:
+        _loop_state["status"] = "running"
+        _loop_state["suite_id"] = suite_id
+        _loop_state["current_iteration"] = 0
+        _loop_state["total_iterations"] = req.iterations
+        _loop_state["phase"] = "idle"
+        _loop_state["started_at"] = datetime.now().isoformat()
+        _loop_state["finished_at"] = None
+        _loop_state["error"] = None
+        _loop_state["cancelled"] = False
+        _loop_state["iterations"] = []
+        _loop_state["simulation_mode"] = req.simulation_mode
+        _loop_state["simulation_seed"] = req.simulation_seed
+        _loop_state["train_every_n"] = req.train_every_n
+
+    def _do_loop():
+        # Create simulator (uses dashboard-api's Docker socket)
+        simulator = EnvironmentSimulator(
+            config=sim_config,
+            docker_client=docker_client if sim_config.is_active() else None,
+        )
+
+        try:
+            for i in range(1, req.iterations + 1):
+                # Check cancellation between iterations
+                with _loop_lock:
+                    if _loop_state["cancelled"]:
+                        _loop_state["status"] = "cancelled"
+                        _loop_state["phase"] = "idle"
+                        _loop_state["finished_at"] = datetime.now().isoformat()
+                        simulator.cleanup()
+                        return
+                    _loop_state["current_iteration"] = i
+
+                iter_start = datetime.now().isoformat()
+
+                # ── Simulation: prepare environment before test execution ──
+                with _loop_lock:
+                    _loop_state["phase"] = "simulation_prepare"
+                sim_actions = simulator.prepare_iteration(i)
+
+                # Phase callback so _loop_state reflects current activity
+                def _on_phase(phase: str):
+                    with _loop_lock:
+                        _loop_state["phase"] = phase
+
+                # Pass simulation context to the suite runner
+                sim_context = {
+                    "mode": sim_config.mode,
+                    "seed": sim_config.seed,
+                    "iteration": i,
+                    "false_positive_rate": sim_config.false_positive_rate,
+                    "false_negative_rate": sim_config.false_negative_rate,
+                } if sim_config.is_active() else None
+
+                # Decide whether to train on this iteration
+                _ten = req.train_every_n
+                if _ten == 0:
+                    should_train = (i == req.iterations)  # only last
+                else:
+                    should_train = (i % _ten == 0) or (i == req.iterations)  # every Nth + last
+
+                outcome = _execute_suite_and_retrain(
+                    suite_id, suite, on_phase=_on_phase,
+                    simulation_context=sim_context,
+                    skip_training=not should_train,
+                )
+
+                # ── Simulation: restore outaged containers after tests ──
+                with _loop_lock:
+                    _loop_state["phase"] = "simulation_restore"
+                simulator.restore_iteration(i)
+
+                # Check cancellation after iteration
+                with _loop_lock:
+                    if _loop_state["cancelled"]:
+                        _loop_state["status"] = "cancelled"
+                        _loop_state["phase"] = "idle"
+                        _loop_state["finished_at"] = datetime.now().isoformat()
+                        simulator.cleanup()
+                        return
+
+                # Record per-iteration metrics
+                run_result = outcome.get("run_result", {})
+                retrain_result = outcome.get("retrain_result") or {}
+                score_result = outcome.get("score_result") or {}
+                te = run_result.get("tests_executed", 0)
+                vd = run_result.get("vulns_detected", 0)
+
+                iter_metrics = {
+                    "iteration": i,
+                    "trained": should_train,
+                    "tests_executed": te,
+                    "vulns_detected": vd,
+                    "detection_rate": round(vd / te, 4) if te > 0 else 0,
+                    "execution_time_ms": run_result.get("execution_time_ms", 0),
+                    "retrain_auc": retrain_result.get("auc"),
+                    "retrain_rows": retrain_result.get("training_rows"),
+                    "retrain_status": retrain_result.get("status", "unknown"),
+                    "scored_tests": score_result.get("scored_tests"),
+                    "recommended_tests": score_result.get("recommended_tests"),
+                    "started_at": iter_start,
+                    "finished_at": datetime.now().isoformat(),
+                    "simulation_actions": len(sim_actions),
+                    "simulation_details": sim_actions,
+                }
+
+                with _loop_lock:
+                    _loop_state["iterations"].append(iter_metrics)
+                    _loop_state["phase"] = "between_iterations"
+
+                # Stop on run error
+                if run_result.get("status") == "error":
+                    with _loop_lock:
+                        _loop_state["status"] = "error"
+                        _loop_state["error"] = f"Iteration {i} failed: {run_result.get('error', 'unknown')}"
+                        _loop_state["finished_at"] = datetime.now().isoformat()
+                    simulator.cleanup()
+                    return
+
+            # All iterations completed — cleanup simulation
+            simulator.cleanup()
+
+            with _loop_lock:
+                _loop_state["status"] = "completed"
+                _loop_state["phase"] = "idle"
+                _loop_state["finished_at"] = datetime.now().isoformat()
+                _loop_state["simulation_summary"] = simulator.get_summary()
+
+        except Exception as e:
+            simulator.cleanup()
+            with _loop_lock:
+                _loop_state["status"] = "error"
+                _loop_state["error"] = str(e)
+                _loop_state["finished_at"] = datetime.now().isoformat()
+
+    background_tasks.add_task(_do_loop)
+    return {"status": "started", "suite_id": suite_id, "total_iterations": req.iterations, "train_every_n": req.train_every_n}
+
+
+@app.get("/api/suites/{suite_id}/train-loop/status")
+def train_loop_status(suite_id: str):
+    with _loop_lock:
+        return dict(_loop_state)
+
+
+@app.post("/api/suites/{suite_id}/train-loop/cancel")
+def cancel_train_loop(suite_id: str):
+    with _loop_lock:
+        if _loop_state["status"] != "running":
+            return {"status": "not_running", "message": "No active loop to cancel"}
+        _loop_state["cancelled"] = True
+    return {"status": "cancelling", "message": "Loop will stop after current iteration completes"}
+
+
+@app.get("/api/results")
+def list_results():
+    results = []
+    if os.path.exists(RESULTS_PATH):
+        for fname in sorted(os.listdir(RESULTS_PATH), reverse=True):
+            if fname.endswith(".json"):
+                fpath = os.path.join(RESULTS_PATH, fname)
+                try:
+                    with open(fpath) as f:
+                        data = json.load(f)
+                    # Derive devices & protocols from per-test results
+                    detail = data.get("results", [])
+                    device_protos = {}  # ip -> set of protocols
+                    severity_counts = {}
+                    for r in detail:
+                        ip = r.get("target", "")
+                        proto = r.get("protocol", "")
+                        if ip:
+                            device_protos.setdefault(ip, set()).add(proto)
+                        sev = r.get("severity", "info")
+                        if r.get("vulnerability_found"):
+                            severity_counts[sev] = severity_counts.get(sev, 0) + 1
+
+                    devices_summary = [
+                        {"ip": ip, "protocols": sorted(protos)}
+                        for ip, protos in sorted(device_protos.items())
+                    ]
+                    all_protocols = sorted(
+                        set(p for ps in device_protos.values() for p in ps)
+                    )
+                    te = data.get("tests_executed", 0)
+                    vd = data.get("vulns_detected", 0)
+
+                    results.append({
+                        "file": fname,
+                        "suite_id": data.get("suite_id"),
+                        "suite_name": data.get("suite_name", ""),
+                        "status": data.get("status"),
+                        "finished_at": data.get("finished_at"),
+                        "tests_executed": te,
+                        "vulns_detected": vd,
+                        "detection_rate": round(vd / te, 4) if te > 0 else 0,
+                        "execution_time_ms": data.get("execution_time_ms", 0),
+                        "devices": devices_summary,
+                        "protocols": all_protocols,
+                        "severity_breakdown": severity_counts,
+                    })
+                except Exception:
+                    continue
+
+    return {"results": results}
+
+
+@app.get("/api/results/{filename}")
+def get_result(filename: str):
+    fpath = os.path.join(RESULTS_PATH, filename)
+    if not os.path.exists(fpath):
+        raise HTTPException(404, f"Result {filename} not found")
+    with open(fpath) as f:
+        return json.load(f)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# ML INSIGHTS
+# ═══════════════════════════════════════════════════════════════════════
+
+@app.get("/api/ml/status")
+def ml_status():
+    try:
+        from automl.pipeline import get_model_metrics
+        metrics = get_model_metrics()
+        return metrics
+    except Exception as e:
+        return {"status": "unavailable", "error": str(e)}
+
+
+@app.get("/api/ml/metrics")
+def ml_metrics():
+    try:
+        from automl.pipeline import get_model_metrics
+        return get_model_metrics()
+    except Exception as e:
+        return {"status": "unavailable", "error": str(e)}
+
+
+_train_lock = threading.Lock()
+_train_state = {
+    "status": "idle",        # idle | training | completed | error
+    "started_at": None,
+    "finished_at": None,
+    "error": None,
+    "auc": None,
+    "training_rows": None,
+}
+
+
+@app.post("/api/ml/retrain")
+def ml_retrain(background_tasks: BackgroundTasks):
+    with _train_lock:
+        if _train_state["status"] == "training":
+            return {
+                "status": "already_training",
+                "started_at": _train_state["started_at"],
+                "message": "Model training is already in progress.",
+            }
+        _train_state["status"] = "training"
+        _train_state["started_at"] = datetime.now().isoformat()
+        _train_state["finished_at"] = None
+        _train_state["error"] = None
+        _train_state["auc"] = None
+        _train_state["training_rows"] = None
+
+    def _do_retrain():
+        try:
+            from generator.retrain import retrain_model_after_execution, aggregate_history
+            agg_path = aggregate_history(EXPERIMENTS_PATH)
+            if not agg_path:
+                with _train_lock:
+                    _train_state["status"] = "error"
+                    _train_state["finished_at"] = datetime.now().isoformat()
+                    _train_state["error"] = "No history data found. Run test suites first."
+                return
+
+            result = retrain_model_after_execution(agg_path)
+
+            with _train_lock:
+                if result.get("status") == "error":
+                    _train_state["status"] = "error"
+                    _train_state["error"] = result.get("message", "Training failed")
+                elif result.get("status") == "insufficient_data":
+                    _train_state["status"] = "error"
+                    _train_state["error"] = f"Not enough data to train (need ≥10 rows, have {result.get('rows', 0)})"
+                else:
+                    _train_state["status"] = "completed"
+                    _train_state["auc"] = result.get("auc")
+                    _train_state["training_rows"] = result.get("training_rows")
+                _train_state["finished_at"] = datetime.now().isoformat()
+
+        except Exception as e:
+            logging.error(f"[API] Manual retrain failed: {e}")
+            with _train_lock:
+                _train_state["status"] = "error"
+                _train_state["finished_at"] = datetime.now().isoformat()
+                _train_state["error"] = str(e)
+
+    background_tasks.add_task(_do_retrain)
+    return {"status": "training", "started_at": _train_state["started_at"]}
+
+
+@app.get("/api/ml/retrain/status")
+def ml_retrain_status():
+    with _train_lock:
+        return dict(_train_state)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# HISTORY & ANALYTICS (kept for results visualization)
+# ═══════════════════════════════════════════════════════════════════════
+
+@app.get("/api/history/summary")
+def history_summary():
+    """Aggregate KPIs across all experiment history (deduplicated)."""
+    df = _load_aggregated_history()
+    if df is None or df.empty:
+        return {
+            "total_tests": 0, "total_vulns": 0, "detection_rate": 0,
+            "protocols_tested": 0, "total_runs": 0, "severity_breakdown": {},
+        }
+
+    total_runs = len(df)  # Raw row count (includes duplicates)
+
+    # Deduplicate to unique test combinations
+    udf = _deduplicate_history(df)
+    total_tests = len(udf)
+    vulns = int(udf["vulnerability_found"].sum()) if "vulnerability_found" in udf.columns else 0
+    rate = round(vulns / total_tests, 4) if total_tests > 0 else 0
+    protocols = udf["protocol"].nunique() if "protocol" in udf.columns else 0
+
+    # Severity breakdown from result files (history.csv doesn't have severity)
+    # We compute from vulns-by-type as a proxy or leave empty
+    severity_breakdown = {}
+
+    return {
+        "total_tests": total_tests,
+        "total_vulns": vulns,
+        "detection_rate": rate,
+        "protocols_tested": protocols,
+        "total_runs": total_runs,
+        "severity_breakdown": severity_breakdown,
+    }
+
+
+@app.get("/api/history/vulns-by-protocol")
+def vulns_by_protocol():
+    df = _load_aggregated_history()
+    if df is None or df.empty:
+        return {"data": []}
+
+    udf = _deduplicate_history(df)
+    grouped = udf.groupby("protocol").agg(
+        tests=("vulnerability_found", "count"),
+        vulns=("vulnerability_found", "sum"),
+    ).reset_index()
+    grouped["vulns"] = grouped["vulns"].astype(int)
+
+    return {"data": grouped.to_dict(orient="records")}
+
+
+@app.get("/api/history/vulns-by-type")
+def vulns_by_type():
+    df = _load_aggregated_history()
+    if df is None or df.empty:
+        return {"data": []}
+
+    if "test_type" not in df.columns:
+        return {"data": []}
+
+    udf = _deduplicate_history(df)
+    grouped = udf.groupby("test_type").agg(
+        tests=("vulnerability_found", "count"),
+        vulns=("vulnerability_found", "sum"),
+    ).reset_index()
+    grouped["vulns"] = grouped["vulns"].astype(int)
+
+    return {"data": grouped.to_dict(orient="records")}
+
+
+@app.get("/api/history/vulns-by-device")
+def vulns_by_device():
+    df = _load_aggregated_history()
+    if df is None or df.empty:
+        return {"data": []}
+
+    udf = _deduplicate_history(df)
+    grouped = udf.groupby("container_id").agg(
+        tests=("vulnerability_found", "count"),
+        vulns=("vulnerability_found", "sum"),
+        protocols=("protocol", "nunique"),
+    ).reset_index()
+    grouped["vulns"] = grouped["vulns"].astype(int)
+
+    return {"data": grouped.to_dict(orient="records")}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# HYPOTHESIS VALIDATION
+# ═══════════════════════════════════════════════════════════════════════
+
+@app.get("/api/hypothesis/debug-experiments")
+def debug_experiments():
+    """Debug endpoint to inspect experiment directories and history files."""
+    import glob as glob_mod
+
+    result = {
+        "experiments_path": EXPERIMENTS_PATH,
+        "path_exists": os.path.exists(EXPERIMENTS_PATH),
+        "path_is_dir": os.path.isdir(EXPERIMENTS_PATH),
+        "contents": [],
+        "history_files": [],
+        "exp_dirs": [],
+    }
+
+    if os.path.isdir(EXPERIMENTS_PATH):
+        try:
+            result["contents"] = sorted(os.listdir(EXPERIMENTS_PATH))
+        except Exception as e:
+            result["contents_error"] = str(e)
+
+        pattern = os.path.join(EXPERIMENTS_PATH, "exp_*", "history.csv")
+        result["glob_pattern"] = pattern
+        result["history_files"] = sorted(glob_mod.glob(pattern))
+
+        # List exp_ directories
+        exp_pattern = os.path.join(EXPERIMENTS_PATH, "exp_*")
+        exp_dirs = sorted(glob_mod.glob(exp_pattern))
+        result["exp_dirs"] = exp_dirs
+
+        # Check each exp dir for its contents
+        for exp_dir in exp_dirs[:10]:  # limit to 10
+            try:
+                files = os.listdir(exp_dir)
+                result.setdefault("exp_details", []).append({
+                    "dir": os.path.basename(exp_dir),
+                    "files": files,
+                })
+            except Exception as e:
+                result.setdefault("exp_details", []).append({
+                    "dir": os.path.basename(exp_dir),
+                    "error": str(e),
+                })
+
+    return result
+
+
+@app.get("/api/hypothesis/available-simulation-modes")
+def available_simulation_modes():
+    """Return distinct simulation_mode values found in history data."""
+    import glob as glob_mod
+
+    pattern = os.path.join(EXPERIMENTS_PATH, "exp_*", "history.csv")
+    files = glob_mod.glob(pattern)
+    modes = set()
+
+    for f in files:
+        try:
+            df = pd.read_csv(f, usecols=["simulation_mode"])
+            if "simulation_mode" in df.columns:
+                modes.update(df["simulation_mode"].dropna().unique().tolist())
+        except Exception:
+            # Column may not exist in older history files — skip
+            continue
+
+    # Ensure "deterministic" is always present as the baseline
+    modes.add("deterministic")
+    sorted_modes = sorted(modes, key=lambda m: (m != "deterministic", m))
+
+    return {"modes": sorted_modes}
+
+
+@app.get("/api/hypothesis/iteration-metrics")
+def hypothesis_iteration_metrics(simulation_mode: Optional[str] = None):
+    """Per-experiment-run metrics over time for hypothesis validation."""
+    import glob as glob_mod
+
+    pattern = os.path.join(EXPERIMENTS_PATH, "exp_*", "history.csv")
+    files = sorted(glob_mod.glob(pattern))
+
+    logging.info(f"[Hypothesis] Looking for history files with pattern: {pattern}")
+    logging.info(f"[Hypothesis] Found {len(files)} history files: {files}")
+
+    if not files:
+        logging.warning(f"[Hypothesis] No history files found. EXPERIMENTS_PATH={EXPERIMENTS_PATH}, exists={os.path.exists(EXPERIMENTS_PATH)}")
+        if os.path.isdir(EXPERIMENTS_PATH):
+            try:
+                contents = os.listdir(EXPERIMENTS_PATH)
+                logging.info(f"[Hypothesis] Experiments dir contents: {contents}")
+            except Exception as e:
+                logging.warning(f"[Hypothesis] Cannot list experiments dir: {e}")
+        return {"iterations": [], "total_iterations": 0, "available_protocols": []}
+
+    iterations = []
+    parse_errors = []
+    # Track unique vulnerabilities across iterations for discovery velocity
+    seen_vuln_keys = set()
+    dedup_cols = list(_DEDUP_COLS)
+
+    for f in files:
+        try:
+            df = pd.read_csv(f)
+            if df.empty:
+                logging.info(f"[Hypothesis] Skipping empty file: {f}")
+                continue
+
+            # Filter by simulation mode if requested
+            if simulation_mode and simulation_mode != "all" and "simulation_mode" in df.columns:
+                df = df[df["simulation_mode"] == simulation_mode]
+                if df.empty:
+                    continue
+
+            exp_dir = os.path.basename(os.path.dirname(f))
+            # Handle both old format (exp_2026-02-25_14-30-00) and
+            # new UUID format (exp_2026-02-25_14-30-00_a1b2c3)
+            raw_ts = exp_dir.replace("exp_", "")
+            parts = raw_ts.split("_", 2)  # [date, time, maybe-uuid]
+            timestamp = f"{parts[0]} {parts[1]}" if len(parts) >= 2 else raw_ts
+
+            if "vulnerability_found" in df.columns:
+                df["vulnerability_found"] = pd.to_numeric(
+                    df["vulnerability_found"], errors="coerce"
+                ).fillna(0).astype(int)
+
+            total_tests = len(df)
+            total_vulns = int(df["vulnerability_found"].sum()) if "vulnerability_found" in df.columns else 0
+            detection_rate = round(total_vulns / total_tests, 4) if total_tests > 0 else 0
+
+            avg_exec_time = (_safe_float(df["execution_time_ms"].mean(), 2) or 0) if "execution_time_ms" in df.columns else 0
+            unique_protocols = int(df["protocol"].nunique()) if "protocol" in df.columns else 0
+
+            # Track new vs already-seen vulnerabilities
+            new_vulns = 0
+            cols_present = [c for c in dedup_cols if c in df.columns]
+            if cols_present and "vulnerability_found" in df.columns:
+                vuln_rows = df[df["vulnerability_found"] == 1]
+                for _, row in vuln_rows.iterrows():
+                    key = tuple(str(row.get(c, "")) for c in cols_present)
+                    if key not in seen_vuln_keys:
+                        seen_vuln_keys.add(key)
+                        new_vulns += 1
+
+            # Per-protocol breakdown
+            by_protocol = {}
+            if "protocol" in df.columns:
+                for proto, group in df.groupby("protocol"):
+                    proto_total = len(group)
+                    proto_vulns = int(group["vulnerability_found"].sum()) if "vulnerability_found" in group.columns else 0
+                    proto_rate = round(proto_vulns / proto_total, 4) if proto_total > 0 else 0
+                    proto_avg_time = (_safe_float(group["execution_time_ms"].mean(), 2) or 0) if "execution_time_ms" in group.columns else 0
+                    by_protocol[str(proto)] = {
+                        "total_tests": proto_total,
+                        "total_vulns": proto_vulns,
+                        "detection_rate": proto_rate,
+                        "avg_execution_time_ms": proto_avg_time,
+                    }
+
+            iterations.append({
+                "experiment_id": exp_dir,
+                "timestamp": timestamp,
+                "total_tests": total_tests,
+                "total_vulns": total_vulns,
+                "detection_rate": detection_rate,
+                "unique_protocols": unique_protocols,
+                "avg_execution_time_ms": avg_exec_time,
+                "by_protocol": by_protocol,
+                "new_vulns": new_vulns,
+                "cumulative_unique_vulns": len(seen_vuln_keys),
+            })
+        except Exception as exc:
+            err_msg = f"Error parsing {f}: {exc}"
+            logging.error(f"[Hypothesis] {err_msg}", exc_info=True)
+            parse_errors.append(err_msg)
+
+    iterations.sort(key=lambda x: x["timestamp"])
+
+    # Collect all protocols seen across all experiments
+    available_protocols = sorted({
+        proto
+        for it in iterations
+        for proto in it.get("by_protocol", {}).keys()
+    })
+
+    result = {
+        "iterations": iterations,
+        "total_iterations": len(iterations),
+        "available_protocols": available_protocols,
+        "_debug": {
+            "files_found": len(files),
+            "files_parsed_ok": len(iterations),
+            "parse_errors": parse_errors,
         },
-        "experiment_phases": [
-            {
-                "id": 1,
-                "name": "Network Discovery",
-                "icon": "Radar",
-                "color": "blue",
-                "description": "Nmap scans the target network (default 172.20.0.0/27) to discover active IoT devices, open ports, services, and OS fingerprints.",
-                "inputs": ["Target network CIDR"],
-                "outputs": ["List of discovered devices with open ports and services"],
-                "module": "scanners/nmap_scanner.py",
-                "details": "Uses python-nmap with -sV (service detection) and -O (OS detection) flags. Discovers all 13 vulnerable devices on the Docker bridge network.",
-            },
-            {
-                "id": 2,
-                "name": "Static Baseline Testing",
-                "icon": "Shield",
-                "color": "green",
-                "description": "Executes all 28 static vulnerability tests from PROTOCOL_TESTS against every discovered device matching the test's protocol.",
-                "inputs": ["Discovered devices", "PROTOCOL_TESTS registry (28 tests)"],
-                "outputs": ["history.csv (28+ rows)", "metrics_static.json"],
-                "module": "utils/tester.py",
-                "details": "Each test runs against every device that exposes the matching port/protocol. Results logged to history.csv with 16 columns including vulnerability_found (0/1) and execution_time_ms.",
-            },
-            {
-                "id": 3,
-                "name": "AutoML Model Training",
-                "icon": "Brain",
-                "color": "purple",
-                "description": "H2O AutoML trains a binary classifier on history.csv to predict which tests will find vulnerabilities. Training runs for up to 5 minutes with balanced classes.",
-                "inputs": ["history.csv from Phase 1"],
-                "outputs": ["Leader model", "model_metrics.json (AUC, feature importance, leaderboard)"],
-                "module": "automl/train.py",
-                "details": "Features: device_type, firmware, port, protocol, service, auth_required, test_type, port_count, protocol_diversity, is_common_port. Target: vulnerability_found. Algorithms: GBM, GLM, XGBoost, DeepLearning, StackedEnsemble.",
-            },
-            {
-                "id": 4,
-                "name": "Candidate Generation & Risk Scoring",
-                "icon": "ListChecks",
-                "color": "purple",
-                "description": "Generates 58 test candidates (28 static + 30 adaptive) and scores each with the trained model's predicted probability of finding a vulnerability.",
-                "inputs": ["Trained leader model", "PROTOCOL_TESTS (28)", "ADAPTIVE_TESTS (30)"],
-                "outputs": ["automl_tests.csv (58 rows with risk_score and selected flag)"],
-                "module": "automl/candidates.py + automl/adaptive_generator.py",
-                "details": "Static tests: always selected (source='static'). Adaptive tests: selected only if risk_score >= 0.3 (source='adaptive'). This ensures the AutoML strategy includes the full baseline plus model-chosen extras.",
-            },
-            {
-                "id": 5,
-                "name": "Adaptive Test Execution",
-                "icon": "Zap",
-                "color": "amber",
-                "description": "Executes only the selected tests (all 28 static + high-risk adaptive tests). Typically runs ~43 tests total.",
-                "inputs": ["automl_tests.csv (selected=True rows)", "Discovered devices"],
-                "outputs": ["history.csv (appended)", "metrics_automl.json"],
-                "module": "utils/run_adaptive_tests.py",
-                "details": "The adaptive strategy runs MORE tests than static (28 + ~15 adaptive = ~43) but focuses on tests the model predicts are most likely to find vulnerabilities. Expected result: ~48 vulnerabilities found (~71% improvement over static).",
-            },
-            {
-                "id": 6,
-                "name": "Random Baseline",
-                "icon": "Shuffle",
-                "color": "gray",
-                "description": "Control group: runs the same NUMBER of adaptive tests as AutoML chose, but selected randomly instead of by model prediction.",
-                "inputs": ["Count of adaptive tests selected by AutoML", "ADAPTIVE_TESTS pool"],
-                "outputs": ["history.csv (appended)", "metrics_random.json"],
-                "module": "utils/run_random_tests.py",
-                "details": "Proves that AutoML's predictions are better than chance. If AutoML chose 15 adaptive tests, random also runs 15 (randomly chosen). Expected result: ~35 vulnerabilities — better than static but worse than AutoML.",
-            },
-            {
-                "id": 7,
-                "name": "Results & Analysis",
-                "icon": "BarChart3",
-                "color": "blue",
-                "description": "Generates comparison plots and statistical analysis. Results available in the Dashboard History and Statistical Analysis tabs.",
-                "inputs": ["metrics_static.json", "metrics_automl.json", "metrics_random.json", "history.csv"],
-                "outputs": ["Comparison charts", "Statistical hypothesis tests"],
-                "module": "analysis/generate_plots.py",
-                "details": "Hypothesis: AutoML > Random > Static. Validated with paired t-test/Wilcoxon, Cohen's d effect size, bootstrap confidence intervals, and permutation tests.",
-            },
-        ],
-        "tech_stack": {
-            "frontend": {
-                "label": "Frontend (Dashboard UI)",
-                "color": "blue",
-                "technologies": [
-                    {"name": "React", "version": "18.2.0", "role": "UI framework"},
-                    {"name": "Vite", "version": "5.1.0", "role": "Build tool & dev server"},
-                    {"name": "Tailwind CSS", "version": "3.3.3", "role": "Utility-first CSS framework"},
-                    {"name": "Recharts", "version": "2.10.0", "role": "Chart library for data visualization"},
-                    {"name": "Lucide React", "version": "0.290.0", "role": "Icon library"},
-                    {"name": "Axios", "version": "1.6.7", "role": "HTTP client"},
-                ],
-                "files": ["dashboard/frontend/src/pages/Home.jsx", "dashboard/frontend/src/components/", "dashboard/frontend/src/hooks/", "dashboard/frontend/src/api/"],
-                "description": "Single-page application with 4 tabs: Dashboard (experiment runner), History (charts), Statistical Analysis, and Architecture.",
-            },
-            "backend": {
-                "label": "Backend (Dashboard API)",
-                "color": "purple",
-                "technologies": [
-                    {"name": "Python", "version": "3.10", "role": "Programming language"},
-                    {"name": "FastAPI", "version": "latest", "role": "REST API framework"},
-                    {"name": "Docker SDK", "version": "latest", "role": "Docker container management"},
-                    {"name": "Pandas", "version": "latest", "role": "Data analysis & CSV processing"},
-                    {"name": "NumPy", "version": "latest", "role": "Numerical computing"},
-                    {"name": "SciPy", "version": "latest", "role": "Statistical hypothesis testing"},
-                    {"name": "Pydantic", "version": "latest", "role": "Request/response validation"},
-                ],
-                "files": ["dashboard/backend/main.py", "dashboard/backend/Dockerfile"],
-                "description": "REST API serving 23 endpoints for experiment management, historical analytics, statistical analysis, and architecture metadata.",
-            },
-            "scanner": {
-                "label": "Scanner Engine",
-                "color": "green",
-                "technologies": [
-                    {"name": "Python", "version": "3.10", "role": "Programming language"},
-                    {"name": "python-nmap", "version": "0.7.1", "role": "Network scanner wrapper"},
-                    {"name": "requests", "version": "2.31.0", "role": "HTTP testing"},
-                    {"name": "paramiko", "version": "latest", "role": "SSH protocol testing"},
-                    {"name": "paho-mqtt", "version": ">=1.6", "role": "MQTT protocol testing"},
-                    {"name": "aiocoap", "version": "latest", "role": "CoAP protocol testing"},
-                    {"name": "pymodbus", "version": "2.5.3", "role": "Modbus TCP testing"},
-                ],
-                "files": ["__main__.py", "scanners/nmap_scanner.py", "vulnerability_tester/", "utils/protocol_test_map.py", "utils/adaptive_test_map.py", "utils/tester.py"],
-                "description": "Core scanning engine with 58 vulnerability tests across 9 IoT protocols. Orchestrates static, adaptive, and random testing strategies.",
-            },
-            "automl": {
-                "label": "AutoML Pipeline",
-                "color": "amber",
-                "technologies": [
-                    {"name": "H2O-3", "version": "latest", "role": "AutoML platform (Java-based)"},
-                    {"name": "H2O Python Client", "version": "latest", "role": "Python API for H2O"},
-                    {"name": "scikit-learn", "version": "latest", "role": "ML utilities & metrics"},
-                ],
-                "files": ["automl/pipeline.py", "automl/train.py", "automl/dataset.py", "automl/candidates.py", "automl/adaptive_generator.py", "automl/predict.py"],
-                "description": "Machine learning pipeline that trains binary classifiers to predict which vulnerability tests will succeed, enabling intelligent test prioritization.",
-            },
-            "devices": {
-                "label": "IoT Test Devices",
-                "color": "red",
-                "technologies": [
-                    {"name": "Docker", "version": "latest", "role": "Container runtime"},
-                    {"name": "Docker Compose", "version": "latest", "role": "Multi-container orchestration"},
-                    {"name": "vsftpd", "version": "latest", "role": "FTP server"},
-                    {"name": "Apache httpd", "version": "2.4", "role": "HTTP server"},
-                    {"name": "Mosquitto", "version": "latest", "role": "MQTT broker"},
-                    {"name": "OpenSSH", "version": "old", "role": "SSH server"},
-                    {"name": "Flask", "version": "latest", "role": "Custom HTTP apps"},
-                ],
-                "files": ["docker-compose.yml", "emergence/devices/"],
-                "description": "13 intentionally vulnerable Docker containers simulating real IoT devices across 9 protocols, deployed on a bridge network (172.20.0.0/24).",
-            },
-            "infrastructure": {
-                "label": "Infrastructure",
-                "color": "gray",
-                "technologies": [
-                    {"name": "Docker Compose", "version": "latest", "role": "Service orchestration"},
-                    {"name": "Docker Bridge Network", "version": "N/A", "role": "Container networking (172.20.0.0/24)"},
-                    {"name": "Nginx", "version": "latest", "role": "Frontend static file server"},
-                    {"name": "OpenJDK", "version": "21", "role": "Java runtime for H2O"},
-                ],
-                "files": ["docker-compose.yml", "Dockerfile", "dashboard/frontend/Dockerfile", "dashboard/backend/Dockerfile"],
-                "description": "Docker Compose orchestration of 17 containers: 13 vulnerable devices + H2O AutoML + Scanner + Dashboard API + Dashboard UI.",
-            },
+    }
+    if parse_errors:
+        logging.warning(f"[Hypothesis] {len(parse_errors)} files failed to parse: {parse_errors}")
+    return result
+
+
+@app.get("/api/hypothesis/model-evolution")
+def hypothesis_model_evolution():
+    """ML model metrics snapshot (AUC, feature importance, etc.)."""
+    try:
+        from automl.pipeline import get_model_metrics
+        metrics = get_model_metrics()
+        return {"model": metrics}
+    except Exception as e:
+        return {"model": {"status": "unavailable", "error": str(e)}}
+
+
+@app.get("/api/hypothesis/composition-analysis")
+def hypothesis_composition_analysis():
+    """Strategy effectiveness analysis."""
+    df = _load_aggregated_history()
+    if df is None or df.empty:
+        return {"strategies": [], "rules": []}
+
+    strategies = []
+    if "test_strategy" in df.columns:
+        for strategy, group in df.groupby("test_strategy"):
+            total = len(group)
+            vulns = int(group["vulnerability_found"].sum()) if "vulnerability_found" in group.columns else 0
+            avg_time = (_safe_float(group["execution_time_ms"].mean(), 2) or 0) if "execution_time_ms" in group.columns else 0
+            strategies.append({
+                "strategy": strategy,
+                "total_tests": total,
+                "vulns_found": vulns,
+                "detection_rate": round(vulns / total, 4) if total > 0 else 0,
+                "avg_execution_time_ms": avg_time,
+            })
+
+    return {"strategies": strategies, "rules": []}
+
+
+@app.get("/api/hypothesis/statistical-tests")
+def hypothesis_statistical_tests(protocol: Optional[str] = None, simulation_mode: Optional[str] = None):
+    """Statistical significance analysis for the convergence hypothesis.
+
+    Optional protocol param filters to per-protocol detection rates.
+    Optional simulation_mode filters history data by simulation profile.
+    Response keys are flattened for frontend compatibility.
+    """
+    import numpy as np
+    from scipy import stats as scipy_stats
+
+    iter_data = hypothesis_iteration_metrics(simulation_mode=simulation_mode)
+    iterations = iter_data.get("iterations", [])
+
+    # Extract detection rates — global or per-protocol
+    if protocol:
+        detection_rates = []
+        for it in iterations:
+            proto_data = it.get("by_protocol", {}).get(protocol)
+            if proto_data:
+                detection_rates.append(proto_data["detection_rate"])
+    else:
+        detection_rates = [it["detection_rate"] for it in iterations]
+
+    if len(detection_rates) < 2:
+        return {
+            "status": "insufficient_data",
+            "message": f"Need at least 2 iterations{f' with protocol {protocol}' if protocol else ''}, have {len(detection_rates)}",
+            "n_iterations": len(detection_rates),
+            "protocol": protocol,
+        }
+
+    iteration_numbers = list(range(1, len(detection_rates) + 1))
+
+    # ─── Compute all statistical tests ───
+    spearman_rho = spearman_p = None
+    pearson_r = pearson_p = None
+    mann_whitney_u = mann_whitney_p = early_mean = late_mean = None
+    cohens_d_val = cohens_d_interp = None
+    improvement = ci_low = ci_high = None
+
+    # Spearman rank correlation (monotonic trend)
+    try:
+        sr, sp = scipy_stats.spearmanr(iteration_numbers, detection_rates)
+        if not np.isnan(sr):
+            spearman_rho = round(float(sr), 4)
+            spearman_p = round(float(sp), 6)
+    except Exception:
+        pass
+
+    # Pearson correlation (linear trend)
+    try:
+        pr, pp = scipy_stats.pearsonr(iteration_numbers, detection_rates)
+        if not np.isnan(pr):
+            pearson_r = round(float(pr), 4)
+            pearson_p = round(float(pp), 6)
+    except Exception:
+        pass
+
+    # Mann-Whitney U: early vs. late iterations
+    try:
+        mid = len(detection_rates) // 2
+        early_arr = detection_rates[:mid]
+        late_arr = detection_rates[mid:]
+        if len(early_arr) >= 1 and len(late_arr) >= 1:
+            u_stat, mw_p = scipy_stats.mannwhitneyu(late_arr, early_arr, alternative="greater")
+            mann_whitney_u = _safe_float(u_stat, 4)
+            mann_whitney_p = _safe_float(mw_p, 6)
+            early_mean = _safe_float(np.mean(early_arr), 4)
+            late_mean = _safe_float(np.mean(late_arr), 4)
+    except Exception:
+        pass
+
+    # Cohen's d effect size
+    try:
+        mid = len(detection_rates) // 2
+        early_np = np.array(detection_rates[:mid], dtype=float)
+        late_np = np.array(detection_rates[mid:], dtype=float)
+        pooled_std = np.sqrt((early_np.std() ** 2 + late_np.std() ** 2) / 2)
+        if pooled_std > 0:
+            cd = float((late_np.mean() - early_np.mean()) / pooled_std)
+            cohens_d_val = _safe_float(cd, 4)
+            if cohens_d_val is not None:
+                cohens_d_interp = (
+                    "large" if abs(cohens_d_val) >= 0.8
+                    else "medium" if abs(cohens_d_val) >= 0.5
+                    else "small" if abs(cohens_d_val) >= 0.2
+                    else "negligible"
+                )
+            else:
+                cohens_d_interp = None
+        else:
+            cohens_d_val = 0.0
+            cohens_d_interp = "negligible"
+    except Exception:
+        pass
+
+    # 95% Confidence interval for detection rate improvement
+    try:
+        mid = len(detection_rates) // 2
+        early_np = np.array(detection_rates[:mid], dtype=float)
+        late_np = np.array(detection_rates[mid:], dtype=float)
+        improvement = _safe_float(late_np.mean() - early_np.mean(), 4)
+        se = float(np.sqrt(early_np.var() / len(early_np) + late_np.var() / len(late_np))) if len(early_np) > 1 and len(late_np) > 1 else 0
+        se = _safe_float(se, 6)
+        if improvement is not None and se is not None:
+            ci_low = round(improvement - 1.96 * se, 4)
+            ci_high = round(improvement + 1.96 * se, 4)
+    except Exception:
+        pass
+
+    # Overall hypothesis verdict
+    spearman_sig = spearman_p is not None and spearman_p < 0.05
+    spearman_pos = (spearman_rho or 0) > 0
+    mw_sig = mann_whitney_p is not None and mann_whitney_p < 0.05
+    improvement_pos = (improvement or 0) > 0
+
+    if spearman_sig and spearman_pos and mw_sig:
+        verdict = "supported"
+    elif spearman_pos and improvement_pos:
+        verdict = "trending"
+    else:
+        verdict = "not_supported"
+
+    # ─── Flat response for frontend ───
+    return {
+        "status": "ok",
+        "protocol": protocol,
+        "n_iterations": len(detection_rates),
+        "spearman_rho": spearman_rho,
+        "spearman_p": spearman_p,
+        "spearman_significant": spearman_sig,
+        "pearson_r": pearson_r,
+        "pearson_p": pearson_p,
+        "pearson_significant": pearson_p is not None and pearson_p < 0.05,
+        "mann_whitney_u": mann_whitney_u,
+        "mann_whitney_p": mann_whitney_p,
+        "mann_whitney_significant": mw_sig,
+        "early_mean": early_mean,
+        "late_mean": late_mean,
+        "cohens_d": cohens_d_val,
+        "cohens_d_interpretation": cohens_d_interp,
+        "improvement": improvement,
+        "ci_95": [ci_low, ci_high] if ci_low is not None else None,
+        "verdict": verdict,
+    }
+
+
+# ── H2 — Recommendation Effectiveness ────────────────────────────────
+
+@app.get("/api/hypothesis/recommendation-effectiveness")
+def hypothesis_recommendation_effectiveness(simulation_mode: Optional[str] = None):
+    """Compare ML-recommended vs non-recommended test detection rates."""
+    df = _load_aggregated_history(simulation_mode=simulation_mode)
+    if df is None or df.empty:
+        return {"error": "No history data available", "model_available": False}
+
+    scored_df = _predict_risk_scores_on_history(df)
+
+    import numpy as np
+    from scipy import stats as scipy_stats
+
+    df["vulnerability_found"] = pd.to_numeric(df["vulnerability_found"], errors="coerce").fillna(0).astype(int)
+
+    # If model scoring succeeded, use predicted risk scores; otherwise
+    # fall back to test_strategy comparison (generated=ML-driven vs static)
+    use_model = scored_df is not None
+    if use_model:
+        df = scored_df
+    total = len(df)
+    total_vulns = int(df["vulnerability_found"].sum())
+    overall_rate = total_vulns / total if total > 0 else 0
+
+    if use_model:
+        # Split at 0.5 threshold
+        rec = df[df["predicted_risk_score"] >= 0.5]
+        non_rec = df[df["predicted_risk_score"] < 0.5]
+    else:
+        # Fallback: use test_strategy column
+        rec = df[df["test_strategy"] == "generated"] if "test_strategy" in df.columns else pd.DataFrame()
+        non_rec = df[df["test_strategy"] != "generated"] if "test_strategy" in df.columns else df
+
+    rec_count = len(rec)
+    rec_vulns = int(rec["vulnerability_found"].sum()) if rec_count > 0 else 0
+    rec_rate = rec_vulns / rec_count if rec_count > 0 else 0
+
+    non_rec_count = len(non_rec)
+    non_rec_vulns = int(non_rec["vulnerability_found"].sum()) if non_rec_count > 0 else 0
+    non_rec_rate = non_rec_vulns / non_rec_count if non_rec_count > 0 else 0
+
+    lift = rec_rate / overall_rate if overall_rate > 0 else 0
+
+    # Fisher's exact test on 2x2 contingency table
+    fisher_p = None
+    try:
+        table = [
+            [rec_vulns, rec_count - rec_vulns],
+            [non_rec_vulns, non_rec_count - non_rec_vulns],
+        ]
+        _, fp = scipy_stats.fisher_exact(table)
+        fisher_p = _safe_float(fp, 6)
+    except Exception:
+        pass
+
+    # Threshold sweep (only meaningful when model scores are available)
+    threshold_sweep = []
+    if use_model:
+        for thresh_int in range(1, 10):
+            thresh = thresh_int / 10.0
+            above = df[df["predicted_risk_score"] >= thresh]
+            above_count = len(above)
+            above_vulns = int(above["vulnerability_found"].sum()) if above_count > 0 else 0
+            precision = above_vulns / above_count if above_count > 0 else 0
+            recall = above_vulns / total_vulns if total_vulns > 0 else 0
+            f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+            threshold_sweep.append({
+                "threshold": thresh,
+                "above_count": above_count,
+                "above_vulns": above_vulns,
+                "precision": _safe_float(precision, 4) or 0,
+                "recall": _safe_float(recall, 4) or 0,
+                "f1": _safe_float(f1, 4) or 0,
+            })
+
+    safe_lift = _safe_float(lift, 4) or 0
+
+    # Verdict
+    significant = fisher_p is not None and fisher_p < 0.05
+    verdict = "supported" if significant and safe_lift > 1.0 else "trending" if safe_lift > 1.0 else "not_supported"
+
+    return {
+        "model_available": use_model,
+        "mode": "model_scored" if use_model else "strategy_fallback",
+        "total_predictions": total,
+        "overall": {
+            "recommended_count": rec_count,
+            "recommended_vulns": rec_vulns,
+            "recommended_rate": _safe_float(rec_rate, 4) or 0,
+            "non_recommended_count": non_rec_count,
+            "non_recommended_vulns": non_rec_vulns,
+            "non_recommended_rate": _safe_float(non_rec_rate, 4) or 0,
+            "lift": safe_lift,
+            "fisher_p": fisher_p,
         },
+        "threshold_sweep": threshold_sweep,
+        "verdict": verdict,
+    }
+
+
+# ── H3 — Protocol Convergence Rates ──────────────────────────────────
+
+@app.get("/api/hypothesis/protocol-convergence")
+def hypothesis_protocol_convergence(simulation_mode: Optional[str] = None):
+    """Analyse per-protocol detection rate convergence across iterations."""
+    import numpy as np
+    from scipy import stats as scipy_stats
+
+    # Reuse the iteration metrics logic
+    iter_result = hypothesis_iteration_metrics(simulation_mode=simulation_mode)
+    iterations = iter_result.get("iterations", [])
+    if len(iterations) < 2:
+        return {"error": "Need at least 2 iterations", "protocols": []}
+
+    # Collect per-protocol time series
+    proto_series = {}  # protocol -> [(iter_idx, detection_rate)]
+    for idx, it in enumerate(iterations):
+        bp = it.get("by_protocol", {})
+        for proto, metrics in bp.items():
+            if metrics.get("detection_rate") is not None:
+                proto_series.setdefault(proto, []).append(
+                    (idx + 1, float(metrics["detection_rate"]))
+                )
+
+    protocols = []
+    for proto, series in sorted(proto_series.items()):
+        n = len(series)
+        if n < 2:
+            protocols.append({
+                "protocol": proto,
+                "n_iterations": n,
+                "slope": None, "slope_p": None,
+                "spearman_rho": None, "spearman_p": None,
+                "first_rate": round(series[0][1], 4) if series else None,
+                "last_rate": round(series[-1][1], 4) if series else None,
+                "mean_rate": round(sum(r for _, r in series) / n, 4) if series else None,
+                "status": "insufficient_data",
+            })
+            continue
+
+        indices = [s[0] for s in series]
+        rates = [s[1] for s in series]
+
+        # Check for zero variance (all rates identical) — stats are meaningless
+        if np.std(rates) == 0:
+            protocols.append({
+                "protocol": proto,
+                "n_iterations": n,
+                "slope": 0.0, "slope_p": None,
+                "spearman_rho": None, "spearman_p": None,
+                "first_rate": round(rates[0], 4),
+                "last_rate": round(rates[-1], 4),
+                "mean_rate": round(sum(rates) / n, 4),
+                "status": "stable",
+            })
+            continue
+
+        # Linear regression
+        slope, intercept, r_value, p_value, std_err = scipy_stats.linregress(indices, rates)
+
+        # Spearman (need >= 3 for meaningful result)
+        sp_rho, sp_p = (None, None)
+        if n >= 3:
+            try:
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    rho, pval = scipy_stats.spearmanr(indices, rates)
+                if not np.isnan(rho):
+                    sp_rho, sp_p = rho, pval
+            except Exception:
+                pass
+
+        # Classify (use _safe_float values; treat None p_value as non-significant)
+        safe_slope = _safe_float(slope, 6)
+        safe_p = _safe_float(p_value, 6)
+        if safe_slope is not None and safe_p is not None and safe_slope > 0.001 and safe_p < 0.1:
+            status = "converging"
+        elif safe_slope is not None and safe_p is not None and safe_slope < -0.001 and safe_p < 0.1:
+            status = "diverging"
+        else:
+            status = "stable"
+
+        protocols.append({
+            "protocol": proto,
+            "n_iterations": n,
+            "slope": safe_slope,
+            "slope_p": safe_p,
+            "spearman_rho": _safe_float(sp_rho, 4),
+            "spearman_p": _safe_float(sp_p, 6),
+            "first_rate": round(rates[0], 4),
+            "last_rate": round(rates[-1], 4),
+            "mean_rate": round(sum(rates) / n, 4),
+            "status": status,
+        })
+
+    # Summaries
+    converging = [p for p in protocols if p["status"] == "converging"]
+    stable = [p for p in protocols if p["status"] in ("converging", "stable", "diverging")]
+
+    fastest = max(converging, key=lambda p: p["slope"] or 0) if converging else None
+    most_stable_proto = min(stable, key=lambda p: abs(p["slope"] or 0)) if stable else None
+
+    return {
+        "protocols": protocols,
+        "fastest_converging": fastest["protocol"] if fastest else None,
+        "most_stable": most_stable_proto["protocol"] if most_stable_proto else None,
+    }
+
+
+# ── H4 — Risk Score Calibration ──────────────────────────────────────
+
+@app.get("/api/hypothesis/risk-calibration")
+def hypothesis_risk_calibration(simulation_mode: Optional[str] = None):
+    """Analyse calibration of predicted risk scores vs observed vulnerability rates."""
+    import numpy as np
+
+    df = _load_aggregated_history(simulation_mode=simulation_mode)
+    if df is None or df.empty:
+        return {"error": "No history data available", "model_available": False}
+
+    scored_df = _predict_risk_scores_on_history(df)
+    if scored_df is None:
+        return {"error": "Model unavailable — retrain to enable calibration analysis", "model_available": False}
+
+    df = scored_df
+    df["vulnerability_found"] = pd.to_numeric(df["vulnerability_found"], errors="coerce").fillna(0).astype(int)
+    total = len(df)
+
+    # Bin into 10 deciles
+    bin_edges = [i / 10.0 for i in range(11)]  # [0.0, 0.1, ..., 1.0]
+    calibration_curve = []
+    ece_sum = 0.0
+    mce = 0.0
+
+    for i in range(10):
+        lo, hi = bin_edges[i], bin_edges[i + 1]
+        if i == 9:
+            mask = (df["predicted_risk_score"] >= lo) & (df["predicted_risk_score"] <= hi)
+        else:
+            mask = (df["predicted_risk_score"] >= lo) & (df["predicted_risk_score"] < hi)
+        bin_df = df[mask]
+        count = len(bin_df)
+        predicted_mean = _safe_float(bin_df["predicted_risk_score"].mean(), 4) if count > 0 else round((lo + hi) / 2, 4)
+        observed_rate = _safe_float(bin_df["vulnerability_found"].mean(), 4) if count > 0 else 0
+
+        # Fallback if _safe_float returned None (all-NaN bin)
+        if predicted_mean is None:
+            predicted_mean = round((lo + hi) / 2, 4)
+        if observed_rate is None:
+            observed_rate = 0
+
+        calibration_curve.append({
+            "bin_start": round(lo, 1),
+            "bin_end": round(hi, 1),
+            "predicted_mean": predicted_mean,
+            "observed_rate": observed_rate,
+            "count": count,
+        })
+
+        if count > 0:
+            gap = abs(predicted_mean - observed_rate)
+            ece_sum += (count / total) * gap
+            mce = max(mce, gap)
+
+    # Brier score
+    brier = _safe_float(np.mean(
+        (df["predicted_risk_score"].values - df["vulnerability_found"].values) ** 2
+    ), 4) or 0
+
+    # Verdict
+    if ece_sum < 0.05:
+        verdict = "well_calibrated"
+    elif ece_sum < 0.15:
+        verdict = "moderately_calibrated"
+    else:
+        verdict = "poorly_calibrated"
+
+    return {
+        "model_available": True,
+        "total_predictions": total,
+        "calibration_curve": calibration_curve,
+        "brier_score": _safe_float(brier, 4) or 0,
+        "ece": _safe_float(ece_sum, 4) or 0,
+        "mce": _safe_float(mce, 4) or 0,
+        "verdict": verdict,
+    }
+
+
+# ── H5 — Execution Efficiency ────────────────────────────────────────
+@app.get("/api/hypothesis/execution-efficiency")
+def hypothesis_execution_efficiency(simulation_mode: Optional[str] = None):
+    """Compare ML-recommended subset vs full suite for detection efficiency."""
+    iterations = []
+    if not os.path.exists(RESULTS_PATH):
+        return {"iterations": [], "summary": None, "verdict": "not_efficient"}
+
+    for fname in sorted(os.listdir(RESULTS_PATH)):
+        if not fname.endswith(".json"):
+            continue
+        fpath = os.path.join(RESULTS_PATH, fname)
+        try:
+            with open(fpath) as f:
+                data = json.load(f)
+        except Exception:
+            continue
+
+        results = data.get("results", [])
+        if not results:
+            continue
+
+        # Optional simulation_mode filter: check linked history CSV
+        if simulation_mode and simulation_mode != "all":
+            hist_csv = data.get("history_csv")
+            if hist_csv:
+                hist_path = os.path.join("/app", hist_csv) if not os.path.isabs(hist_csv) else hist_csv
+                if os.path.exists(hist_path):
+                    try:
+                        hdf = pd.read_csv(hist_path)
+                        if "simulation_mode" in hdf.columns:
+                            modes = hdf["simulation_mode"].dropna().unique()
+                            if simulation_mode not in modes:
+                                continue
+                    except Exception:
+                        pass
+
+        total_tests = len(results)
+        rec_tests = sum(1 for r in results if r.get("is_recommended"))
+        non_rec_tests = total_tests - rec_tests
+        total_vulns = sum(1 for r in results if r.get("vulnerability_found"))
+        rec_vulns = sum(1 for r in results if r.get("is_recommended") and r.get("vulnerability_found"))
+        non_rec_vulns = total_vulns - rec_vulns
+        exec_time = data.get("execution_time_ms", 0) or 0
+
+        # Skip results with no recommendations (early runs before ML scoring)
+        if rec_tests == 0:
+            continue
+
+        rec_fraction = rec_tests / total_tests if total_tests > 0 else 0
+        test_reduction_pct = (1 - rec_fraction) * 100
+        detection_coverage_pct = (rec_vulns / total_vulns * 100) if total_vulns > 0 else 100.0
+        efficiency_ratio = (detection_coverage_pct / 100) / rec_fraction if rec_fraction > 0 else 0
+        est_rec_time = exec_time * rec_fraction
+        time_saved = exec_time - est_rec_time
+        time_saved_pct = (time_saved / exec_time * 100) if exec_time > 0 else 0
+
+        iterations.append({
+            "suite_id": data.get("suite_id"),
+            "suite_name": data.get("suite_name", ""),
+            "timestamp": data.get("finished_at"),
+            "total_tests": total_tests,
+            "recommended_tests": rec_tests,
+            "non_recommended_tests": non_rec_tests,
+            "total_vulns": total_vulns,
+            "recommended_vulns": rec_vulns,
+            "non_recommended_vulns": non_rec_vulns,
+            "test_reduction_pct": _safe_float(test_reduction_pct, 2),
+            "detection_coverage_pct": _safe_float(detection_coverage_pct, 2),
+            "efficiency_ratio": _safe_float(efficiency_ratio, 3),
+            "execution_time_ms": exec_time,
+            "estimated_recommended_time_ms": _safe_float(est_rec_time, 1),
+            "time_saved_ms": _safe_float(time_saved, 1),
+            "time_saved_pct": _safe_float(time_saved_pct, 2),
+        })
+
+    if not iterations:
+        return {"iterations": [], "summary": {"has_recommendations": False, "total_executions": 0}, "verdict": "not_efficient"}
+
+    # Aggregate summary
+    n = len(iterations)
+    avg_reduction = sum(it["test_reduction_pct"] for it in iterations) / n
+    avg_coverage = sum(it["detection_coverage_pct"] for it in iterations) / n
+    avg_efficiency = sum(it["efficiency_ratio"] for it in iterations) / n
+    avg_time_saved = sum(it["time_saved_pct"] for it in iterations) / n
+    total_time_saved = sum(it["time_saved_ms"] for it in iterations)
+
+    # Verdict
+    if avg_efficiency > 1.5 and avg_coverage > 80:
+        verdict = "efficient"
+    elif avg_efficiency > 1.0 and avg_coverage > 60:
+        verdict = "comparable"
+    else:
+        verdict = "not_efficient"
+
+    return {
+        "iterations": iterations,
+        "summary": {
+            "avg_test_reduction_pct": _safe_float(avg_reduction, 2),
+            "avg_detection_coverage_pct": _safe_float(avg_coverage, 2),
+            "avg_efficiency_ratio": _safe_float(avg_efficiency, 3),
+            "avg_time_saved_pct": _safe_float(avg_time_saved, 2),
+            "total_time_saved_ms": _safe_float(total_time_saved, 1),
+            "total_executions": n,
+            "has_recommendations": True,
+        },
+        "verdict": verdict,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# HELPERS
+# ═══════════════════════════════════════════════════════════════════════
+
+def _save_suite(suite: TestSuite):
+    fpath = os.path.join(SUITES_PATH, f"suite_{suite.suite_id}.json")
+    with open(fpath, "w") as f:
+        json.dump(suite.to_dict(), f, indent=2, default=str)
+
+
+def _load_suite(suite_id: str) -> Optional[dict]:
+    fpath = os.path.join(SUITES_PATH, f"suite_{suite_id}.json")
+    if os.path.exists(fpath):
+        with open(fpath) as f:
+            return json.load(f)
+    return None
+
+
+def _compute_suite_fingerprint(devices, protocols, severity_filter, include_uncommon):
+    """Compute a content-based fingerprint for a suite configuration."""
+    canonical_devices = sorted(
+        (d["ip"], sorted(int(p) for p in d.get("ports", [])))
+        for d in devices
+    )
+    canonical = json.dumps({
+        "devices": canonical_devices,
+        "protocols": sorted(protocols) if protocols else "all",
+        "severity": sorted(severity_filter) if severity_filter else "all",
+        "include_uncommon": include_uncommon,
+    }, sort_keys=True)
+    return hashlib.sha256(canonical.encode()).hexdigest()[:16]
+
+
+def _find_matching_suite(fingerprint: str) -> Optional[dict]:
+    """Find an existing suite whose fingerprint matches. Returns suite dict or None."""
+    if not os.path.exists(SUITES_PATH):
+        return None
+    for fname in sorted(os.listdir(SUITES_PATH), reverse=True):
+        if not fname.endswith(".json"):
+            continue
+        fpath = os.path.join(SUITES_PATH, fname)
+        try:
+            with open(fpath) as f:
+                data = json.load(f)
+            if data.get("metadata", {}).get("fingerprint") == fingerprint:
+                return data
+        except Exception:
+            continue
+    return None
+
+
+# Common IoT ports (matches scorer.py and automl/dataset.py)
+_COMMON_PORTS = {21, 22, 23, 53, 80, 443, 502, 554, 1883, 5683}
+
+
+def _predict_risk_scores_on_history(df: pd.DataFrame) -> Optional[pd.DataFrame]:
+    """Add 'predicted_risk_score' column to history DataFrame using H2O model.
+
+    Constructs feature columns matching the scorer/dataset pattern and runs
+    model.predict() to get vulnerability probability for each historical test.
+    Returns the augmented DataFrame, or None if the model is unavailable.
+    """
+    try:
+        from automl.pipeline import get_model
+        import h2o
+
+        model = get_model()
+        if model is None:
+            return None
+
+        df = df.copy()
+
+        # Ensure numeric columns
+        df["open_port"] = pd.to_numeric(df["open_port"], errors="coerce").fillna(0).astype(int)
+        df["vulnerability_found"] = pd.to_numeric(df["vulnerability_found"], errors="coerce").fillna(0).astype(int)
+
+        # Derive aggregate features (matching automl/dataset.py)
+        if "container_id" in df.columns:
+            df["port_count"] = df.groupby("container_id")["open_port"].transform("nunique")
+            df["protocol_diversity"] = df.groupby("container_id")["protocol"].transform("nunique")
+        else:
+            df["port_count"] = 1
+            df["protocol_diversity"] = 1
+        df["is_common_port"] = df["open_port"].isin(_COMMON_PORTS).astype(int)
+
+        # Feature columns (matching scorer.py)
+        feature_cols = [
+            "test_strategy", "device_type", "firmware_version",
+            "open_port", "protocol", "service", "auth_required",
+            "port_count", "protocol_diversity", "is_common_port",
+        ]
+        missing = [c for c in feature_cols if c not in df.columns]
+        if missing:
+            logging.warning(f"[Prediction] Missing feature columns: {missing}")
+            return None
+
+        features_df = df[feature_cols].copy()
+        for col in ["test_strategy", "device_type", "firmware_version", "protocol", "service"]:
+            features_df[col] = features_df[col].astype(str)
+
+        hf = h2o.H2OFrame(features_df)
+        preds = model.predict(hf)
+        pred_df = preds.as_data_frame()
+
+        # Extract p1 (probability of vulnerability_found=1)
+        if "p1" in pred_df.columns:
+            scores = pred_df["p1"].tolist()
+        elif len(pred_df.columns) >= 3:
+            scores = pred_df.iloc[:, 2].tolist()
+        else:
+            scores = pred_df.iloc[:, 0].tolist()
+
+        df["predicted_risk_score"] = [_safe_float(s, 4) or 0.0 for s in scores]
+        return df
+
+    except Exception as e:
+        logging.warning(f"[Prediction] Failed to predict risk scores on history: {e}")
+        return None
+
+
+def _load_aggregated_history(simulation_mode: str = None) -> Optional[pd.DataFrame]:
+    """Load and aggregate all history.csv files from experiments.
+
+    Args:
+        simulation_mode: Optional filter. None or "all" = no filter,
+            "deterministic" = only deterministic rows, "realistic" etc. = that profile.
+    """
+    import glob
+
+    pattern = os.path.join(EXPERIMENTS_PATH, "exp_*", "history.csv")
+    files = glob.glob(pattern)
+    if not files:
+        return None
+
+    dfs = []
+    for f in files:
+        try:
+            df = pd.read_csv(f)
+            dfs.append(df)
+        except Exception as e:
+            logging.warning(f"[LoadHistory] Error reading {f}: {e}")
+            continue
+
+    if not dfs:
+        logging.warning(f"[LoadHistory] No valid DataFrames from {len(files)} files")
+        return None
+
+    combined = pd.concat(dfs, ignore_index=True)
+    if "vulnerability_found" in combined.columns:
+        combined["vulnerability_found"] = pd.to_numeric(
+            combined["vulnerability_found"], errors="coerce"
+        ).fillna(0).astype(int)
+
+    # Filter by simulation mode if requested
+    if simulation_mode and simulation_mode != "all" and "simulation_mode" in combined.columns:
+        combined = combined[combined["simulation_mode"] == simulation_mode]
+        if combined.empty:
+            return None
+
+    return combined
+
+
+# Deduplication key: a unique test is identified by device + port + protocol + test_id
+_DEDUP_COLS = ["container_id", "open_port", "protocol", "test_id"]
+
+
+def _deduplicate_history(df: pd.DataFrame) -> pd.DataFrame:
+    """Deduplicate history to unique test combinations.
+
+    Keeps the **last** occurrence of each (container_id, open_port, protocol,
+    test_id) tuple, since history CSVs are loaded in chronological order —
+    so the last row reflects the most recent result for that test.
+    """
+    cols_present = [c for c in _DEDUP_COLS if c in df.columns]
+    if not cols_present:
+        return df
+    return df.drop_duplicates(subset=cols_present, keep="last").reset_index(drop=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# SIMULATION ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════
+
+@app.get("/api/simulation/profiles")
+def get_simulation_profiles():
+    """List all available simulation profiles with descriptions and parameters."""
+    return {"profiles": list_profiles()}
+
+
+@app.get("/api/simulation/profiles/{profile_name}")
+def get_simulation_profile(profile_name: str):
+    """Get a specific simulation profile by name."""
+    if profile_name not in PROFILES:
+        raise HTTPException(404, f"Unknown profile: {profile_name}")
+    profile = PROFILES[profile_name]
+    return {
+        "name": profile_name,
+        "description": profile["description"],
+        "academic_use": profile["academic_use"],
+        "config": profile["config"],
+    }
+
+
+class SimulationPreviewRequest(BaseModel):
+    mode: str = "realistic"
+    seed: int = 42
+    iterations: int = 10
+    config: Optional[dict] = None
+
+
+@app.post("/api/simulation/preview")
+def preview_simulation(req: SimulationPreviewRequest):
+    """Dry-run a simulation to preview what events would fire.
+
+    Runs the RNG without touching any containers — useful to preview
+    the effects of different seeds and probabilities.
+    """
+    if req.mode == "custom" and req.config:
+        sim_config = SimulationConfig.from_dict({
+            **req.config,
+            "mode": "custom",
+            "seed": req.seed,
+        })
+    else:
+        try:
+            sim_config = get_profile(req.mode)
+            sim_config.seed = req.seed
+        except ValueError:
+            raise HTTPException(400, f"Unknown simulation mode: {req.mode}")
+
+    # Dry run — no Docker client, so no containers are touched
+    simulator = EnvironmentSimulator(config=sim_config, docker_client=None)
+
+    for i in range(1, req.iterations + 1):
+        simulator.prepare_iteration(i)
+        simulator.restore_iteration(i)
+
+    return {
+        "mode": sim_config.mode,
+        "seed": sim_config.seed,
+        "iterations": req.iterations,
+        "log": simulator.get_log(),
+        "summary": simulator.get_summary(),
     }

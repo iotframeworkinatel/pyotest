@@ -25,6 +25,31 @@ DEBUG_ENABLED = (DEBUG_SEED % 10) < 7  # ~70% chance
 API_KEY = "iot-default-key-12345"
 JWT_SECRET = "super_secret_jwt_key_do_not_share"
 
+# ── Simulation state reader ──
+SIMULATION_STATE_PATH = "/app/simulation/state.json"
+
+
+def _read_simulation_state():
+    """Read simulation state.json if it exists. Returns dict or None."""
+    try:
+        if os.path.exists(SIMULATION_STATE_PATH):
+            with open(SIMULATION_STATE_PATH) as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return None
+
+
+def _get_debug_enabled():
+    """Check if debug endpoint should be enabled.
+    Uses simulation state override if available, otherwise uses default."""
+    state = _read_simulation_state()
+    if state:
+        overrides = state.get("overrides", {}).get("http_api_vuln", {})
+        if "debug_enabled" in overrides:
+            return overrides["debug_enabled"]
+    return DEBUG_ENABLED
+
 
 class VulnAPIHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
@@ -67,7 +92,7 @@ class VulnAPIHandler(BaseHTTPRequestHandler):
                 "internal_ip": "172.20.0.23",
                 "firmware": "2.1.3-beta",
                 "uptime_sec": int(time.time()) % 86400,
-                "debug_mode": DEBUG_ENABLED,
+                "debug_mode": _get_debug_enabled(),
                 "api_key_hint": API_KEY[:8] + "...",
                 "db_host": "172.20.0.50:5432",
             })
@@ -81,7 +106,7 @@ class VulnAPIHandler(BaseHTTPRequestHandler):
                 ],
             })
 
-        elif path == "/api/debug" and DEBUG_ENABLED:
+        elif path == "/api/debug" and _get_debug_enabled():
             # VULN: debug endpoint exposed (probabilistic)
             self._json_response(200, {
                 "debug": True,

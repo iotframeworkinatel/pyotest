@@ -1,0 +1,152 @@
+"""Auto-generated DNS vulnerability tests for {{ ip }}"""
+import pytest
+import socket
+import struct
+
+TIMEOUT = 5
+
+@pytest.mark.vuln_id("DNS_OPEN_RESOLVER")
+def test_dns_open_resolver():
+    ip = "{{ ip }}"
+    port = 53
+
+    try:
+        # Build DNS query for google.com (type A)
+        query = _build_dns_query("google.com", qtype=1)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(TIMEOUT)
+        sock.sendto(query, (ip, port))
+        response, _ = sock.recvfrom(1024)
+        sock.close()
+
+        # Check if we got a valid DNS response
+        if len(response) > 12:
+            flags = struct.unpack("!H", response[2:4])[0]
+            rcode = flags & 0x0F
+            if rcode == 0:  # No error
+                assert True  # Open resolver
+                return
+    except Exception:
+        pass
+
+    pytest.fail("DNS server is not an open resolver")
+
+
+@pytest.mark.vuln_id("DNS_INTERNAL_DISCLOSURE")
+def test_dns_internal_disclosure():
+    ip = "{{ ip }}"
+    port = 53
+
+    try:
+        # Attempt zone transfer (AXFR)
+        query = _build_dns_query("localhost", qtype=252)  # AXFR
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(TIMEOUT)
+        sock.connect((ip, port))
+        # TCP DNS requires length prefix
+        sock.send(struct.pack("!H", len(query)) + query)
+        response = sock.recv(4096)
+        sock.close()
+
+        if len(response) > 14:
+            assert True  # Zone transfer possible
+            return
+    except Exception:
+        pass
+
+    pytest.fail("DNS zone transfer not possible")
+
+
+@pytest.mark.vuln_id("DNS_VERSION_DISCLOSURE")
+def test_dns_version_disclosure():
+    ip = "{{ ip }}"
+    port = 53
+
+    try:
+        # Query version.bind TXT record in CHAOS class
+        query = _build_dns_query("version.bind", qtype=16, qclass=3)  # TXT, CHAOS
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(TIMEOUT)
+        sock.sendto(query, (ip, port))
+        response, _ = sock.recvfrom(1024)
+        sock.close()
+
+        if len(response) > 12:
+            ancount = struct.unpack("!H", response[6:8])[0]
+            if ancount > 0:
+                assert True  # Version disclosed
+                return
+    except Exception:
+        pass
+
+    pytest.fail("DNS version not disclosed")
+
+
+@pytest.mark.vuln_id("DNS_ANY_QUERY")
+def test_dns_any_query():
+    ip = "{{ ip }}"
+    port = 53
+
+    try:
+        query = _build_dns_query("google.com", qtype=255)  # ANY
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(TIMEOUT)
+        sock.sendto(query, (ip, port))
+        response, _ = sock.recvfrom(4096)
+        sock.close()
+
+        if len(response) > len(query) * 2:
+            assert True  # Amplification via ANY
+            return
+    except Exception:
+        pass
+
+    pytest.fail("DNS ANY query amplification not possible")
+
+
+@pytest.mark.vuln_id("DNS_CACHE_SNOOP")
+def test_dns_cache_snoop():
+    ip = "{{ ip }}"
+    port = 53
+
+    # Send non-recursive query for common domains to check cache
+    common_domains = ["google.com", "facebook.com", "amazon.com"]
+    for domain in common_domains:
+        try:
+            # Build non-recursive query (RD=0)
+            query = _build_dns_query(domain, qtype=1)
+            # Clear RD bit: byte 2 bit 0
+            query_list = bytearray(query)
+            query_list[2] = query_list[2] & 0xFE  # Clear RD bit
+            query = bytes(query_list)
+
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(TIMEOUT)
+            sock.sendto(query, (ip, port))
+            response, _ = sock.recvfrom(1024)
+            sock.close()
+
+            if len(response) > 12:
+                ancount = struct.unpack("!H", response[6:8])[0]
+                if ancount > 0:
+                    assert True  # Cached response found
+                    return
+        except Exception:
+            continue
+
+    pytest.fail("DNS cache snooping not possible")
+
+
+def _build_dns_query(domain, qtype=1, qclass=1):
+    """Build a minimal DNS query packet."""
+    import random
+    tid = random.randint(0, 65535)
+    header = struct.pack("!HHHHHH", tid, 0x0100, 1, 0, 0, 0)
+
+    qname = b""
+    for label in domain.split("."):
+        qname += bytes([len(label)]) + label.encode()
+    qname += b"\x00"
+
+    question = qname + struct.pack("!HH", qtype, qclass)
+    return header + question

@@ -20,7 +20,9 @@ class HistoryBuilder:
         "payload_size",
         "timeout",
         "vulnerability_found",
-        "execution_time_ms"
+        "execution_time_ms",
+        "simulation_mode",
+        "simulation_iteration",
     ]
 
     def __init__(self, path):

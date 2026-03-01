@@ -8,7 +8,9 @@ DROP_COLS = [
     "container_id",
     "test_id",
     "test_type",
-    "execution_time_ms"
+    "execution_time_ms",
+    "simulation_mode",
+    "simulation_iteration",
 ]
 
 # Common IoT-relevant ports for feature derivation
