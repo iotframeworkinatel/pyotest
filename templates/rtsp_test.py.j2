@@ -1,0 +1,126 @@
+"""Auto-generated RTSP vulnerability tests for {{ ip }}"""
+import pytest
+import socket
+
+TIMEOUT = 5
+
+@pytest.mark.vuln_id("RTSP_OPEN")
+def test_rtsp_open():
+    ip = "{{ ip }}"
+    port = 554
+
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(TIMEOUT)
+        sock.connect((ip, port))
+
+        request = (
+            f"DESCRIBE rtsp://{ip}:{port}/ RTSP/1.0\r\n"
+            f"CSeq: 1\r\n"
+            f"\r\n"
+        )
+        sock.send(request.encode())
+        response = sock.recv(4096).decode(errors="ignore")
+        sock.close()
+
+        if "200 OK" in response or "RTSP/1.0" in response:
+            assert True  # RTSP stream accessible
+            return
+    except Exception:
+        pass
+
+    pytest.fail("RTSP stream not accessible without auth")
+
+
+@pytest.mark.vuln_id("RTSP_DEFAULT_CREDS")
+def test_rtsp_default_creds():
+    ip = "{{ ip }}"
+    port = 554
+    import base64
+
+    credentials = [("admin", "admin"), ("admin", "12345"), ("root", "root")]
+
+    for user, passwd in credentials:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(TIMEOUT)
+            sock.connect((ip, port))
+
+            auth = base64.b64encode(f"{user}:{passwd}".encode()).decode()
+            request = (
+                f"DESCRIBE rtsp://{ip}:{port}/ RTSP/1.0\r\n"
+                f"CSeq: 1\r\n"
+                f"Authorization: Basic {auth}\r\n"
+                f"\r\n"
+            )
+            sock.send(request.encode())
+            response = sock.recv(4096).decode(errors="ignore")
+            sock.close()
+
+            if "200 OK" in response:
+                assert True  # Default credentials accepted
+                return
+        except Exception:
+            continue
+
+    pytest.fail("RTSP default credentials not accepted")
+
+
+@pytest.mark.vuln_id("RTSP_UNAUTH_DESCRIBE")
+def test_rtsp_unauth_describe():
+    ip = "{{ ip }}"
+    port = 554
+
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(TIMEOUT)
+        sock.connect((ip, port))
+
+        request = (
+            f"DESCRIBE rtsp://{ip}:{port}/stream1 RTSP/1.0\r\n"
+            f"CSeq: 1\r\n"
+            f"Accept: application/sdp\r\n"
+            f"\r\n"
+        )
+        sock.send(request.encode())
+        response = sock.recv(4096).decode(errors="ignore")
+        sock.close()
+
+        if "200 OK" in response and "application/sdp" in response.lower():
+            assert True  # SDP description exposed
+            return
+    except Exception:
+        pass
+
+    pytest.fail("RTSP DESCRIBE requires authentication")
+
+
+@pytest.mark.vuln_id("RTSP_PATH_TRAVERSAL")
+def test_rtsp_path_traversal():
+    ip = "{{ ip }}"
+    port = 554
+
+    traversal_paths = ["/../admin", "/..%2fadmin", "/../../../etc/passwd"]
+
+    for path in traversal_paths:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(TIMEOUT)
+            sock.connect((ip, port))
+
+            request = (
+                f"DESCRIBE rtsp://{ip}:{port}{path} RTSP/1.0\r\n"
+                f"CSeq: 1\r\n"
+                f"\r\n"
+            )
+            sock.send(request.encode())
+            response = sock.recv(4096).decode(errors="ignore")
+            sock.close()
+
+            if "200 OK" in response:
+                assert True  # Path traversal successful
+                return
+        except Exception:
+            continue
+
+    pytest.fail("RTSP path traversal not exploitable")

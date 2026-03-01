@@ -1,4 +1,8 @@
-# from utils.scan import get_local_network as get_local_network
-from utils.default_data import COMMON_CREDENTIALS
-from utils.default_data import COMMON_VULN_PORTS
-from utils.tester import general_tester
+# Utils package — lazy imports only to avoid pulling heavy dependencies
+# (history, reports, vulnerability_tester) in lightweight contexts like
+# the dashboard API container.
+#
+# Import specific submodules directly:
+#   from utils.protocols import PORT_PROTOCOL_MAP
+#   from utils.tester import general_tester
+#   from utils.default_data import COMMON_CREDENTIALS

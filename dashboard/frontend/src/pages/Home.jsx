@@ -1,10 +1,10 @@
-import Dashboard from "../components/Dashboard";
-import History from "../components/History";
-import StatisticalAnalysis from "../components/StatisticalAnalysis";
+import TestGenerator from "../components/TestGenerator";
+import TestSuites from "../components/TestSuites";
+import Results from "../components/Results";
+import Hypothesis from "../components/Hypothesis";
 import Architecture from "../components/Architecture";
-import { useDashboardData } from "../hooks/useDashboardData";
-import { useState } from "react";
-import { LayoutDashboard, History as HistoryIcon, FlaskConical, Network } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Wand2, ListChecks, BarChart3, FlaskConical, Network } from "lucide-react";
 import emergenceLogo from "../../resources/emergence_logo.png"
 
 const isDocker = window.location.hostname !== "localhost";
@@ -13,15 +13,33 @@ const API_URL = isDocker
   : "http://localhost:8000";
 
 const TABS = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "history", label: "Histórico", icon: HistoryIcon },
-  { id: "stats", label: "Análise Estatística", icon: FlaskConical },
-  { id: "architecture", label: "Architecture", icon: Network },
+  { id: "generator", label: "Generator", icon: Wand2, color: "blue" },
+  { id: "suites", label: "Test Suites", icon: ListChecks, color: "violet" },
+  { id: "results", label: "Results", icon: BarChart3, color: "orange" },
+  { id: "hypothesis", label: "Hypothesis", icon: FlaskConical, color: "amber" },
+  { id: "architecture", label: "Architecture", icon: Network, color: "emerald" },
 ];
 
+const TAB_COLORS = {
+  blue: "bg-white text-blue-600 shadow-sm",
+  violet: "bg-white text-violet-600 shadow-sm",
+  orange: "bg-white text-orange-600 shadow-sm",
+  amber: "bg-white text-amber-600 shadow-sm",
+  emerald: "bg-white text-emerald-600 shadow-sm",
+};
+
 export default function Home() {
-  const { metrics, refreshAll } = useDashboardData();
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const [activeTab, setActiveTab] = useState("generator");
+
+  // When the active tab changes, fire a resize event after a short delay
+  // so Recharts ResponsiveContainer recalculates chart dimensions for the
+  // newly-visible tab panel.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      window.dispatchEvent(new Event("resize"));
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [activeTab]);
 
   return (
     <div className="min-h-screen bg-gray-100 text-gray-800 font-sans">
@@ -38,22 +56,18 @@ export default function Home() {
             </span>
             Emergence
             <span className="text-sm font-normal text-gray-400 ml-1">
-              IoT Vulnerability Scanner
+              IoT Test Case Generator
             </span>
           </h1>
 
           <nav className="flex gap-1 bg-gray-100 rounded-xl p-1">
-            {TABS.map(({ id, label, icon: Icon }) => (
+            {TABS.map(({ id, label, icon: Icon, color }) => (
               <button
                 key={id}
                 onClick={() => setActiveTab(id)}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                   activeTab === id
-                    ? id === "stats"
-                      ? "bg-white text-violet-600 shadow-sm"
-                      : id === "architecture"
-                      ? "bg-white text-emerald-600 shadow-sm"
-                      : "bg-white text-blue-600 shadow-sm"
+                    ? TAB_COLORS[color]
                     : "text-gray-500 hover:text-gray-700"
                 }`}
               >
@@ -65,18 +79,26 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Content */}
+      {/* Content — all tabs stay mounted; hidden via CSS so state persists */}
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {activeTab === "dashboard" && (
-          <Dashboard
-            refreshAll={refreshAll}
+        <div style={{ display: activeTab === "generator" ? "block" : "none" }}>
+          <TestGenerator
             apiUrl={API_URL}
-            onNavigateToStats={() => setActiveTab("stats")}
+            onSuiteGenerated={() => setActiveTab("suites")}
           />
-        )}
-        {activeTab === "history" && <History />}
-        {activeTab === "stats" && <StatisticalAnalysis />}
-        {activeTab === "architecture" && <Architecture />}
+        </div>
+        <div style={{ display: activeTab === "suites" ? "block" : "none" }}>
+          <TestSuites apiUrl={API_URL} onRunSuite={() => setActiveTab("results")} visible={activeTab === "suites"} />
+        </div>
+        <div style={{ display: activeTab === "results" ? "block" : "none" }}>
+          <Results apiUrl={API_URL} visible={activeTab === "results"} />
+        </div>
+        <div style={{ display: activeTab === "hypothesis" ? "block" : "none" }}>
+          <Hypothesis apiUrl={API_URL} visible={activeTab === "hypothesis"} />
+        </div>
+        <div style={{ display: activeTab === "architecture" ? "block" : "none" }}>
+          <Architecture />
+        </div>
       </main>
     </div>
   );

@@ -54,7 +54,8 @@ services:
   http_admin_default_creds:
     build: ./emergence/devices/app-admin-panel
     container_name: http_admin_default_creds
-
+    volumes:
+      - ./simulation:/app/simulation
     restart: unless-stopped
     networks:
       iot_bridge:
@@ -93,7 +94,7 @@ services:
     image: h2oai/h2o-open-source-k8s-minimal:latest
     container_name: h2o-automl
     ports:
-      - "54321:54321"
+      - "54322:54322"
     restart: unless-stopped
     networks:
       iot_bridge:
@@ -102,6 +103,8 @@ services:
   coap_vuln:
     build: ./emergence/devices/coap
     container_name: coap_vuln
+    volumes:
+      - ./simulation:/app/simulation
     ports:
       - "5683:5683/udp"
     restart: unless-stopped
@@ -112,6 +115,8 @@ services:
   modbus_vuln:
     build: ./emergence/devices/modbustcp
     container_name: modbus_vuln
+    volumes:
+      - ./simulation:/app/simulation
     ports:
       - "502:502"
     restart: unless-stopped
@@ -122,6 +127,8 @@ services:
   http_api_vuln:
     build: ./emergence/devices/http-api-vuln
     container_name: http_api_vuln
+    volumes:
+      - ./simulation:/app/simulation
     restart: unless-stopped
     networks:
       iot_bridge:
@@ -158,6 +165,14 @@ services:
     volumes:
       - ./report:/app/report
       - ./experiments:/app/experiments/
+      - ./suites:/app/suites
+      - ./templates:/app/templates
+      - ./results:/app/results
+      - ./utils:/app/utils
+      - ./models:/app/models
+      - ./generator:/app/generator
+      - ./history:/app/history
+      - ./simulation:/app/simulation
     networks:
       iot_bridge:
         ipv4_address: 172.20.0.19
@@ -172,8 +187,17 @@ services:
     container_name: dashboard_api
     restart: always
     volumes:
-        - /var/run/docker.sock:/var/run/docker.sock  # necessário para Docker SDK
+        - /var/run/docker.sock:/var/run/docker.sock
         - ./experiments:/app/experiments
+        - ./generator:/app/generator
+        - ./models:/app/models
+        - ./automl:/app/automl
+        - ./utils:/app/utils
+        - ./templates:/app/templates
+        - ./suites:/app/suites
+        - ./results:/app/results
+        - ./simulation:/app/simulation
+        - ./history:/app/history
     ports:
       - "8000:8000"
     depends_on:

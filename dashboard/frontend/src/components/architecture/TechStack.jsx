@@ -13,6 +13,7 @@ import {
   FolderOpen,
   TestTube,
   Shield,
+  Dices,
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -24,6 +25,7 @@ const SECTION_ICONS = {
   scanner: Cpu,
   automl: Database,
   devices: Radio,
+  simulation: Dices,
   infrastructure: Settings,
 };
 
@@ -79,6 +81,14 @@ const COLOR_MAP = {
     icon: "text-gray-600",
     header: "text-gray-800",
   },
+  teal: {
+    bg: "bg-teal-50",
+    border: "border-teal-200",
+    badge: "bg-teal-100 text-teal-700 border-teal-200",
+    icon_bg: "bg-teal-100",
+    icon: "text-teal-600",
+    header: "text-teal-800",
+  },
 };
 
 /* ------------------------------------------------------------------ */
@@ -98,7 +108,7 @@ function TechBadge({ tech, colorKey }) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Protocol card (for scanner protocols)                              */
+/*  Protocol card (for test registry)                                  */
 /* ------------------------------------------------------------------ */
 function ProtocolCard({ name, protocol }) {
   const [expanded, setExpanded] = useState(false);
@@ -111,13 +121,12 @@ function ProtocolCard({ name, protocol }) {
       >
         <Shield className="w-4 h-4 text-green-500 shrink-0" />
         <span className="text-xs font-semibold text-gray-700">{name}</span>
-        <span className="text-[10px] text-gray-400 ml-1">port {protocol.port}</span>
+        <span className="text-[10px] text-gray-400 ml-1">
+          {protocol.port !== "any" ? `port ${protocol.port}` : "any port"}
+        </span>
         <div className="ml-auto flex items-center gap-2">
           <span className="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded-full border border-green-200">
-            {protocol.static_tests} static
-          </span>
-          <span className="text-[10px] bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full border border-amber-200">
-            {protocol.adaptive_tests} adaptive
+            {protocol.tests} tests
           </span>
           {expanded ? (
             <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
@@ -131,36 +140,17 @@ function ProtocolCard({ name, protocol }) {
         <div className="px-3 pb-3 border-t border-gray-100 pt-2 space-y-2">
           <p className="text-[11px] text-gray-500">{protocol.description}</p>
 
-          {/* Static tests */}
-          {protocol.static_test_ids && protocol.static_test_ids.length > 0 && (
+          {/* Test IDs */}
+          {protocol.test_ids && protocol.test_ids.length > 0 && (
             <div>
               <h6 className="text-[10px] font-semibold text-green-600 mb-1 flex items-center gap-1">
-                <TestTube className="w-3 h-3" /> Static Tests
+                <TestTube className="w-3 h-3" /> Vulnerability Tests
               </h6>
               <div className="flex flex-wrap gap-1">
-                {protocol.static_test_ids.map((id) => (
+                {protocol.test_ids.map((id) => (
                   <code
                     key={id}
                     className="text-[10px] font-mono bg-green-50 text-green-700 px-2 py-0.5 rounded border border-green-200"
-                  >
-                    {id}
-                  </code>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Adaptive tests */}
-          {protocol.adaptive_test_ids && protocol.adaptive_test_ids.length > 0 && (
-            <div>
-              <h6 className="text-[10px] font-semibold text-amber-600 mb-1 flex items-center gap-1">
-                <TestTube className="w-3 h-3" /> Adaptive Tests (AutoML-only)
-              </h6>
-              <div className="flex flex-wrap gap-1">
-                {protocol.adaptive_test_ids.map((id) => (
-                  <code
-                    key={id}
-                    className="text-[10px] font-mono bg-amber-50 text-amber-700 px-2 py-0.5 rounded border border-amber-200"
                   >
                     {id}
                   </code>
@@ -183,7 +173,6 @@ function StackSection({ sectionKey, section }) {
   const colors = COLOR_MAP[section.color] || COLOR_MAP.gray;
 
   const techCount = section.technologies?.length || 0;
-  const fileCount = section.files?.length || 0;
 
   return (
     <div className={`rounded-2xl border-2 ${colors.border} overflow-hidden transition-all`}>
@@ -292,8 +281,7 @@ export default function TechStack({ metadata }) {
     (sum, section) => sum + (section.technologies?.length || 0),
     0
   );
-  const totalStaticTests = Object.values(protocols).reduce((s, p) => s + p.static_tests, 0);
-  const totalAdaptiveTests = Object.values(protocols).reduce((s, p) => s + p.adaptive_tests, 0);
+  const totalTests = Object.values(protocols).reduce((s, p) => s + (p.tests || 0), 0);
 
   return (
     <div className="space-y-4">
@@ -314,7 +302,7 @@ export default function TechStack({ metadata }) {
             <div className="text-[10px] text-gray-500">Protocols</div>
           </div>
           <div className="bg-gray-50 rounded-lg p-3 text-center">
-            <div className="text-xl font-bold text-gray-700">{totalStaticTests + totalAdaptiveTests}</div>
+            <div className="text-xl font-bold text-gray-700">{totalTests}</div>
             <div className="text-[10px] text-gray-500">Vulnerability Tests</div>
           </div>
         </div>
@@ -331,7 +319,8 @@ export default function TechStack({ metadata }) {
       <div className="bg-white rounded-xl border border-gray-200 p-4">
         <h3 className="font-semibold text-gray-800 mb-1">Vulnerability Test Registry</h3>
         <p className="text-xs text-gray-500 mb-4">
-          {totalStaticTests} static tests (always run) + {totalAdaptiveTests} adaptive tests (AutoML-selected only) across {Object.keys(protocols).length} protocols
+          {totalTests} vulnerability tests across {Object.keys(protocols).length} protocols
+          (unified test registry with ML risk scoring)
         </p>
         <div className="space-y-2">
           {Object.entries(protocols).map(([name, protocol]) => (

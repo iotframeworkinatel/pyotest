@@ -6,8 +6,6 @@ import {
   Cpu,
   Radio,
   ArrowDown,
-  ChevronDown,
-  ChevronUp,
   X,
   Globe,
   Shield,
@@ -17,6 +15,8 @@ import {
   Podcast,
   Hexagon,
   Cable,
+  Wand2,
+  Dices,
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -43,6 +43,8 @@ const LAYER_COLORS = {
   green: { wrapper: "border-green-200 bg-green-50/50", icon_bg: "bg-green-100", icon: "text-green-600", title: "text-green-800" },
   amber: { wrapper: "border-amber-200 bg-amber-50/50", icon_bg: "bg-amber-100", icon: "text-amber-600", title: "text-amber-800" },
   red: { wrapper: "border-red-200 bg-red-50/50", icon_bg: "bg-red-100", icon: "text-red-600", title: "text-red-800" },
+  gray: { wrapper: "border-gray-200 bg-gray-50/50", icon_bg: "bg-gray-100", icon: "text-gray-600", title: "text-gray-800" },
+  teal: { wrapper: "border-teal-200 bg-teal-50/50", icon_bg: "bg-teal-100", icon: "text-teal-600", title: "text-teal-800" },
 };
 
 /* ------------------------------------------------------------------ */
@@ -167,7 +169,6 @@ function DetailPanel({ container, onClose }) {
 /* ------------------------------------------------------------------ */
 export default function SystemDiagram({ metadata }) {
   const [selectedContainer, setSelectedContainer] = useState(null);
-  const [expandedDevices, setExpandedDevices] = useState(false);
 
   const containers = metadata?.containers || [];
   const infra = containers.filter((c) => c.role === "infrastructure");
@@ -199,7 +200,7 @@ export default function SystemDiagram({ metadata }) {
       <LayerCard
         color="blue"
         title="Frontend Layer"
-        subtitle="User-facing dashboard application"
+        subtitle="Test generation dashboard"
         icon={Monitor}
       >
         <div className="flex flex-wrap gap-2">
@@ -226,7 +227,7 @@ export default function SystemDiagram({ metadata }) {
       <LayerCard
         color="purple"
         title="Backend API Layer"
-        subtitle="REST API serving dashboard data"
+        subtitle="REST API for scanning, generation, execution, and ML"
         icon={Server}
       >
         <div className="flex flex-wrap gap-2">
@@ -238,7 +239,7 @@ export default function SystemDiagram({ metadata }) {
             />
           )}
           <div className="flex flex-wrap gap-1.5 items-center ml-4">
-            {["FastAPI", "Docker SDK", "Pandas", "SciPy", "NumPy"].map((t) => (
+            {["FastAPI", "Docker SDK", "Pandas", "Pydantic", "Jinja2", "PyYAML"].map((t) => (
               <span key={t} className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">
                 {t}
               </span>
@@ -252,12 +253,12 @@ export default function SystemDiagram({ metadata }) {
 
       <LayerConnector label="Docker exec" />
 
-      {/* Layer 3: Scanner + AutoML */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Layer 3: Scanner + AutoML + Generator */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <LayerCard
           color="green"
           title="Scanner Engine"
-          subtitle="Vulnerability testing core"
+          subtitle="Network discovery & test execution"
           icon={Cpu}
         >
           {scanner && (
@@ -278,16 +279,16 @@ export default function SystemDiagram({ metadata }) {
           </div>
           <div className="mt-3 text-[10px] text-green-600 font-medium">
             {metadata?.protocols
-              ? `${Object.values(metadata.protocols).reduce((s, p) => s + p.static_tests, 0)} static + ${Object.values(metadata.protocols).reduce((s, p) => s + p.adaptive_tests, 0)} adaptive tests`
-              : "58 vulnerability tests"}{" "}
-            &middot; 9 protocols
+              ? `${Object.values(metadata.protocols).reduce((s, p) => s + (p.tests || 0), 0)} vulnerability tests`
+              : "62 vulnerability tests"}{" "}
+            &middot; 10 protocols
           </div>
         </LayerCard>
 
         <LayerCard
           color="amber"
           title="H2O AutoML"
-          subtitle="Machine learning pipeline"
+          subtitle="Risk scoring & live retraining"
           icon={Database}
         >
           {h2o && (
@@ -300,21 +301,74 @@ export default function SystemDiagram({ metadata }) {
             </div>
           )}
           <div className="flex flex-wrap gap-1.5">
-            {["H2O-3", "GBM", "GLM", "XGBoost", "DeepLearning", "StackedEnsemble"].map((t) => (
+            {["H2O-3", "GBM", "XGBoost", "StackedEnsemble"].map((t) => (
               <span key={t} className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
                 {t}
               </span>
             ))}
           </div>
           <div className="mt-3 text-[10px] text-amber-600 font-medium">
-            Binary classifier &middot; Port 54321 &middot; 5min training
+            Binary classifier &middot; Port 54321 &middot; Live retraining
+          </div>
+        </LayerCard>
+
+        <LayerCard
+          color="gray"
+          title="Generator"
+          subtitle="Test composition & export"
+          icon={Wand2}
+        >
+          <div className="flex flex-wrap gap-1.5">
+            {["Registry", "Engine", "Composer", "Scorer", "Exporter"].map((t) => (
+              <span key={t} className="text-[10px] bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full font-medium">
+                {t}
+              </span>
+            ))}
+          </div>
+          <div className="mt-3 text-[10px] text-gray-600 font-medium">
+            JSON / YAML / Python export &middot; OWASP IoT mapping
           </div>
         </LayerCard>
       </div>
 
-      <LayerConnector label="TCP / UDP (9 protocols)" />
+      <LayerConnector label="Docker exec / shared volumes" />
 
-      {/* Layer 4: Vulnerable Devices */}
+      {/* Layer 4: Environment Simulation */}
+      <LayerCard
+        color="teal"
+        title="Environment Simulation Layer"
+        subtitle="Probability-based IoT lab mutation for train-loop iterations"
+        icon={Dices}
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+          <div className="bg-teal-100/50 rounded-lg p-2.5 text-center">
+            <div className="text-sm font-bold text-teal-700">5</div>
+            <div className="text-[10px] text-teal-600">Named profiles</div>
+          </div>
+          <div className="bg-teal-100/50 rounded-lg p-2.5 text-center">
+            <div className="text-sm font-bold text-teal-700">15</div>
+            <div className="text-[10px] text-teal-600">Patchable vulns</div>
+          </div>
+          <div className="bg-teal-100/50 rounded-lg p-2.5 text-center">
+            <div className="text-sm font-bold text-teal-700">6</div>
+            <div className="text-[10px] text-teal-600">Probability params</div>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {["Service Outages", "Vuln Patching", "Cred Rotation", "Patch Regression", "FP/FN Noise", "Seeded RNG"].map((t) => (
+            <span key={t} className="text-[10px] bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full font-medium">
+              {t}
+            </span>
+          ))}
+        </div>
+        <div className="mt-3 text-[10px] text-teal-600 font-medium">
+          Deterministic via seed + iteration × prime &middot; Reproducible across runs
+        </div>
+      </LayerCard>
+
+      <LayerConnector label="TCP / UDP (10 protocols)" />
+
+      {/* Layer 5: Vulnerable Devices */}
       <LayerCard
         color="red"
         title="Vulnerable IoT Device Layer"

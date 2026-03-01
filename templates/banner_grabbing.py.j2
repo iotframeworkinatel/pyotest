@@ -1,15 +1,52 @@
+"""Auto-generated banner analysis tests for {{ ip }}"""
 import pytest
 import socket
+import re
 
-@pytest.mark.vuln_id("BANNER_GRABBED")
-def test_banner_grabbing():
-    ip = "{{ ip }}"
-    port = int("{{ ports }}".split(",")[0])
+TIMEOUT = 5
+IP = "{{ ip }}"
+PORTS = [int(p) for p in "{{ ports }}".split(",")]
 
-    s = socket.socket()
-    s.settimeout(5)
-    s.connect((ip, port))
-    data = s.recv(1024)
-    s.close()
+# Patterns that reveal version info (vuln: helps attackers fingerprint)
+VERSION_PATTERNS = [
+    r"\d+\.\d+\.\d+",          # e.g. 2.4.52, 1.0.3
+    r"v\d+\.\d+",              # e.g. v2.0
+    r"OpenSSH[_ ]\d+",         # OpenSSH_7.6
+    r"vsftpd \d+",             # vsftpd 3.0.3
+    r"Apache/\d+",             # Apache/2.4
+    r"nginx/\d+",              # nginx/1.18
+    r"Mosquitto/\d+",          # Mosquitto/2.0
+    r"dropbear",               # Dropbear SSH
+    r"ProFTPD",                # ProFTPD
+    r"Pure-FTPd",              # Pure-FTPd
+    r"lighttpd",               # lighttpd
+    r"BusyBox",                # BusyBox (common IoT)
+    r"MikroTik",               # MikroTik router
+    r"Modbus",                 # Modbus service
+]
 
-    assert len(data) > 0
+
+def _grab_banner(ip, port):
+    """Connect to port and grab banner bytes."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(TIMEOUT)
+        s.connect((ip, port))
+        data = s.recv(1024)
+        s.close()
+        return data.decode(errors="ignore").strip()
+    except (socket.timeout, ConnectionError, OSError):
+        return None
+
+
+@pytest.mark.vuln_id("banner_grab")
+def test_banner_grab():
+    """Test if any port leaks a service banner with version info."""
+    for port in PORTS:
+        banner = _grab_banner(IP, port)
+        if banner:
+            for pattern in VERSION_PATTERNS:
+                if re.search(pattern, banner, re.IGNORECASE):
+                    assert True  # Version info leaked in banner
+                    return
+    pytest.fail("No version-revealing banners found")

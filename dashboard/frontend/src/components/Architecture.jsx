@@ -24,7 +24,7 @@ const SUB_TAB_ACTIVE = {
 const SUB_TABS = [
   { id: "system", label: "System Overview", icon: Network, color: "emerald" },
   { id: "api", label: "API Reference", icon: BookOpen, color: "blue" },
-  { id: "experiment", label: "Experiment Pipeline", icon: GitBranch, color: "purple" },
+  { id: "experiment", label: "Generation Pipeline", icon: GitBranch, color: "purple" },
   { id: "techstack", label: "Tech Stack", icon: Layers, color: "amber" },
 ];
 
@@ -84,7 +84,7 @@ export default function Architecture() {
       <div>
         <h2 className="text-2xl font-bold text-gray-800">Architecture</h2>
         <p className="text-sm text-gray-500 mt-1">
-          System architecture, API reference, experiment pipeline, and technology stack
+          System architecture, API reference, generation pipeline, and technology stack
         </p>
       </div>
 
