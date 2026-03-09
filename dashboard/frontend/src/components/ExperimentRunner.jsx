@@ -121,10 +121,12 @@ export default function ExperimentRunner({ onExperimentComplete, refreshAll, onN
     verbose: false,
     test: false,
     automl: true,
+    automl_framework: "h2o",
   });
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [runMode, setRunMode] = useState("single"); // single | batch
   const [batchRuns, setBatchRuns] = useState(30);
+  const [availableFrameworks, setAvailableFrameworks] = useState(["h2o"]);
 
   // -- Execution state --
   const [expStatus, setExpStatus] = useState(null);
@@ -390,6 +392,14 @@ export default function ExperimentRunner({ onExperimentComplete, refreshAll, onN
         }
       } catch {}
     })();
+    // Fetch available AutoML frameworks
+    fetch("/api/automl/frameworks")
+      .then((r) => r.json())
+      .then((d) => {
+        const fws = (d.frameworks || []).map((f) => f.name);
+        if (fws.length > 0) setAvailableFrameworks(fws);
+      })
+      .catch(() => {});
   }, []);
 
   const resetToIdle = () => {
@@ -908,14 +918,36 @@ export default function ExperimentRunner({ onExperimentComplete, refreshAll, onN
 
           {/* AutoML mode info banner */}
           {params.mode === "automl" && (
-            <div className="flex items-start gap-3 bg-violet-50 border border-violet-200 rounded-xl px-4 py-3">
-              <BrainCircuit className="w-5 h-5 text-violet-500 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-violet-700">Modo AutoML ativado</p>
-                <p className="text-xs text-violet-600 mt-0.5">
-                  Além dos testes estáticos, o scanner usará Machine Learning para gerar e executar
-                  testes adaptativos baseados nos dispositivos encontrados na rede.
-                </p>
+            <div className="space-y-3">
+              <div className="flex items-start gap-3 bg-violet-50 border border-violet-200 rounded-xl px-4 py-3">
+                <BrainCircuit className="w-5 h-5 text-violet-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-violet-700">Modo AutoML ativado</p>
+                  <p className="text-xs text-violet-600 mt-0.5">
+                    Além dos testes estáticos, o scanner usará Machine Learning para gerar e executar
+                    testes adaptativos baseados nos dispositivos encontrados na rede.
+                  </p>
+                </div>
+              </div>
+              {/* AutoML Framework Selector */}
+              <div className="flex items-center gap-3 px-4">
+                <label className="text-sm font-medium text-gray-600">AutoML Framework:</label>
+                <select
+                  name="automl_framework"
+                  value={params.automl_framework}
+                  onChange={handleChange}
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-violet-400 focus:outline-none bg-white"
+                >
+                  {availableFrameworks.map((fw) => (
+                    <option key={fw} value={fw}>
+                      {fw === "h2o" ? "H2O AutoML" :
+                       fw === "autogluon" ? "AutoGluon" :
+                       fw === "pycaret" ? "PyCaret" :
+                       fw === "tpot" ? "TPOT" :
+                       fw === "autosklearn" ? "auto-sklearn" : fw}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
           )}

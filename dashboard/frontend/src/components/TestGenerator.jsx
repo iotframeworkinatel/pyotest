@@ -207,6 +207,10 @@ export default function TestGenerator({ apiUrl, onSuiteGenerated }) {
   const [suiteName, setSuiteName] = useState("");
   const [forceNew, setForceNew] = useState(false);
 
+  // ---- AutoML Framework State ----
+  const [automlTool, setAutomlTool] = useState("h2o");
+  const [availableFrameworks, setAvailableFrameworks] = useState(["h2o"]);
+
   // ---- Generation State ----
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState(null);
@@ -281,6 +285,14 @@ export default function TestGenerator({ apiUrl, onSuiteGenerated }) {
   useEffect(() => {
     fetchDevices();
     fetchProtocols();
+    // Fetch available AutoML frameworks
+    fetch(`${apiUrl}/api/automl/frameworks`)
+      .then((r) => r.json())
+      .then((d) => {
+        const fws = (d.frameworks || []).map((f) => f.name);
+        if (fws.length > 0) setAvailableFrameworks(fws);
+      })
+      .catch(() => {});
   }, [fetchDevices, fetchProtocols]);
 
   // =========================================================================
@@ -499,6 +511,7 @@ export default function TestGenerator({ apiUrl, onSuiteGenerated }) {
         severity_filter: activeSeverities,
         name: suiteName.trim() || undefined,
         force_new: forceNew,
+        automl_tool: automlTool,
       };
 
       const res = await fetch(`${apiUrl}/api/generate`, {
@@ -540,6 +553,7 @@ export default function TestGenerator({ apiUrl, onSuiteGenerated }) {
     severityFilter,
     suiteName,
     forceNew,
+    automlTool,
     onSuiteGenerated,
   ]);
 
@@ -1025,6 +1039,28 @@ export default function TestGenerator({ apiUrl, onSuiteGenerated }) {
                 placeholder="e.g. IoT Network Audit Q1"
                 className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
               />
+            </div>
+
+            {/* AutoML Framework Selector */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                AutoML Framework
+              </label>
+              <select
+                value={automlTool}
+                onChange={(e) => setAutomlTool(e.target.value)}
+                className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-white"
+              >
+                {availableFrameworks.map((fw) => (
+                  <option key={fw} value={fw}>
+                    {fw === "h2o" ? "H2O AutoML" :
+                     fw === "autogluon" ? "AutoGluon" :
+                     fw === "pycaret" ? "PyCaret" :
+                     fw === "tpot" ? "TPOT" :
+                     fw === "autosklearn" ? "auto-sklearn" : fw}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {/* Force New Suite Toggle */}

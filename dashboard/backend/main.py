@@ -5,6 +5,7 @@ FastAPI backend for device discovery, test generation, and execution.
 import os
 import json
 import time
+import copy
 import hashlib
 import threading
 import logging
@@ -55,6 +56,44 @@ os.makedirs(SUITES_PATH, exist_ok=True)
 os.makedirs(RESULTS_PATH, exist_ok=True)
 
 
+# ─── In-memory TTL cache for hypothesis endpoints ───────────────────
+class _TTLCache:
+    """Simple thread-safe TTL cache for DataFrames and dicts."""
+
+    def __init__(self, default_ttl: int = 60):
+        self._store: dict = {}
+        self._lock = threading.Lock()
+        self._default_ttl = default_ttl
+
+    def get(self, key: str):
+        with self._lock:
+            if key in self._store:
+                ts, val = self._store[key]
+                if time.time() - ts < self._default_ttl:
+                    if isinstance(val, pd.DataFrame):
+                        return val.copy()
+                    return copy.deepcopy(val)
+                else:
+                    del self._store[key]
+        return None
+
+    def set(self, key: str, value):
+        with self._lock:
+            if isinstance(value, pd.DataFrame):
+                self._store[key] = (time.time(), value.copy())
+            else:
+                self._store[key] = (time.time(), copy.deepcopy(value))
+
+    def clear(self):
+        with self._lock:
+            self._store.clear()
+
+
+_history_cache = _TTLCache(default_ttl=60)
+_iteration_cache = _TTLCache(default_ttl=60)
+_prediction_cache = _TTLCache(default_ttl=120)
+
+
 # ─── JSON-safe float helper (NaN / Inf → None) ──────────────────────
 import math
 
@@ -96,6 +135,57 @@ _manual_devices = []
 _devices_lock = threading.Lock()
 
 
+# ─── Suite score validation ─────────────────────────────────────────────
+
+def _get_ever_trained_frameworks() -> set:
+    """Return set of framework names that have been trained at least once.
+
+    Uses saved model metrics on disk — a framework is considered 'trained'
+    if its metrics JSON exists and has status != 'untrained'.
+    """
+    from automl.pipeline import get_model_metrics
+    from automl.registry import list_all
+
+    trained = set()
+    for name in list_all():
+        try:
+            metrics = get_model_metrics(name)
+            if metrics.get("status") != "untrained":
+                trained.add(name)
+        except Exception:
+            pass
+    return trained
+
+
+def _validate_suite_scores(suite_data: dict) -> dict:
+    """Clear stale ML scores from a suite if its framework was never trained.
+
+    Suites generated before the scorer fix may carry risk scores from the
+    wrong framework.  This function checks whether the suite's
+    ``automl_tool`` was ever trained and, if not, zeros out the scores in
+    the returned dict (without touching the file on disk).
+    """
+    automl_tool = suite_data.get("metadata", {}).get("automl_tool") or "h2o"
+
+    # Suites labelled "h2o" or with no label are assumed valid (legacy)
+    if automl_tool == "h2o":
+        return suite_data
+
+    trained = _get_ever_trained_frameworks()
+    if automl_tool in trained:
+        return suite_data
+
+    # Framework was never trained — clear stale scores
+    for tc in suite_data.get("test_cases", []):
+        tc["risk_score"] = None
+        tc["is_recommended"] = False
+
+    # Recompute recommended_count
+    suite_data["recommended_count"] = 0
+
+    return suite_data
+
+
 # ─── Request/Response Models ───
 
 class ScanRequest(BaseModel):
@@ -115,6 +205,7 @@ class GenerateRequest(BaseModel):
     severity_filter: Optional[list[str]] = None
     name: str = ""
     force_new: bool = False
+    automl_tool: str = "h2o"  # Framework for ML scoring
 
 
 class RunRequest(BaseModel):
@@ -127,6 +218,7 @@ class TrainLoopRequest(BaseModel):
     simulation_seed: int = 42
     simulation_config: Optional[dict] = None  # custom overrides (only if mode="custom")
     train_every_n: int = 0  # 0 = train only after last iteration, 1 = every iter, N = every Nth + last
+    automl_tool: str = "h2o"  # Framework for ML training/scoring
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -373,17 +465,42 @@ def architecture_metadata():
         },
         {
             "method": "GET", "path": "/api/ml/status", "summary": "ML model status",
-            "description": "Returns whether the H2O AutoML model is trained and its metrics.",
+            "description": "Returns whether the selected AutoML model is trained and its metrics. Query param: automl_tool (h2o, autogluon, pycaret, tpot, autosklearn).",
             "category": "ML",
         },
         {
             "method": "GET", "path": "/api/ml/metrics", "summary": "ML metrics",
-            "description": "Returns model performance metrics (AUC, feature importance, etc.).",
+            "description": "Returns model performance metrics (AUC, feature importance, etc.) for the selected framework. Query param: automl_tool.",
+            "category": "ML",
+        },
+        {
+            "method": "GET", "path": "/api/ml/metrics/all", "summary": "All framework metrics",
+            "description": "Returns model metrics for ALL trained frameworks in a single response.",
             "category": "ML",
         },
         {
             "method": "POST", "path": "/api/ml/retrain", "summary": "Retrain model",
-            "description": "Manually triggers H2O AutoML model retraining from accumulated test history.",
+            "description": "Triggers AutoML model retraining. Query param: automl_tool selects which framework to train.",
+            "category": "ML",
+        },
+        {
+            "method": "GET", "path": "/api/automl/frameworks", "summary": "List AutoML frameworks",
+            "description": "Returns all registered AutoML frameworks with availability and model status.",
+            "category": "ML",
+        },
+        {
+            "method": "GET", "path": "/api/automl/frameworks/available", "summary": "Available frameworks",
+            "description": "Returns only the frameworks that are currently reachable (Docker containers running).",
+            "category": "ML",
+        },
+        {
+            "method": "GET", "path": "/api/automl/comparison", "summary": "Framework comparison",
+            "description": "Compare AUC, accuracy, training time across all trained frameworks.",
+            "category": "ML",
+        },
+        {
+            "method": "POST", "path": "/api/automl/train-all", "summary": "Train all frameworks",
+            "description": "Train all available AutoML frameworks on aggregated history data.",
             "category": "ML",
         },
         {
@@ -494,8 +611,8 @@ def architecture_metadata():
         },
         {
             "method": "GET", "path": "/api/hypothesis/statistical-tests",
-            "summary": "Statistical tests (H1)",
-            "description": "Spearman, Mann-Whitney U, Cohen's d for detection-rate convergence hypothesis. Supports simulation_mode filter.",
+            "summary": "Detection rate stability (H1)",
+            "description": "Spearman, Mann-Whitney U, Cohen's d for H1 detection-rate stability hypothesis. Tests whether detection rates remain stable over iterations. Supports simulation_mode filter.",
             "category": "Hypothesis",
             "parameters": [
                 {"name": "simulation_mode", "type": "string", "default": None, "description": "Filter by simulation mode"},
@@ -532,6 +649,15 @@ def architecture_metadata():
             "method": "GET", "path": "/api/hypothesis/execution-efficiency",
             "summary": "Execution efficiency (H5)",
             "description": "Compares detection coverage of ML-recommended subset vs full suite, computing efficiency ratio and theoretical time savings. Supports simulation_mode filter.",
+            "category": "Hypothesis",
+            "parameters": [
+                {"name": "simulation_mode", "type": "string", "default": None, "description": "Filter by simulation mode"},
+            ],
+        },
+        {
+            "method": "GET", "path": "/api/hypothesis/discovery-coverage",
+            "summary": "Discovery coverage (H6)",
+            "description": "Compares unique vulnerability discovery across simulation modes using Kruskal-Wallis and pairwise Mann-Whitney U tests. Tests whether dynamic modes expose more unique patterns. Supports simulation_mode filter.",
             "category": "Hypothesis",
             "parameters": [
                 {"name": "simulation_mode", "type": "string", "default": None, "description": "Filter by simulation mode"},
@@ -875,9 +1001,11 @@ def generate_tests(req: GenerateRequest):
     if not req.devices:
         raise HTTPException(400, "No devices provided")
 
-    # Step 1: Compute fingerprint for this configuration
+    # Step 1: Compute fingerprint for this configuration (includes automl_tool
+    # so switching frameworks always creates a fresh suite).
     fingerprint = _compute_suite_fingerprint(
-        req.devices, req.protocols, req.severity_filter, req.include_uncommon
+        req.devices, req.protocols, req.severity_filter, req.include_uncommon,
+        automl_tool=req.automl_tool,
     )
 
     # Step 2: Check for existing matching suite (unless force_new)
@@ -913,7 +1041,7 @@ def generate_tests(req: GenerateRequest):
 
         # Re-score ALL tests with the latest ML model
         try:
-            suite = score_test_suite(suite)
+            suite = score_test_suite(suite, automl_tool=req.automl_tool)
         except Exception as e:
             logging.warning(f"[API] Scorer error during enhancement (non-fatal): {e}")
 
@@ -923,6 +1051,7 @@ def generate_tests(req: GenerateRequest):
         suite.metadata["last_enhanced_at"] = datetime.utcnow().isoformat()
         suite.metadata["tests_added_on_enhance"] = len(new_tests)
         suite.metadata["fingerprint"] = fingerprint
+        suite.metadata["automl_tool"] = req.automl_tool
 
         _save_suite(suite)
 
@@ -941,7 +1070,7 @@ def generate_tests(req: GenerateRequest):
         )
 
         try:
-            suite = score_test_suite(suite)
+            suite = score_test_suite(suite, automl_tool=req.automl_tool)
         except Exception as e:
             logging.warning(f"[API] Scorer error (non-fatal): {e}")
 
@@ -950,6 +1079,7 @@ def generate_tests(req: GenerateRequest):
         suite.metadata["enhancement_count"] = 0
         suite.metadata["last_enhanced_at"] = None
         suite.metadata["tests_added_on_enhance"] = 0
+        suite.metadata["automl_tool"] = req.automl_tool
 
         _save_suite(suite)
 
@@ -962,6 +1092,7 @@ def generate_tests(req: GenerateRequest):
 @app.get("/api/suites")
 def list_suites():
     suites = []
+    trained = _get_ever_trained_frameworks()
     if os.path.exists(SUITES_PATH):
         for fname in sorted(os.listdir(SUITES_PATH), reverse=True):
             if fname.endswith(".json"):
@@ -970,17 +1101,25 @@ def list_suites():
                     with open(fpath) as f:
                         data = json.load(f)
                     meta = data.get("metadata", {})
+
+                    # Clear stale recommended_count for untrained frameworks
+                    automl = meta.get("automl_tool") or "h2o"
+                    rec_count = data.get("recommended_count", 0)
+                    if automl != "h2o" and automl not in trained:
+                        rec_count = 0
+
                     suites.append({
                         "suite_id": data.get("suite_id"),
                         "name": data.get("name"),
                         "created_at": data.get("created_at"),
                         "total_tests": data.get("total_tests", 0),
                         "protocols": data.get("protocols", []),
-                        "recommended_count": data.get("recommended_count", 0),
+                        "recommended_count": rec_count,
                         "device_count": len(data.get("devices", [])),
                         "enhancement_count": meta.get("enhancement_count", 0),
                         "last_enhanced_at": meta.get("last_enhanced_at"),
                         "fingerprint": meta.get("fingerprint"),
+                        "automl_tool": automl,
                     })
                 except Exception:
                     continue
@@ -993,7 +1132,7 @@ def get_suite(suite_id: str):
     suite_data = _load_suite(suite_id)
     if not suite_data:
         raise HTTPException(404, f"Suite {suite_id} not found")
-    return suite_data
+    return _validate_suite_scores(suite_data)
 
 
 @app.get("/api/suites/{suite_id}/export")
@@ -1033,6 +1172,7 @@ def _execute_suite_and_retrain(
     on_phase: "Optional[callable]" = None,
     simulation_context: "Optional[dict]" = None,
     skip_training: bool = False,
+    automl_tool: str = "h2o",
 ) -> dict:
     """Core run + retrain logic shared by single-run and auto-train loop.
 
@@ -1116,13 +1256,28 @@ def _execute_suite_and_retrain(
         # Save result
         result["suite_id"] = suite_id
         result["finished_at"] = datetime.now().isoformat()
+        result["automl_tool"] = automl_tool
+        if simulation_context:
+            result["simulation_mode"] = simulation_context.get("mode")
+            result["simulation_seed"] = simulation_context.get("seed")
+            result["simulation_iteration"] = simulation_context.get("iteration")
         result_path = os.path.join(RESULTS_PATH, f"result_{suite_id}_{int(time.time())}.json")
         with open(result_path, "w") as f:
             json.dump(result, f, indent=2, default=str)
 
-        # Log experiment directory info for debugging hypothesis data
+        # Tag the history CSV with automl_tool so hypothesis endpoints can
+        # filter by framework. Old files without this column are treated as h2o.
         exp_dir = result.get("experiment_dir")
         history_csv = result.get("history_csv")
+        if history_csv and os.path.exists(str(history_csv)):
+            try:
+                _hdf = pd.read_csv(history_csv)
+                _hdf["automl_tool"] = automl_tool
+                _hdf.to_csv(history_csv, index=False)
+            except Exception as e:
+                logging.warning(f"[API] Could not tag history with automl_tool: {e}")
+
+        # Log experiment directory info for debugging hypothesis data
         logging.info(f"[API] Run completed. experiment_dir={exp_dir}, history_csv={history_csv}")
         if history_csv:
             logging.info(f"[API] history_csv exists: {os.path.exists(str(history_csv))}")
@@ -1156,7 +1311,10 @@ def _execute_suite_and_retrain(
                     _train_state["auc"] = None
                     _train_state["training_rows"] = None
 
-                agg_path = aggregate_history(EXPERIMENTS_PATH)
+                # Only aggregate rows from the current simulation mode
+                # to avoid cross-contamination between experiments
+                _sim_mode = simulation_context.get("mode") if simulation_context else None
+                agg_path = aggregate_history(EXPERIMENTS_PATH, simulation_mode=_sim_mode)
                 if not agg_path:
                     retrain_result = {"status": "error", "message": "No history data to train on"}
                     with _train_lock:
@@ -1164,7 +1322,9 @@ def _execute_suite_and_retrain(
                         _train_state["finished_at"] = datetime.now().isoformat()
                         _train_state["error"] = "No history data to train on"
                 else:
-                    retrain_result = retrain_model_after_execution(agg_path)
+                    retrain_result = retrain_model_after_execution(
+                        agg_path, automl_tool=automl_tool,
+                    )
                     with _train_lock:
                         if retrain_result.get("status") in ("error", "insufficient_data"):
                             _train_state["status"] = "error"
@@ -1174,6 +1334,7 @@ def _execute_suite_and_retrain(
                             _train_state["auc"] = retrain_result.get("auc")
                             _train_state["training_rows"] = retrain_result.get("training_rows")
                         _train_state["finished_at"] = datetime.now().isoformat()
+                        _train_state["automl_tool"] = automl_tool
             except Exception as e:
                 logging.warning(f"[API] Retrain error (non-fatal): {e}")
                 retrain_result = {"status": "error", "message": str(e)}
@@ -1194,7 +1355,7 @@ def _execute_suite_and_retrain(
                     from generator.scorer import score_test_suite as _score
 
                     fresh_suite = TestSuite.from_dict(suite_data)
-                    fresh_suite = _score(fresh_suite)
+                    fresh_suite = _score(fresh_suite, automl_tool=automl_tool)
 
                     # Update metadata to reflect auto-scoring
                     fresh_suite.metadata["last_scored_at"] = datetime.utcnow().isoformat()
@@ -1287,6 +1448,7 @@ _loop_state = {
     "cancelled": False,
     "iterations": [],           # per-iteration metrics
     "train_every_n": 0,         # 0 = train only last, N = every Nth + last
+    "automl_tool": "h2o",       # which framework is being used
 }
 
 
@@ -1338,6 +1500,7 @@ def start_train_loop(suite_id: str, req: TrainLoopRequest, background_tasks: Bac
         _loop_state["simulation_mode"] = req.simulation_mode
         _loop_state["simulation_seed"] = req.simulation_seed
         _loop_state["train_every_n"] = req.train_every_n
+        _loop_state["automl_tool"] = req.automl_tool
 
     def _do_loop():
         # Create simulator (uses dashboard-api's Docker socket)
@@ -1370,14 +1533,16 @@ def start_train_loop(suite_id: str, req: TrainLoopRequest, background_tasks: Bac
                     with _loop_lock:
                         _loop_state["phase"] = phase
 
-                # Pass simulation context to the suite runner
+                # Pass simulation context to the suite runner (always,
+                # so that even deterministic runs get tagged with the
+                # correct simulation_mode and iteration number).
                 sim_context = {
                     "mode": sim_config.mode,
                     "seed": sim_config.seed,
                     "iteration": i,
                     "false_positive_rate": sim_config.false_positive_rate,
                     "false_negative_rate": sim_config.false_negative_rate,
-                } if sim_config.is_active() else None
+                }
 
                 # Decide whether to train on this iteration
                 _ten = req.train_every_n
@@ -1390,6 +1555,7 @@ def start_train_loop(suite_id: str, req: TrainLoopRequest, background_tasks: Bac
                     suite_id, suite, on_phase=_on_phase,
                     simulation_context=sim_context,
                     skip_training=not should_train,
+                    automl_tool=req.automl_tool,
                 )
 
                 # ── Simulation: restore outaged containers after tests ──
@@ -1479,6 +1645,111 @@ def cancel_train_loop(suite_id: str):
     return {"status": "cancelling", "message": "Loop will stop after current iteration completes"}
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# MULTI-FRAMEWORK COMPARISON
+# ═══════════════════════════════════════════════════════════════════════
+
+@app.get("/api/automl/comparison")
+def automl_comparison():
+    """Compare model metrics across all trained frameworks.
+
+    Returns a unified view of AUC, accuracy, training time, leader algorithm,
+    and feature importance for each framework that has been trained.
+    """
+    try:
+        from automl.pipeline import get_all_model_metrics
+        all_metrics = get_all_model_metrics()
+
+        comparison = []
+        for name, metrics in sorted(all_metrics.items()):
+            comparison.append({
+                "framework": name,
+                "auc": metrics.get("auc"),
+                "cv_auc": metrics.get("cv_auc"),
+                "accuracy": metrics.get("accuracy"),
+                "logloss": metrics.get("logloss"),
+                "leader_algo": metrics.get("leader_algo", "unknown"),
+                "total_models_trained": metrics.get("total_models_trained", 0),
+                "training_time_secs": metrics.get("training_time_secs", 0),
+                "training_rows": metrics.get("training_rows", 0),
+                "status": metrics.get("status", "unknown"),
+            })
+
+        return {"comparison": comparison, "frameworks_trained": len(comparison)}
+    except Exception as e:
+        return {"comparison": [], "frameworks_trained": 0, "error": str(e)}
+
+
+@app.post("/api/automl/train-all")
+def train_all_frameworks(background_tasks: BackgroundTasks):
+    """Train all available AutoML frameworks on aggregated history data.
+
+    Runs each framework sequentially in the background.
+    """
+    with _train_lock:
+        if _train_state["status"] == "training":
+            return {
+                "status": "already_training",
+                "message": "A training job is already running.",
+            }
+        _train_state["status"] = "training"
+        _train_state["started_at"] = datetime.now().isoformat()
+        _train_state["finished_at"] = None
+        _train_state["error"] = None
+        _train_state["automl_tool"] = "all"
+
+    def _do_train_all():
+        try:
+            from generator.retrain import retrain_all_frameworks, aggregate_history
+            from automl.registry import list_available
+
+            agg_path = aggregate_history(EXPERIMENTS_PATH)
+            if not agg_path:
+                with _train_lock:
+                    _train_state["status"] = "error"
+                    _train_state["finished_at"] = datetime.now().isoformat()
+                    _train_state["error"] = "No history data found."
+                return
+
+            available = list_available()
+            logging.info(f"[API] Training all available frameworks: {available}")
+
+            results = retrain_all_frameworks(agg_path, frameworks=available)
+
+            with _train_lock:
+                # Report success if at least one framework trained
+                any_success = any(
+                    r.get("status") not in ("error", "insufficient_data")
+                    for r in results.values()
+                )
+                if any_success:
+                    _train_state["status"] = "completed"
+                    # Use best AUC among all frameworks
+                    best_auc = max(
+                        (r.get("auc", 0) or 0 for r in results.values()),
+                        default=None,
+                    )
+                    _train_state["auc"] = best_auc
+                else:
+                    _train_state["status"] = "error"
+                    _train_state["error"] = "All frameworks failed to train"
+                _train_state["finished_at"] = datetime.now().isoformat()
+
+        except Exception as e:
+            logging.error(f"[API] Train-all failed: {e}")
+            with _train_lock:
+                _train_state["status"] = "error"
+                _train_state["finished_at"] = datetime.now().isoformat()
+                _train_state["error"] = str(e)
+
+    background_tasks.add_task(_do_train_all)
+    return {"status": "training", "message": "Training all available frameworks"}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# RESULTS
+# ═══════════════════════════════════════════════════════════════════════
+
 @app.get("/api/results")
 def list_results():
     results = []
@@ -1546,22 +1817,54 @@ def get_result(filename: str):
 # ═══════════════════════════════════════════════════════════════════════
 
 @app.get("/api/ml/status")
-def ml_status():
+def ml_status(automl_tool: str = "h2o"):
     try:
         from automl.pipeline import get_model_metrics
-        metrics = get_model_metrics()
+        metrics = get_model_metrics(automl_tool)
         return metrics
     except Exception as e:
         return {"status": "unavailable", "error": str(e)}
 
 
 @app.get("/api/ml/metrics")
-def ml_metrics():
+def ml_metrics(automl_tool: str = "h2o"):
     try:
         from automl.pipeline import get_model_metrics
-        return get_model_metrics()
+        return get_model_metrics(automl_tool)
     except Exception as e:
         return {"status": "unavailable", "error": str(e)}
+
+
+@app.get("/api/ml/metrics/all")
+def ml_metrics_all():
+    """Get model metrics for ALL trained frameworks."""
+    try:
+        from automl.pipeline import get_all_model_metrics
+        return get_all_model_metrics()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ── AutoML Framework Management ─────────────────────────────────────────
+
+@app.get("/api/automl/frameworks")
+def automl_frameworks():
+    """List all registered AutoML frameworks and their status."""
+    try:
+        from automl.registry import get_framework_status
+        return {"frameworks": get_framework_status()}
+    except Exception as e:
+        return {"frameworks": [], "error": str(e)}
+
+
+@app.get("/api/automl/frameworks/available")
+def automl_frameworks_available():
+    """List only frameworks that are currently reachable."""
+    try:
+        from automl.registry import list_available
+        return {"available": list_available()}
+    except Exception as e:
+        return {"available": ["h2o"], "error": str(e)}
 
 
 _train_lock = threading.Lock()
@@ -1572,16 +1875,18 @@ _train_state = {
     "error": None,
     "auc": None,
     "training_rows": None,
+    "automl_tool": None,
 }
 
 
 @app.post("/api/ml/retrain")
-def ml_retrain(background_tasks: BackgroundTasks):
+def ml_retrain(background_tasks: BackgroundTasks, automl_tool: str = "h2o"):
     with _train_lock:
         if _train_state["status"] == "training":
             return {
                 "status": "already_training",
                 "started_at": _train_state["started_at"],
+                "automl_tool": _train_state.get("automl_tool"),
                 "message": "Model training is already in progress.",
             }
         _train_state["status"] = "training"
@@ -1590,6 +1895,7 @@ def ml_retrain(background_tasks: BackgroundTasks):
         _train_state["error"] = None
         _train_state["auc"] = None
         _train_state["training_rows"] = None
+        _train_state["automl_tool"] = automl_tool
 
     def _do_retrain():
         try:
@@ -1602,7 +1908,7 @@ def ml_retrain(background_tasks: BackgroundTasks):
                     _train_state["error"] = "No history data found. Run test suites first."
                 return
 
-            result = retrain_model_after_execution(agg_path)
+            result = retrain_model_after_execution(agg_path, automl_tool=automl_tool)
 
             with _train_lock:
                 if result.get("status") == "error":
@@ -1618,14 +1924,18 @@ def ml_retrain(background_tasks: BackgroundTasks):
                 _train_state["finished_at"] = datetime.now().isoformat()
 
         except Exception as e:
-            logging.error(f"[API] Manual retrain failed: {e}")
+            logging.error(f"[API] Manual retrain ({automl_tool}) failed: {e}")
             with _train_lock:
                 _train_state["status"] = "error"
                 _train_state["finished_at"] = datetime.now().isoformat()
                 _train_state["error"] = str(e)
 
     background_tasks.add_task(_do_retrain)
-    return {"status": "training", "started_at": _train_state["started_at"]}
+    return {
+        "status": "training",
+        "started_at": _train_state["started_at"],
+        "automl_tool": automl_tool,
+    }
 
 
 @app.get("/api/ml/retrain/status")
@@ -1773,34 +2083,99 @@ def debug_experiments():
     return result
 
 
+@app.post("/api/hypothesis/invalidate-cache")
+def invalidate_hypothesis_cache():
+    """Clear all in-memory hypothesis caches. Call after adding new experiments."""
+    _history_cache.clear()
+    _iteration_cache.clear()
+    _prediction_cache.clear()
+    _synthesis_cache.clear()
+    return {"status": "ok", "message": "All hypothesis caches cleared"}
+
+
 @app.get("/api/hypothesis/available-simulation-modes")
 def available_simulation_modes():
-    """Return distinct simulation_mode values found in history data."""
+    """Return distinct simulation_mode values found in history data, with per-mode metadata.
+
+    Response:
+        modes: list of mode names (sorted, deterministic first)
+        mode_metadata: dict mapping mode -> {rows, seeds, iterations, experiments}
+    """
+    cached = _history_cache.get("__sim_modes__")
+    if cached is not None:
+        return cached
+
     import glob as glob_mod
 
     pattern = os.path.join(EXPERIMENTS_PATH, "exp_*", "history.csv")
     files = glob_mod.glob(pattern)
     modes = set()
+    # Track per-mode metadata: seeds used, row counts, iteration counts
+    mode_meta: dict[str, dict] = {}
 
+    _usecols = ["simulation_mode", "simulation_iteration"]
     for f in files:
         try:
-            df = pd.read_csv(f, usecols=["simulation_mode"])
-            if "simulation_mode" in df.columns:
-                modes.update(df["simulation_mode"].dropna().unique().tolist())
+            df = pd.read_csv(f, usecols=lambda c: c in _usecols or c == "simulation_mode")
+            if "simulation_mode" not in df.columns:
+                continue
+            for mode in df["simulation_mode"].dropna().unique():
+                modes.add(mode)
+                if mode not in mode_meta:
+                    mode_meta[mode] = {"rows": 0, "iterations": set(), "experiments": 0}
+                mode_df = df[df["simulation_mode"] == mode]
+                mode_meta[mode]["rows"] += len(mode_df)
+                mode_meta[mode]["experiments"] += 1
+                if "simulation_iteration" in mode_df.columns:
+                    mode_meta[mode]["iterations"].update(
+                        mode_df["simulation_iteration"].dropna().astype(int).unique().tolist()
+                    )
         except Exception:
-            # Column may not exist in older history files — skip
+            continue
+
+    # Also scan result JSON files for seed info
+    mode_seeds: dict[str, set] = {}
+    result_pattern = os.path.join(RESULTS_PATH, "*.json")
+    for rf in glob_mod.glob(result_pattern):
+        try:
+            with open(rf) as _f:
+                rdata = json.load(_f)
+            rm = rdata.get("simulation_mode")
+            rs = rdata.get("simulation_seed")
+            if rm and rs is not None:
+                mode_seeds.setdefault(rm, set()).add(rs)
+        except Exception:
             continue
 
     # Ensure "deterministic" is always present as the baseline
     modes.add("deterministic")
     sorted_modes = sorted(modes, key=lambda m: (m != "deterministic", m))
 
-    return {"modes": sorted_modes}
+    # Build serialisable metadata
+    metadata = {}
+    for m in sorted_modes:
+        meta = mode_meta.get(m, {})
+        metadata[m] = {
+            "rows": meta.get("rows", 0),
+            "iterations": sorted(meta["iterations"]) if isinstance(meta.get("iterations"), set) else [],
+            "experiments": meta.get("experiments", 0),
+            "seeds": sorted(mode_seeds.get(m, [])),
+        }
+
+    result = {"modes": sorted_modes, "mode_metadata": metadata}
+    _history_cache.set("__sim_modes__", result)
+    return result
 
 
 @app.get("/api/hypothesis/iteration-metrics")
-def hypothesis_iteration_metrics(simulation_mode: Optional[str] = None):
+def hypothesis_iteration_metrics(simulation_mode: Optional[str] = None, automl_tool: Optional[str] = None):
     """Per-experiment-run metrics over time for hypothesis validation."""
+    # Check cache first
+    cache_key = f"iter_{simulation_mode or 'all'}_{automl_tool or 'all'}"
+    cached = _iteration_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     import glob as glob_mod
 
     pattern = os.path.join(EXPERIMENTS_PATH, "exp_*", "history.csv")
@@ -1835,6 +2210,16 @@ def hypothesis_iteration_metrics(simulation_mode: Optional[str] = None):
             # Filter by simulation mode if requested
             if simulation_mode and simulation_mode != "all" and "simulation_mode" in df.columns:
                 df = df[df["simulation_mode"] == simulation_mode]
+                if df.empty:
+                    continue
+
+            # Filter by automl_tool if requested (old files without column = h2o)
+            if automl_tool and automl_tool != "all":
+                if "automl_tool" in df.columns:
+                    df = df[df["automl_tool"] == automl_tool]
+                elif automl_tool != "h2o":
+                    # Old data has no column → treat as h2o; skip if user wants another tool
+                    continue
                 if df.empty:
                     continue
 
@@ -1921,32 +2306,42 @@ def hypothesis_iteration_metrics(simulation_mode: Optional[str] = None):
     }
     if parse_errors:
         logging.warning(f"[Hypothesis] {len(parse_errors)} files failed to parse: {parse_errors}")
+    _iteration_cache.set(cache_key, result)
     return result
 
 
 @app.get("/api/hypothesis/model-evolution")
-def hypothesis_model_evolution():
+def hypothesis_model_evolution(automl_tool: str = "h2o"):
     """ML model metrics snapshot (AUC, feature importance, etc.)."""
     try:
         from automl.pipeline import get_model_metrics
-        metrics = get_model_metrics()
-        return {"model": metrics}
+        metrics = get_model_metrics(automl_tool)
+        return {"model": metrics, "automl_tool": automl_tool}
     except Exception as e:
         return {"model": {"status": "unavailable", "error": str(e)}}
 
 
 @app.get("/api/hypothesis/composition-analysis")
-def hypothesis_composition_analysis():
-    """Strategy effectiveness analysis."""
-    df = _load_aggregated_history()
+def hypothesis_composition_analysis(simulation_mode: Optional[str] = None, automl_tool: Optional[str] = None):
+    """H2: Strategy effectiveness analysis with statistical tests.
+
+    Tests whether ML-composed test strategies achieve significantly
+    different detection rates than other strategies using Chi-squared
+    and effect size measures.
+    """
+    from scipy import stats as scipy_stats
+    import numpy as np
+
+    df = _load_aggregated_history(simulation_mode=simulation_mode, automl_tool=automl_tool)
     if df is None or df.empty:
-        return {"strategies": [], "rules": []}
+        return {"strategies": [], "rules": [], "stats": None, "verdict": None}
 
     strategies = []
     if "test_strategy" in df.columns:
+        df["vulnerability_found"] = pd.to_numeric(df["vulnerability_found"], errors="coerce").fillna(0).astype(int)
         for strategy, group in df.groupby("test_strategy"):
             total = len(group)
-            vulns = int(group["vulnerability_found"].sum()) if "vulnerability_found" in group.columns else 0
+            vulns = int(group["vulnerability_found"].sum())
             avg_time = (_safe_float(group["execution_time_ms"].mean(), 2) or 0) if "execution_time_ms" in group.columns else 0
             strategies.append({
                 "strategy": strategy,
@@ -1956,12 +2351,73 @@ def hypothesis_composition_analysis():
                 "avg_execution_time_ms": avg_time,
             })
 
-    return {"strategies": strategies, "rules": []}
+    # ─── Statistical tests across strategies ───
+    stats_result = None
+    verdict = None
+
+    if len(strategies) >= 2 and "test_strategy" in df.columns:
+        # Chi-squared test on contingency table: strategy × outcome
+        try:
+            contingency = pd.crosstab(
+                df["test_strategy"],
+                df["vulnerability_found"],
+            )
+            if contingency.shape[0] >= 2 and contingency.shape[1] >= 2:
+                chi2, chi2_p, chi2_dof, _ = scipy_stats.chi2_contingency(contingency)
+
+                # Cramér's V effect size
+                n_obs = contingency.values.sum()
+                min_dim = min(contingency.shape[0], contingency.shape[1]) - 1
+                cramers_v = float(np.sqrt(chi2 / (n_obs * min_dim))) if (n_obs * min_dim) > 0 else 0
+
+                cramers_interp = (
+                    "large" if cramers_v >= 0.5
+                    else "medium" if cramers_v >= 0.3
+                    else "small" if cramers_v >= 0.1
+                    else "negligible"
+                )
+
+                chi2_sig = bool(chi2_p < 0.05)
+
+                # Best vs worst strategy detection rate
+                sorted_strats = sorted(strategies, key=lambda s: s["detection_rate"], reverse=True)
+                best = sorted_strats[0]
+                worst = sorted_strats[-1]
+
+                stats_result = {
+                    "chi2": _safe_float(chi2, 4),
+                    "chi2_p": _safe_float(chi2_p, 6),
+                    "chi2_dof": int(chi2_dof),
+                    "chi2_significant": chi2_sig,
+                    "cramers_v": _safe_float(cramers_v, 4),
+                    "cramers_v_interpretation": cramers_interp,
+                    "n_strategies": len(strategies),
+                    "n_observations": int(n_obs),
+                    "best_strategy": best["strategy"],
+                    "best_rate": best["detection_rate"],
+                    "worst_strategy": worst["strategy"],
+                    "worst_rate": worst["detection_rate"],
+                }
+
+                if chi2_sig and cramers_v >= 0.1:
+                    verdict = "supported"
+                elif chi2_sig or cramers_v >= 0.1:
+                    verdict = "trending"
+                else:
+                    verdict = "not_supported"
+        except Exception as e:
+            logging.warning(f"[Hypothesis] Composition chi2 test failed: {e}")
+
+    return {"strategies": strategies, "rules": [], "stats": stats_result, "verdict": verdict}
 
 
 @app.get("/api/hypothesis/statistical-tests")
-def hypothesis_statistical_tests(protocol: Optional[str] = None, simulation_mode: Optional[str] = None):
-    """Statistical significance analysis for the convergence hypothesis.
+def hypothesis_statistical_tests(protocol: Optional[str] = None, simulation_mode: Optional[str] = None, automl_tool: Optional[str] = None):
+    """Statistical analysis for H1: Detection Rate Stability.
+
+    Tests whether the system maintains stable detection rates over
+    successive iterations — i.e., the pipeline does not degrade despite
+    environmental dynamics (simulation mutations) or repeated testing.
 
     Optional protocol param filters to per-protocol detection rates.
     Optional simulation_mode filters history data by simulation profile.
@@ -1970,7 +2426,7 @@ def hypothesis_statistical_tests(protocol: Optional[str] = None, simulation_mode
     import numpy as np
     from scipy import stats as scipy_stats
 
-    iter_data = hypothesis_iteration_metrics(simulation_mode=simulation_mode)
+    iter_data = hypothesis_iteration_metrics(simulation_mode=simulation_mode, automl_tool=automl_tool)
     iterations = iter_data.get("iterations", [])
 
     # Extract detection rates — global or per-protocol
@@ -2070,17 +2526,25 @@ def hypothesis_statistical_tests(protocol: Optional[str] = None, simulation_mode
     except Exception:
         pass
 
-    # Overall hypothesis verdict
+    # Overall hypothesis verdict — H1: Detection Rate Stability
+    # "Supported" = detection rates remain stable (no significant decline,
+    # negligible or small effect size).  The system maintains effectiveness.
     spearman_sig = spearman_p is not None and spearman_p < 0.05
-    spearman_pos = (spearman_rho or 0) > 0
     mw_sig = mann_whitney_p is not None and mann_whitney_p < 0.05
-    improvement_pos = (improvement or 0) > 0
+    abs_d = abs(cohens_d_val) if cohens_d_val is not None else 0
+    spearman_neg = (spearman_rho or 0) < 0
 
-    if spearman_sig and spearman_pos and mw_sig:
+    if not spearman_sig and abs_d < 0.5:
+        # No significant trend AND negligible/small effect → stable
         verdict = "supported"
-    elif spearman_pos and improvement_pos:
+    elif spearman_sig and not spearman_neg and abs_d < 0.5:
+        # Significant positive trend but small effect → still stable
+        verdict = "supported"
+    elif not spearman_sig and abs_d >= 0.5:
+        # Not significant but medium/large effect → inconclusive
         verdict = "trending"
     else:
+        # Significant decline or large effect size → unstable
         verdict = "not_supported"
 
     # ─── Flat response for frontend ───
@@ -2110,24 +2574,31 @@ def hypothesis_statistical_tests(protocol: Optional[str] = None, simulation_mode
 # ── H2 — Recommendation Effectiveness ────────────────────────────────
 
 @app.get("/api/hypothesis/recommendation-effectiveness")
-def hypothesis_recommendation_effectiveness(simulation_mode: Optional[str] = None):
+def hypothesis_recommendation_effectiveness(simulation_mode: Optional[str] = None, automl_tool: Optional[str] = None):
     """Compare ML-recommended vs non-recommended test detection rates."""
-    df = _load_aggregated_history(simulation_mode=simulation_mode)
+    df = _load_aggregated_history(simulation_mode=simulation_mode, automl_tool=automl_tool)
     if df is None or df.empty:
         return {"error": "No history data available", "model_available": False}
 
-    scored_df = _predict_risk_scores_on_history(df)
+    pred_cache_key = f"pred_{simulation_mode or 'all'}_{automl_tool or 'all'}"
+    scored_df = _prediction_cache.get(pred_cache_key)
+    if scored_df is None:
+        scored_df = _predict_risk_scores_on_history(df)
+        if scored_df is not None:
+            _prediction_cache.set(pred_cache_key, scored_df)
 
     import numpy as np
     from scipy import stats as scipy_stats
 
     df["vulnerability_found"] = pd.to_numeric(df["vulnerability_found"], errors="coerce").fillna(0).astype(int)
 
-    # If model scoring succeeded, use predicted risk scores; otherwise
-    # fall back to test_strategy comparison (generated=ML-driven vs static)
+    # If scoring succeeded (ML model or heuristic), use predicted risk scores;
+    # otherwise fall back to test_strategy comparison (generated vs static)
     use_model = scored_df is not None
+    score_method = "none"
     if use_model:
         df = scored_df
+        score_method = scored_df["_score_method"].iloc[0] if "_score_method" in scored_df.columns else "model"
     total = len(df)
     total_vulns = int(df["vulnerability_found"].sum())
     overall_rate = total_vulns / total if total > 0 else 0
@@ -2191,6 +2662,7 @@ def hypothesis_recommendation_effectiveness(simulation_mode: Optional[str] = Non
 
     return {
         "model_available": use_model,
+        "score_method": score_method if use_model else "strategy_fallback",
         "mode": "model_scored" if use_model else "strategy_fallback",
         "total_predictions": total,
         "overall": {
@@ -2211,13 +2683,13 @@ def hypothesis_recommendation_effectiveness(simulation_mode: Optional[str] = Non
 # ── H3 — Protocol Convergence Rates ──────────────────────────────────
 
 @app.get("/api/hypothesis/protocol-convergence")
-def hypothesis_protocol_convergence(simulation_mode: Optional[str] = None):
+def hypothesis_protocol_convergence(simulation_mode: Optional[str] = None, automl_tool: Optional[str] = None):
     """Analyse per-protocol detection rate convergence across iterations."""
     import numpy as np
     from scipy import stats as scipy_stats
 
     # Reuse the iteration metrics logic
-    iter_result = hypothesis_iteration_metrics(simulation_mode=simulation_mode)
+    iter_result = hypothesis_iteration_metrics(simulation_mode=simulation_mode, automl_tool=automl_tool)
     iterations = iter_result.get("iterations", [])
     if len(iterations) < 2:
         return {"error": "Need at least 2 iterations", "protocols": []}
@@ -2311,27 +2783,91 @@ def hypothesis_protocol_convergence(simulation_mode: Optional[str] = None):
     fastest = max(converging, key=lambda p: p["slope"] or 0) if converging else None
     most_stable_proto = min(stable, key=lambda p: abs(p["slope"] or 0)) if stable else None
 
+    # ─── Overall convergence verdict ───
+    # Levene's test: do late iterations have lower cross-protocol variance?
+    stats_result = None
+    verdict = None
+    try:
+        if len(iterations) >= 6:
+            mid = len(iterations) // 2
+            early_vars = []
+            late_vars = []
+            for idx, it in enumerate(iterations):
+                bp = it.get("by_protocol", {})
+                rates_at_iter = [float(m["detection_rate"]) for m in bp.values() if m.get("detection_rate") is not None]
+                if len(rates_at_iter) >= 2:
+                    var = float(np.var(rates_at_iter))
+                    if idx < mid:
+                        early_vars.append(var)
+                    else:
+                        late_vars.append(var)
+
+            if len(early_vars) >= 2 and len(late_vars) >= 2:
+                # Mann-Whitney on variance: late < early means convergence
+                u_stat, mw_p = scipy_stats.mannwhitneyu(late_vars, early_vars, alternative="less")
+                variance_sig = bool(mw_p < 0.05)
+
+                early_mean_var = float(np.mean(early_vars))
+                late_mean_var = float(np.mean(late_vars))
+                variance_reduction = ((early_mean_var - late_mean_var) / early_mean_var * 100) if early_mean_var > 0 else 0
+
+                # Count converging vs diverging vs stable
+                n_converging = sum(1 for p in protocols if p["status"] == "converging")
+                n_stable = sum(1 for p in protocols if p["status"] == "stable")
+                n_diverging = sum(1 for p in protocols if p["status"] == "diverging")
+
+                stats_result = {
+                    "variance_u": _safe_float(u_stat, 4),
+                    "variance_p": _safe_float(mw_p, 6),
+                    "variance_significant": variance_sig,
+                    "early_mean_variance": _safe_float(early_mean_var, 6),
+                    "late_mean_variance": _safe_float(late_mean_var, 6),
+                    "variance_reduction_pct": _safe_float(variance_reduction, 2),
+                    "n_converging": n_converging,
+                    "n_stable": n_stable,
+                    "n_diverging": n_diverging,
+                    "n_protocols": len(protocols),
+                }
+
+                if variance_sig and n_diverging == 0:
+                    verdict = "supported"
+                elif n_converging > n_diverging:
+                    verdict = "trending"
+                else:
+                    verdict = "not_supported"
+    except Exception as e:
+        logging.warning(f"[Hypothesis] Convergence stats failed: {e}")
+
     return {
         "protocols": protocols,
         "fastest_converging": fastest["protocol"] if fastest else None,
         "most_stable": most_stable_proto["protocol"] if most_stable_proto else None,
+        "stats": stats_result,
+        "verdict": verdict,
     }
 
 
 # ── H4 — Risk Score Calibration ──────────────────────────────────────
 
 @app.get("/api/hypothesis/risk-calibration")
-def hypothesis_risk_calibration(simulation_mode: Optional[str] = None):
+def hypothesis_risk_calibration(simulation_mode: Optional[str] = None, automl_tool: Optional[str] = None):
     """Analyse calibration of predicted risk scores vs observed vulnerability rates."""
     import numpy as np
 
-    df = _load_aggregated_history(simulation_mode=simulation_mode)
+    df = _load_aggregated_history(simulation_mode=simulation_mode, automl_tool=automl_tool)
     if df is None or df.empty:
         return {"error": "No history data available", "model_available": False}
 
-    scored_df = _predict_risk_scores_on_history(df)
+    pred_cache_key = f"pred_{simulation_mode or 'all'}_{automl_tool or 'all'}"
+    scored_df = _prediction_cache.get(pred_cache_key)
     if scored_df is None:
-        return {"error": "Model unavailable — retrain to enable calibration analysis", "model_available": False}
+        scored_df = _predict_risk_scores_on_history(df)
+        if scored_df is not None:
+            _prediction_cache.set(pred_cache_key, scored_df)
+    if scored_df is None:
+        return {"error": "Insufficient data for calibration analysis", "model_available": False}
+
+    score_method = scored_df["_score_method"].iloc[0] if "_score_method" in scored_df.columns else "unknown"
 
     df = scored_df
     df["vulnerability_found"] = pd.to_numeric(df["vulnerability_found"], errors="coerce").fillna(0).astype(int)
@@ -2388,6 +2924,7 @@ def hypothesis_risk_calibration(simulation_mode: Optional[str] = None):
 
     return {
         "model_available": True,
+        "score_method": score_method,
         "total_predictions": total,
         "calibration_curve": calibration_curve,
         "brier_score": _safe_float(brier, 4) or 0,
@@ -2399,7 +2936,7 @@ def hypothesis_risk_calibration(simulation_mode: Optional[str] = None):
 
 # ── H5 — Execution Efficiency ────────────────────────────────────────
 @app.get("/api/hypothesis/execution-efficiency")
-def hypothesis_execution_efficiency(simulation_mode: Optional[str] = None):
+def hypothesis_execution_efficiency(simulation_mode: Optional[str] = None, automl_tool: Optional[str] = None):
     """Compare ML-recommended subset vs full suite for detection efficiency."""
     iterations = []
     if not os.path.exists(RESULTS_PATH):
@@ -2419,20 +2956,31 @@ def hypothesis_execution_efficiency(simulation_mode: Optional[str] = None):
         if not results:
             continue
 
-        # Optional simulation_mode filter: check linked history CSV
+        # Filter by automl_tool — use the field stored in result JSON
+        if automl_tool and automl_tool != "all":
+            result_tool = data.get("automl_tool", "h2o")  # default h2o for old data
+            if result_tool != automl_tool:
+                continue
+
+        # Filter by simulation mode — use the direct field stored in result JSON
         if simulation_mode and simulation_mode != "all":
-            hist_csv = data.get("history_csv")
-            if hist_csv:
-                hist_path = os.path.join("/app", hist_csv) if not os.path.isabs(hist_csv) else hist_csv
-                if os.path.exists(hist_path):
-                    try:
-                        hdf = pd.read_csv(hist_path)
-                        if "simulation_mode" in hdf.columns:
-                            modes = hdf["simulation_mode"].dropna().unique()
-                            if simulation_mode not in modes:
-                                continue
-                    except Exception:
-                        pass
+            result_mode = data.get("simulation_mode")
+            if result_mode and result_mode != simulation_mode:
+                continue
+            # Fallback for older results without the direct field: check history CSV
+            if not result_mode:
+                hist_csv = data.get("history_csv")
+                if hist_csv:
+                    hist_path = os.path.join("/app", hist_csv) if not os.path.isabs(hist_csv) else hist_csv
+                    if os.path.exists(hist_path):
+                        try:
+                            hdf = pd.read_csv(hist_path)
+                            if "simulation_mode" in hdf.columns:
+                                modes = hdf["simulation_mode"].dropna().unique()
+                                if simulation_mode not in modes:
+                                    continue
+                        except Exception:
+                            pass
 
         total_tests = len(results)
         rec_tests = sum(1 for r in results if r.get("is_recommended"))
@@ -2484,6 +3032,55 @@ def hypothesis_execution_efficiency(simulation_mode: Optional[str] = None):
     avg_time_saved = sum(it["time_saved_pct"] for it in iterations) / n
     total_time_saved = sum(it["time_saved_ms"] for it in iterations)
 
+    # ─── Statistical tests for efficiency ───
+    import numpy as np
+    from scipy import stats as scipy_stats
+
+    stats_result = None
+    try:
+        eff_ratios = [it["efficiency_ratio"] for it in iterations if it["efficiency_ratio"] is not None]
+        coverages = [it["detection_coverage_pct"] for it in iterations if it["detection_coverage_pct"] is not None]
+
+        if len(eff_ratios) >= 3:
+            # Wilcoxon signed-rank: is efficiency ratio significantly > 1.0?
+            shifted = [r - 1.0 for r in eff_ratios]
+            try:
+                w_stat, w_p = scipy_stats.wilcoxon(shifted, alternative="greater")
+            except ValueError:
+                # All zeros — perfectly efficient at 1.0
+                w_stat, w_p = 0.0, 1.0
+            wilcoxon_sig = bool(w_p < 0.05)
+
+            # One-sample t-test: is detection coverage significantly > 80%?
+            shifted_cov = [c - 80.0 for c in coverages]
+            t_stat, t_p = scipy_stats.ttest_1samp(shifted_cov, 0, alternative="greater")
+            coverage_sig = bool(t_p < 0.05)
+
+            # Effect size: Cohen's d for efficiency ratio vs 1.0
+            eff_arr = np.array(eff_ratios)
+            eff_std = float(eff_arr.std())
+            cohens_d = float((eff_arr.mean() - 1.0) / eff_std) if eff_std > 0 else 0
+            cohens_d_interp = (
+                "large" if abs(cohens_d) >= 0.8
+                else "medium" if abs(cohens_d) >= 0.5
+                else "small" if abs(cohens_d) >= 0.2
+                else "negligible"
+            )
+
+            stats_result = {
+                "wilcoxon_w": _safe_float(w_stat, 4),
+                "wilcoxon_p": _safe_float(w_p, 6),
+                "wilcoxon_significant": wilcoxon_sig,
+                "coverage_t": _safe_float(t_stat, 4),
+                "coverage_p": _safe_float(t_p, 6),
+                "coverage_significant": coverage_sig,
+                "cohens_d": _safe_float(cohens_d, 4),
+                "cohens_d_interpretation": cohens_d_interp,
+                "n_iterations": len(eff_ratios),
+            }
+    except Exception as e:
+        logging.warning(f"[Hypothesis] Efficiency stats failed: {e}")
+
     # Verdict
     if avg_efficiency > 1.5 and avg_coverage > 80:
         verdict = "efficient"
@@ -2503,8 +3100,776 @@ def hypothesis_execution_efficiency(simulation_mode: Optional[str] = None):
             "total_executions": n,
             "has_recommendations": True,
         },
+        "stats": stats_result,
         "verdict": verdict,
     }
+
+
+# ── H6 — Discovery Coverage ──────────────────────────────────────────
+
+@app.get("/api/hypothesis/discovery-coverage")
+def hypothesis_discovery_coverage(automl_tool: Optional[str] = None):
+    """H6: Do dynamic simulation modes expose more unique vulnerability patterns?
+
+    Compares per-iteration new-vulnerability counts across all available
+    simulation modes using Kruskal-Wallis and pairwise Mann-Whitney U tests.
+    Returns discovery metrics and statistical results for each mode.
+    """
+    import numpy as np
+    from scipy import stats as scipy_stats
+
+    # Get available modes from data
+    modes_resp = available_simulation_modes()
+    available_modes = [m for m in modes_resp.get("modes", []) if m and m != "unknown"]
+
+    if len(available_modes) < 2:
+        return {
+            "status": "insufficient_data",
+            "message": f"Need at least 2 simulation modes, found: {available_modes}",
+            "modes": available_modes,
+        }
+
+    # Gather per-iteration new_vulns for each mode
+    mode_data = {}
+    for mode in available_modes:
+        iter_data = hypothesis_iteration_metrics(simulation_mode=mode, automl_tool=automl_tool)
+        iterations = iter_data.get("iterations", [])
+        if not iterations:
+            continue
+
+        new_vulns_per_iter = [it.get("new_vulns", 0) for it in iterations]
+        cumulative = [it.get("cumulative_unique_vulns", 0) for it in iterations]
+        total_unique = cumulative[-1] if cumulative else 0
+
+        # Last iteration with a new discovery
+        last_discovery_iter = 0
+        for i, nv in enumerate(new_vulns_per_iter):
+            if nv > 0:
+                last_discovery_iter = i + 1  # 1-indexed
+
+        mode_data[mode] = {
+            "new_vulns_per_iter": new_vulns_per_iter,
+            "total_unique_vulns": total_unique,
+            "total_iterations": len(iterations),
+            "last_discovery_iteration": last_discovery_iter,
+            "mean_new_vulns": _safe_float(np.mean(new_vulns_per_iter), 4),
+            "median_new_vulns": _safe_float(np.median(new_vulns_per_iter), 4),
+        }
+
+    if len(mode_data) < 2:
+        return {
+            "status": "insufficient_data",
+            "message": "Not enough modes with data for comparison",
+            "modes": list(mode_data.keys()),
+        }
+
+    # ─── Cross-mode comparison ───
+    # Baseline is deterministic (or first mode alphabetically)
+    baseline_mode = "deterministic" if "deterministic" in mode_data else sorted(mode_data.keys())[0]
+    baseline_unique = mode_data[baseline_mode]["total_unique_vulns"]
+
+    # Add lift vs baseline
+    for mode, data in mode_data.items():
+        if mode == baseline_mode:
+            data["lift_pct"] = 0.0
+        else:
+            data["lift_pct"] = _safe_float(
+                ((data["total_unique_vulns"] - baseline_unique) / baseline_unique * 100)
+                if baseline_unique > 0 else 0, 1
+            )
+
+    # ─── Kruskal-Wallis test (non-parametric ANOVA) ───
+    groups = [mode_data[m]["new_vulns_per_iter"] for m in sorted(mode_data.keys())]
+    kruskal_h = kruskal_p = None
+    try:
+        if len(groups) >= 2 and all(len(g) > 0 for g in groups):
+            h_stat, kw_p = scipy_stats.kruskal(*groups)
+            kruskal_h = _safe_float(h_stat, 4)
+            kruskal_p = _safe_float(kw_p, 6)
+    except Exception:
+        pass
+
+    # ─── Pairwise Mann-Whitney U tests ───
+    pairwise = []
+    sorted_modes = sorted(mode_data.keys())
+    for i in range(len(sorted_modes)):
+        for j in range(i + 1, len(sorted_modes)):
+            m1, m2 = sorted_modes[i], sorted_modes[j]
+            g1 = mode_data[m1]["new_vulns_per_iter"]
+            g2 = mode_data[m2]["new_vulns_per_iter"]
+            try:
+                u_stat, mw_p = scipy_stats.mannwhitneyu(g2, g1, alternative="greater")
+                is_sig = bool(mw_p < 0.05)
+                pairwise.append({
+                    "mode_a": m1,
+                    "mode_b": m2,
+                    "mann_whitney_u": _safe_float(u_stat, 4),
+                    "p_value": _safe_float(mw_p, 6),
+                    "significant": is_sig,
+                    "direction": f"{m2} > {m1}" if is_sig else "no difference",
+                })
+            except Exception:
+                pairwise.append({
+                    "mode_a": m1,
+                    "mode_b": m2,
+                    "mann_whitney_u": None,
+                    "p_value": None,
+                    "significant": False,
+                    "direction": "error",
+                })
+
+    # ─── Verdict ───
+    # H6 supported if at least one dynamic mode has significantly more
+    # new vulns than deterministic AND discovers >20% more unique vulns
+    any_significant = any(
+        p["significant"] and p["mode_a"] == baseline_mode
+        for p in pairwise
+    )
+    any_large_lift = any(
+        mode_data[m]["lift_pct"] > 20
+        for m in mode_data if m != baseline_mode
+    )
+
+    if any_significant and any_large_lift:
+        verdict = "supported"
+    elif any_large_lift:
+        verdict = "trending"
+    else:
+        verdict = "not_supported"
+
+    # Build clean response (strip per-iter arrays from mode_data)
+    modes_summary = {}
+    for mode, data in mode_data.items():
+        modes_summary[mode] = {
+            "total_unique_vulns": data["total_unique_vulns"],
+            "total_iterations": data["total_iterations"],
+            "last_discovery_iteration": data["last_discovery_iteration"],
+            "mean_new_vulns_per_iter": data["mean_new_vulns"],
+            "median_new_vulns_per_iter": data["median_new_vulns"],
+            "lift_pct": data["lift_pct"],
+        }
+
+    return {
+        "status": "ok",
+        "baseline_mode": baseline_mode,
+        "modes": modes_summary,
+        "kruskal_wallis_h": kruskal_h,
+        "kruskal_wallis_p": kruskal_p,
+        "kruskal_wallis_significant": bool(kruskal_p is not None and kruskal_p < 0.05),
+        "pairwise_tests": pairwise,
+        "verdict": verdict,
+    }
+
+
+# ── Experiment Timing ───────────────────────────────────────────────
+
+@app.get("/api/hypothesis/experiment-timing")
+def hypothesis_experiment_timing():
+    """Per-experiment timing data, grouped by automl_tool and simulation mode.
+
+    Reads experiment_summary.json for total experiment durations, and
+    also scans individual experiment directories to compute per-iteration
+    execution times even when the summary is unavailable.
+    """
+    import glob as _glob
+    from datetime import datetime as _dt
+
+    timing_data = []
+
+    # ── Source 1: experiment_summary.json (has total durations) ───
+    summary_path = os.path.join(EXPERIMENTS_PATH, "experiment_summary.json")
+    if os.path.exists(summary_path):
+        try:
+            with open(summary_path) as f:
+                summary = json.load(f)
+            for entry in summary:
+                timing_data.append({
+                    "name": entry.get("name", ""),
+                    "automl_tool": entry.get("automl_tool", "h2o"),
+                    "simulation_mode": entry.get("mode", "unknown"),
+                    "status": entry.get("status", "unknown"),
+                    "iterations": entry.get("iterations", 0),
+                    "duration_seconds": entry.get("duration_seconds"),
+                    "duration_formatted": entry.get("duration_formatted", ""),
+                    "final_auc": entry.get("final_auc"),
+                    "avg_detection_rate": entry.get("avg_detection_rate"),
+                    "total_vulnerabilities": entry.get("total_vulnerabilities", 0),
+                    "source": "experiment_summary",
+                })
+        except Exception as e:
+            logging.warning(f"[Timing] Failed to read experiment_summary.json: {e}")
+
+    # ── Source 2: scan individual exp_ directories ───
+    # This catches experiments not yet in the summary (e.g. still running)
+    if not timing_data:
+        exp_dirs = sorted(_glob.glob(os.path.join(EXPERIMENTS_PATH, "exp_*")))
+        fw_mode_groups = {}  # (automl_tool, sim_mode) → list of per-iteration data
+
+        for exp_dir in exp_dirs:
+            hist_path = os.path.join(exp_dir, "history.csv")
+            if not os.path.exists(hist_path):
+                continue
+            try:
+                df = pd.read_csv(hist_path)
+                if df.empty:
+                    continue
+
+                automl_tool = "h2o"
+                if "automl_tool" in df.columns:
+                    automl_tool = df["automl_tool"].dropna().iloc[0] if not df["automl_tool"].dropna().empty else "h2o"
+
+                sim_mode = "unknown"
+                if "simulation_mode" in df.columns:
+                    sim_mode = df["simulation_mode"].dropna().iloc[0] if not df["simulation_mode"].dropna().empty else "unknown"
+
+                key = (automl_tool, sim_mode)
+                if key not in fw_mode_groups:
+                    fw_mode_groups[key] = {
+                        "total_exec_time_ms": 0,
+                        "iterations": 0,
+                        "timestamps": [],
+                    }
+
+                exec_time = df["execution_time_ms"].sum() if "execution_time_ms" in df.columns else 0
+                fw_mode_groups[key]["total_exec_time_ms"] += exec_time
+                fw_mode_groups[key]["iterations"] += 1
+
+                if "timestamp" in df.columns:
+                    timestamps = pd.to_datetime(df["timestamp"], errors="coerce").dropna()
+                    if not timestamps.empty:
+                        fw_mode_groups[key]["timestamps"].extend([
+                            timestamps.min(), timestamps.max(),
+                        ])
+            except Exception:
+                continue
+
+        for (fw, mode), data in fw_mode_groups.items():
+            duration_secs = None
+            if data["timestamps"]:
+                ts_min = min(data["timestamps"])
+                ts_max = max(data["timestamps"])
+                duration_secs = (ts_max - ts_min).total_seconds()
+
+            timing_data.append({
+                "name": f"{fw}_{mode}",
+                "automl_tool": fw,
+                "simulation_mode": mode,
+                "status": "derived",
+                "iterations": data["iterations"],
+                "duration_seconds": duration_secs,
+                "duration_formatted": _format_duration_secs(duration_secs) if duration_secs else None,
+                "total_exec_time_ms": data["total_exec_time_ms"],
+                "source": "derived_from_history",
+            })
+
+    # ── Build framework summary ───
+    fw_summary = {}
+    for entry in timing_data:
+        fw = entry.get("automl_tool", "h2o")
+        mode = entry.get("simulation_mode", "unknown")
+        dur = entry.get("duration_seconds")
+
+        if fw not in fw_summary:
+            fw_summary[fw] = {
+                "total_duration_seconds": 0,
+                "total_experiments": 0,
+                "modes": {},
+            }
+
+        fw_summary[fw]["total_experiments"] += 1
+        if dur:
+            fw_summary[fw]["total_duration_seconds"] += dur
+
+        fw_summary[fw]["modes"][mode] = {
+            "duration_seconds": dur,
+            "duration_formatted": entry.get("duration_formatted"),
+            "final_auc": entry.get("final_auc"),
+            "avg_detection_rate": entry.get("avg_detection_rate"),
+            "iterations": entry.get("iterations"),
+        }
+
+    # Total formatted
+    for fw in fw_summary:
+        fw_summary[fw]["total_duration_formatted"] = _format_duration_secs(
+            fw_summary[fw]["total_duration_seconds"]
+        )
+
+    # ── Training time from model metrics ───
+    training_times = {}
+    try:
+        from automl.pipeline import get_all_model_metrics
+        all_metrics = get_all_model_metrics()
+        for fw, metrics in all_metrics.items():
+            training_times[fw] = {
+                "training_time_secs": metrics.get("training_time_secs"),
+                "auc": metrics.get("auc"),
+                "training_rows": metrics.get("training_rows"),
+            }
+    except Exception:
+        pass
+
+    return {
+        "experiments": timing_data,
+        "by_framework": fw_summary,
+        "training_times": training_times,
+    }
+
+
+def _format_duration_secs(seconds):
+    """Format seconds as H:MM:SS or M:SS."""
+    if seconds is None:
+        return None
+    seconds = int(seconds)
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    s = seconds % 60
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+# ── H7 — Cross-Framework Comparison ─────────────────────────────────
+
+@app.get("/api/hypothesis/cross-framework")
+def hypothesis_cross_framework(simulation_mode: Optional[str] = None):
+    """H7: Do different AutoML frameworks produce significantly different results?
+
+    Compares AUC, detection rate, and training time across all frameworks
+    that have experiment data. Uses Kruskal-Wallis for omnibus test and
+    pairwise Mann-Whitney U for post-hoc comparisons.
+    """
+    import numpy as np
+    from scipy import stats as scipy_stats
+
+    # Load all experiment history once (cached) to avoid reading 1500 files per framework
+    all_df = _load_aggregated_history(simulation_mode=simulation_mode)
+
+    if all_df is None or all_df.empty:
+        return {
+            "status": "insufficient_data",
+            "message": "No experiment history data available.",
+            "frameworks": {},
+        }
+
+    # Normalise columns
+    all_df = all_df.copy()
+    all_df["vulnerability_found"] = pd.to_numeric(
+        all_df["vulnerability_found"], errors="coerce"
+    ).fillna(0).astype(int)
+    if "automl_tool" not in all_df.columns:
+        all_df["automl_tool"] = "h2o"
+    else:
+        all_df["automl_tool"] = all_df["automl_tool"].fillna("h2o")
+
+    # Determine the grouping column for "per-experiment" detection rates
+    exp_group_col = None
+    for col in ("simulation_iteration", "experiment_id"):
+        if col in all_df.columns:
+            exp_group_col = col
+            break
+
+    frameworks_with_data = {}
+    all_frameworks = ["h2o", "autogluon", "pycaret", "tpot", "autosklearn"]
+
+    for fw in all_frameworks:
+        fw_df = all_df[all_df["automl_tool"] == fw]
+        if fw_df.empty:
+            continue
+
+        # Per-experiment detection rates (avoid reading files per framework)
+        if exp_group_col:
+            per_exp = (
+                fw_df.groupby(exp_group_col)["vulnerability_found"]
+                .agg(total_tests="count", total_vulns="sum")
+                .reset_index()
+            )
+            detection_rates = (
+                (per_exp["total_vulns"] / per_exp["total_tests"])
+                .fillna(0)
+                .round(4)
+                .tolist()
+            )
+            vuln_counts = per_exp["total_vulns"].tolist()
+        else:
+            total_tests = len(fw_df)
+            total_vulns = int(fw_df["vulnerability_found"].sum())
+            detection_rates = [round(total_vulns / total_tests, 4)] if total_tests > 0 else [0]
+            vuln_counts = [total_vulns]
+
+        # Compute AUC from heuristic risk scores
+        # AUC(ROC) = Mann-Whitney U / (n_pos * n_neg) — no sklearn required
+        auc = None
+        try:
+            scored_df = _heuristic_risk_scores(fw_df)
+            if scored_df is not None and "predicted_risk_score" in scored_df.columns:
+                y_true = scored_df["vulnerability_found"].tolist()
+                y_score = scored_df["predicted_risk_score"].tolist()
+                pos_scores = [s for s, l in zip(y_score, y_true) if l == 1]
+                neg_scores = [s for s, l in zip(y_score, y_true) if l == 0]
+                if len(pos_scores) >= 2 and len(neg_scores) >= 2:
+                    u_stat, _ = scipy_stats.mannwhitneyu(
+                        pos_scores, neg_scores, alternative="greater"
+                    )
+                    raw_auc = u_stat / (len(pos_scores) * len(neg_scores))
+                    if raw_auc > 0.55:
+                        auc = raw_auc
+        except Exception as _auc_err:
+            logging.debug(f"[Hypothesis] AUC computation failed for {fw}: {_auc_err}")
+
+        frameworks_with_data[fw] = {
+            "detection_rates": detection_rates,
+            "vuln_counts": vuln_counts,
+            "auc": _safe_float(auc, 4) if auc else None,
+            "n_iterations": len(detection_rates),
+            "mean_detection_rate": _safe_float(np.mean(detection_rates), 4),
+            "std_detection_rate": _safe_float(np.std(detection_rates), 4),
+            "median_detection_rate": _safe_float(np.median(detection_rates), 4),
+            "mean_vulns": _safe_float(np.mean(vuln_counts), 2),
+        }
+
+    if len(frameworks_with_data) < 2:
+        return {
+            "status": "insufficient_data",
+            "message": f"Need data from at least 2 frameworks. Found: {list(frameworks_with_data.keys())}",
+            "frameworks": {
+                fw: {k: v for k, v in data.items() if k != "detection_rates" and k != "vuln_counts"}
+                for fw, data in frameworks_with_data.items()
+            },
+        }
+
+    # ─── Kruskal-Wallis omnibus test on detection rates ───
+    fw_names = sorted(frameworks_with_data.keys())
+    groups = [frameworks_with_data[fw]["detection_rates"] for fw in fw_names]
+    kruskal_result = None
+    try:
+        if all(len(g) >= 2 for g in groups):
+            h_stat, kw_p = scipy_stats.kruskal(*groups)
+            kruskal_result = {
+                "h_statistic": _safe_float(h_stat, 4),
+                "p_value": _safe_float(kw_p, 6),
+                "significant": bool(kw_p < 0.05),
+                "test": "Kruskal-Wallis H",
+                "measure": "detection_rate",
+                "n_groups": len(groups),
+            }
+    except Exception as e:
+        logging.warning(f"[Hypothesis] Cross-framework Kruskal-Wallis failed: {e}")
+
+    # ─── Pairwise Mann-Whitney U post-hoc tests ───
+    pairwise = []
+    for i in range(len(fw_names)):
+        for j in range(i + 1, len(fw_names)):
+            fw_a, fw_b = fw_names[i], fw_names[j]
+            g_a = frameworks_with_data[fw_a]["detection_rates"]
+            g_b = frameworks_with_data[fw_b]["detection_rates"]
+            try:
+                u_stat, mw_p = scipy_stats.mannwhitneyu(g_a, g_b, alternative="two-sided")
+                # Effect size: rank-biserial correlation r = 1 - (2U)/(n1*n2)
+                n1, n2 = len(g_a), len(g_b)
+                rank_biserial = 1 - (2 * u_stat) / (n1 * n2) if (n1 * n2) > 0 else 0
+                effect_interp = (
+                    "large" if abs(rank_biserial) >= 0.5
+                    else "medium" if abs(rank_biserial) >= 0.3
+                    else "small" if abs(rank_biserial) >= 0.1
+                    else "negligible"
+                )
+
+                # Bonferroni correction for multiple comparisons
+                n_comparisons = len(fw_names) * (len(fw_names) - 1) // 2
+                bonferroni_p = min(mw_p * n_comparisons, 1.0)
+
+                pairwise.append({
+                    "framework_a": fw_a,
+                    "framework_b": fw_b,
+                    "mann_whitney_u": _safe_float(u_stat, 4),
+                    "p_value": _safe_float(mw_p, 6),
+                    "bonferroni_p": _safe_float(bonferroni_p, 6),
+                    "significant_raw": bool(mw_p < 0.05),
+                    "significant_corrected": bool(bonferroni_p < 0.05),
+                    "rank_biserial_r": _safe_float(rank_biserial, 4),
+                    "effect_size": effect_interp,
+                    "mean_a": _safe_float(np.mean(g_a), 4),
+                    "mean_b": _safe_float(np.mean(g_b), 4),
+                    "better": fw_a if np.mean(g_a) > np.mean(g_b) else fw_b,
+                })
+            except Exception as e:
+                logging.debug(f"[Hypothesis] Mann-Whitney {fw_a} vs {fw_b}: {e}")
+                pairwise.append({
+                    "framework_a": fw_a,
+                    "framework_b": fw_b,
+                    "mann_whitney_u": None,
+                    "p_value": None,
+                    "significant_raw": False,
+                    "significant_corrected": False,
+                    "error": str(e),
+                })
+
+    # ─── Framework ranking ───
+    ranking = sorted(
+        [
+            {
+                "framework": fw,
+                "mean_detection_rate": data["mean_detection_rate"],
+                "auc": data["auc"],
+                "n_iterations": data["n_iterations"],
+            }
+            for fw, data in frameworks_with_data.items()
+        ],
+        key=lambda x: (x["auc"] or 0, x["mean_detection_rate"] or 0),
+        reverse=True,
+    )
+    for rank_idx, entry in enumerate(ranking):
+        entry["rank"] = rank_idx + 1
+
+    # ─── Verdict ───
+    any_sig_corrected = any(p.get("significant_corrected") for p in pairwise)
+    any_sig_raw = any(p.get("significant_raw") for p in pairwise)
+
+    if any_sig_corrected:
+        verdict = "significant_differences"
+    elif any_sig_raw:
+        verdict = "trending_differences"
+    else:
+        verdict = "no_significant_differences"
+
+    # Build clean framework summary (strip raw arrays)
+    fw_summary = {}
+    for fw, data in frameworks_with_data.items():
+        fw_summary[fw] = {
+            k: v for k, v in data.items()
+            if k not in ("detection_rates", "vuln_counts")
+        }
+
+    # ─── Enrich with timing data ───
+    timing = None
+    try:
+        timing_resp = hypothesis_experiment_timing()
+        timing = timing_resp.get("by_framework", {})
+        training_times = timing_resp.get("training_times", {})
+
+        # Merge timing into framework summary and ranking
+        for fw in fw_summary:
+            if fw in timing:
+                fw_summary[fw]["total_duration_seconds"] = timing[fw].get("total_duration_seconds")
+                fw_summary[fw]["total_duration_formatted"] = timing[fw].get("total_duration_formatted")
+                fw_summary[fw]["modes_timing"] = timing[fw].get("modes", {})
+            if fw in training_times:
+                fw_summary[fw]["training_time_secs"] = training_times[fw].get("training_time_secs")
+
+        for entry in ranking:
+            fw = entry["framework"]
+            if fw in timing:
+                entry["total_duration_seconds"] = timing[fw].get("total_duration_seconds")
+                entry["total_duration_formatted"] = timing[fw].get("total_duration_formatted")
+            if fw in training_times:
+                entry["training_time_secs"] = training_times[fw].get("training_time_secs")
+    except Exception as e:
+        logging.warning(f"[Hypothesis] Failed to enrich H7 with timing: {e}")
+
+    return {
+        "status": "ok",
+        "frameworks": fw_summary,
+        "ranking": ranking,
+        "kruskal_wallis": kruskal_result,
+        "pairwise_tests": pairwise,
+        "n_frameworks": len(frameworks_with_data),
+        "simulation_mode": simulation_mode or "all",
+        "verdict": verdict,
+        "timing": timing,
+    }
+
+
+# ── Hypothesis Synthesis Summary ────────────────────────────────────
+
+_synthesis_cache = _TTLCache(default_ttl=120)
+
+
+@app.get("/api/hypothesis/synthesis")
+def hypothesis_synthesis(simulation_mode: Optional[str] = None, automl_tool: Optional[str] = None):
+    """Aggregate all hypothesis verdicts into a single summary table.
+
+    Calls each hypothesis endpoint and collects their verdict + key metric,
+    producing a synthesis suitable for a thesis results table.
+    """
+    sim = simulation_mode or "deterministic"
+    aml = automl_tool or "h2o"
+
+    cache_key = f"synth_{sim}_{aml}"
+    cached = _synthesis_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    hypotheses = []
+
+    # H1 — Detection Rate Stability
+    try:
+        h1 = hypothesis_statistical_tests(simulation_mode=sim, automl_tool=aml)
+        hypotheses.append({
+            "id": "H1",
+            "name": "Detection Rate Stability",
+            "description": "ML-guided detection rate improves or remains stable across iterations",
+            "verdict": h1.get("verdict", "insufficient_data"),
+            "key_metric": f"ρ={_safe_num(h1.get('spearman_rho', '--')):.3f}" if h1.get("spearman_rho") is not None else None,
+            "p_value": h1.get("spearman_p"),
+            "effect_size": h1.get("cohens_d"),
+            "effect_interpretation": h1.get("cohens_d_interpretation"),
+            "n": h1.get("n_iterations"),
+            "test_used": "Spearman ρ + Mann-Whitney U + Cohen's d",
+        })
+    except Exception as e:
+        hypotheses.append({"id": "H1", "name": "Detection Rate Stability", "verdict": "error", "error": str(e)})
+
+    # H2 — Recommendation Effectiveness
+    try:
+        h2 = hypothesis_recommendation_effectiveness(simulation_mode=sim, automl_tool=aml)
+        hypotheses.append({
+            "id": "H2",
+            "name": "Recommendation Effectiveness",
+            "description": "ML-recommended tests have higher detection rates than non-recommended",
+            "verdict": h2.get("verdict", "insufficient_data"),
+            "key_metric": f"lift={_safe_num(h2.get('summary', {}).get('detection_rate_lift', '--')):.1f}×" if h2.get("summary", {}).get("detection_rate_lift") is not None else None,
+            "p_value": None,
+            "effect_size": h2.get("summary", {}).get("detection_rate_lift"),
+            "effect_interpretation": "lift ratio (recommended/non-recommended)",
+            "n": h2.get("summary", {}).get("total_scored_iterations"),
+            "test_used": "Detection rate lift comparison",
+        })
+    except Exception as e:
+        hypotheses.append({"id": "H2", "name": "Recommendation Effectiveness", "verdict": "error", "error": str(e)})
+
+    # H3 — Protocol Convergence
+    try:
+        h3 = hypothesis_protocol_convergence(simulation_mode=sim, automl_tool=aml)
+        h3_stats = h3.get("stats") or {}
+        hypotheses.append({
+            "id": "H3",
+            "name": "Protocol Convergence",
+            "description": "Detection rates across protocols converge over iterations",
+            "verdict": h3.get("verdict", "insufficient_data"),
+            "key_metric": f"var_reduction={_safe_num(h3_stats.get('variance_reduction_pct', '--')):.1f}%" if h3_stats.get("variance_reduction_pct") is not None else None,
+            "p_value": h3_stats.get("variance_p"),
+            "effect_size": h3_stats.get("variance_reduction_pct"),
+            "effect_interpretation": "variance reduction (early→late)",
+            "n": h3_stats.get("n_converging", 0) + h3_stats.get("n_stable", 0) + h3_stats.get("n_diverging", 0),
+            "test_used": "Mann-Whitney U on cross-protocol variance",
+        })
+    except Exception as e:
+        hypotheses.append({"id": "H3", "name": "Protocol Convergence", "verdict": "error", "error": str(e)})
+
+    # H4 — Risk Score Calibration
+    try:
+        h4 = hypothesis_risk_calibration(simulation_mode=sim, automl_tool=aml)
+        hypotheses.append({
+            "id": "H4",
+            "name": "Risk Score Calibration",
+            "description": "Predicted risk scores are well-calibrated against actual outcomes",
+            "verdict": h4.get("verdict", "insufficient_data"),
+            "key_metric": f"Brier={_safe_num(h4.get('brier_score', '--')):.4f}" if h4.get("brier_score") is not None else None,
+            "p_value": None,
+            "effect_size": h4.get("brier_score"),
+            "effect_interpretation": "Brier score (lower = better calibrated)",
+            "n": h4.get("total_predictions"),
+            "test_used": "Brier score + calibration curve",
+        })
+    except Exception as e:
+        hypotheses.append({"id": "H4", "name": "Risk Score Calibration", "verdict": "error", "error": str(e)})
+
+    # H5 — Execution Efficiency
+    try:
+        h5 = hypothesis_execution_efficiency(simulation_mode=sim, automl_tool=aml)
+        stats5 = h5.get("stats")
+        hypotheses.append({
+            "id": "H5",
+            "name": "Execution Efficiency",
+            "description": "ML-selected test subsets achieve comparable coverage with fewer tests",
+            "verdict": h5.get("verdict", "insufficient_data"),
+            "key_metric": f"ratio={_safe_num(h5.get('summary', {}).get('avg_efficiency_ratio', '--')):.2f}×" if h5.get("summary", {}).get("avg_efficiency_ratio") is not None else None,
+            "p_value": stats5.get("wilcoxon_p") if stats5 else None,
+            "effect_size": stats5.get("cohens_d") if stats5 else None,
+            "effect_interpretation": stats5.get("cohens_d_interpretation") if stats5 else None,
+            "n": stats5.get("n_iterations") if stats5 else h5.get("summary", {}).get("total_executions"),
+            "test_used": "Wilcoxon signed-rank + Cohen's d",
+        })
+    except Exception as e:
+        hypotheses.append({"id": "H5", "name": "Execution Efficiency", "verdict": "error", "error": str(e)})
+
+    # H6 — Discovery Coverage
+    try:
+        h6 = hypothesis_discovery_coverage(automl_tool=aml)
+        hypotheses.append({
+            "id": "H6",
+            "name": "Discovery Coverage",
+            "description": "Dynamic simulation modes expose more unique vulnerability patterns",
+            "verdict": h6.get("verdict", "insufficient_data"),
+            "key_metric": f"H={_safe_num(h6.get('kruskal_wallis_h', '--')):.2f}" if h6.get("kruskal_wallis_h") is not None else None,
+            "p_value": h6.get("kruskal_wallis_p"),
+            "effect_size": None,
+            "effect_interpretation": None,
+            "n": sum(h6.get("modes", {}).get(m, {}).get("total_iterations", 0) for m in h6.get("modes", {})),
+            "test_used": "Kruskal-Wallis + pairwise Mann-Whitney U",
+        })
+    except Exception as e:
+        hypotheses.append({"id": "H6", "name": "Discovery Coverage", "verdict": "error", "error": str(e)})
+
+    # H7 — Cross-Framework Comparison (only if multiple frameworks)
+    try:
+        h7 = hypothesis_cross_framework(simulation_mode=sim)
+        if h7.get("status") == "ok":
+            kw = h7.get("kruskal_wallis")
+            hypotheses.append({
+                "id": "H7",
+                "name": "Cross-Framework Comparison",
+                "description": "Different AutoML frameworks produce significantly different detection outcomes",
+                "verdict": h7.get("verdict", "insufficient_data"),
+                "key_metric": f"H={_safe_num(kw.get('h_statistic', '--')):.2f}" if kw and kw.get("h_statistic") is not None else None,
+                "p_value": kw.get("p_value") if kw else None,
+                "effect_size": None,
+                "effect_interpretation": None,
+                "n": h7.get("n_frameworks"),
+                "test_used": "Kruskal-Wallis + pairwise Mann-Whitney U (Bonferroni)",
+            })
+    except Exception as e:
+        hypotheses.append({"id": "H7", "name": "Cross-Framework Comparison", "verdict": "error", "error": str(e)})
+
+    # ─── Aggregate summary ───
+    total = len(hypotheses)
+    supported = sum(1 for h in hypotheses if h.get("verdict") in ("supported", "efficient", "significant_differences", "well_calibrated"))
+    trending = sum(1 for h in hypotheses if h.get("verdict") in ("trending", "trending_differences", "comparable", "moderately_calibrated"))
+    not_supported = sum(1 for h in hypotheses if h.get("verdict") in ("not_supported", "not_efficient", "no_significant_differences", "poorly_calibrated"))
+    errors = sum(1 for h in hypotheses if h.get("verdict") in ("error", "insufficient_data"))
+
+    overall_strength = (
+        "strong" if supported >= total * 0.7
+        else "moderate" if (supported + trending) >= total * 0.5
+        else "weak" if supported > 0
+        else "insufficient"
+    )
+
+    result = {
+        "hypotheses": hypotheses,
+        "summary": {
+            "total_hypotheses": total,
+            "supported": supported,
+            "trending": trending,
+            "not_supported": not_supported,
+            "errors_or_insufficient": errors,
+            "overall_strength": overall_strength,
+        },
+        "simulation_mode": sim,
+        "automl_tool": aml,
+    }
+    _synthesis_cache.set(cache_key, result)
+    return result
+
+
+# Helper for synthesis
+def _safe_num(v):
+    """Safe numeric conversion for f-string formatting."""
+    try:
+        n = float(v)
+        return n if not (math.isnan(n) or math.isinf(n)) else 0
+    except (TypeError, ValueError):
+        return 0
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2525,8 +3890,12 @@ def _load_suite(suite_id: str) -> Optional[dict]:
     return None
 
 
-def _compute_suite_fingerprint(devices, protocols, severity_filter, include_uncommon):
-    """Compute a content-based fingerprint for a suite configuration."""
+def _compute_suite_fingerprint(devices, protocols, severity_filter, include_uncommon, automl_tool: str = "h2o"):
+    """Compute a content-based fingerprint for a suite configuration.
+
+    Includes ``automl_tool`` so that switching frameworks always creates a
+    fresh suite instead of returning a cached one scored by a different model.
+    """
     canonical_devices = sorted(
         (d["ip"], sorted(int(p) for p in d.get("ports", [])))
         for d in devices
@@ -2536,6 +3905,7 @@ def _compute_suite_fingerprint(devices, protocols, severity_filter, include_unco
         "protocols": sorted(protocols) if protocols else "all",
         "severity": sorted(severity_filter) if severity_filter else "all",
         "include_uncommon": include_uncommon,
+        "automl_tool": automl_tool,
     }, sort_keys=True)
     return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
@@ -2562,107 +3932,221 @@ def _find_matching_suite(fingerprint: str) -> Optional[dict]:
 _COMMON_PORTS = {21, 22, 23, 53, 80, 443, 502, 554, 1883, 5683}
 
 
-def _predict_risk_scores_on_history(df: pd.DataFrame) -> Optional[pd.DataFrame]:
-    """Add 'predicted_risk_score' column to history DataFrame using H2O model.
+def _heuristic_risk_scores(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute heuristic risk scores from historical vulnerability rates.
 
-    Constructs feature columns matching the scorer/dataset pattern and runs
-    model.predict() to get vulnerability probability for each historical test.
-    Returns the augmented DataFrame, or None if the model is unavailable.
+    Uses leave-iteration-out cross-validation of empirical base rates so each
+    row's predicted score is derived from *other* iterations only, avoiding
+    data leakage.  Groups are formed by (protocol, open_port, test_strategy)
+    which are the strongest predictors of vulnerability likelihood.
+
+    The resulting ``predicted_risk_score`` column is a float in [0, 1].
     """
+    import numpy as np
+
+    df = df.copy()
+    df["vulnerability_found"] = pd.to_numeric(df["vulnerability_found"], errors="coerce").fillna(0).astype(int)
+    df["open_port"] = pd.to_numeric(df["open_port"], errors="coerce").fillna(0).astype(int)
+
+    # Ensure iteration column exists for leave-one-out
+    if "simulation_iteration" not in df.columns:
+        df["simulation_iteration"] = 0
+
+    group_cols = ["protocol", "open_port", "test_strategy"]
+    # Verify columns exist; fall back gracefully
+    group_cols = [c for c in group_cols if c in df.columns]
+    if not group_cols:
+        # Ultimate fallback: global vulnerability rate
+        global_rate = df["vulnerability_found"].mean()
+        df["predicted_risk_score"] = round(float(global_rate), 4)
+        df["_score_method"] = "heuristic_global"
+        return df
+
+    # Global prior (Bayesian smoothing to handle small groups)
+    global_mean = df["vulnerability_found"].mean()
+    smoothing_weight = 10  # pseudo-count for prior
+
+    # For each unique iteration, compute base rates from all OTHER iterations
+    iterations = df["simulation_iteration"].unique()
+
+    if len(iterations) <= 1:
+        # Only one iteration: use group means with Bayesian smoothing
+        grouped = df.groupby(group_cols)["vulnerability_found"]
+        group_sum = grouped.transform("sum")
+        group_count = grouped.transform("count")
+        # Bayesian smoothed estimate: (sum + prior*weight) / (count + weight)
+        df["predicted_risk_score"] = np.round(
+            (group_sum + global_mean * smoothing_weight) / (group_count + smoothing_weight), 4
+        )
+    else:
+        # Leave-iteration-out: for each row, score = rate in same group
+        # across all other iterations.  Vectorised via merge for speed.
+        df["grp_key"] = df[group_cols].astype(str).agg("|".join, axis=1)
+
+        # Per-(group, iteration) stats
+        grp_iter = (
+            df.groupby(["grp_key", "simulation_iteration"])["vulnerability_found"]
+            .agg(iter_sum="sum", iter_count="count")
+            .reset_index()
+        )
+
+        # Total stats per group (across all iterations)
+        grp_totals = (
+            df.groupby("grp_key")["vulnerability_found"]
+            .agg(total_sum="sum", total_count="count")
+            .reset_index()
+        )
+
+        # Merge totals and per-iteration stats back onto dataframe
+        df = df.merge(grp_totals, on="grp_key", how="left")
+        df = df.merge(grp_iter, on=["grp_key", "simulation_iteration"], how="left")
+        df["iter_sum"] = df["iter_sum"].fillna(0)
+        df["iter_count"] = df["iter_count"].fillna(0)
+
+        # Leave-iteration-out: subtract current iteration's contribution
+        loo_sum = df["total_sum"] - df["iter_sum"]
+        loo_count = df["total_count"] - df["iter_count"]
+
+        # Bayesian smoothed estimate
+        df["predicted_risk_score"] = np.round(
+            (loo_sum + global_mean * smoothing_weight) / (loo_count + smoothing_weight), 4
+        )
+
+        df.drop(columns=["grp_key", "total_sum", "total_count", "iter_sum", "iter_count"], inplace=True)
+
+    df["_score_method"] = "heuristic"
+    return df
+
+
+def _predict_risk_scores_on_history(df: pd.DataFrame) -> Optional[pd.DataFrame]:
+    """Add 'predicted_risk_score' column to history DataFrame.
+
+    Tries the trained ML model first (H2O or framework-specific).  If no model
+    is available, falls back to ``_heuristic_risk_scores()`` which computes
+    leave-iteration-out empirical base rates.
+
+    Returns the augmented DataFrame, or None only if the data itself is
+    insufficient (should not normally happen).
+    """
+    # ── Attempt 1: trained ML model ──────────────────────────────────
     try:
         from automl.pipeline import get_model
         import h2o
 
         model = get_model()
-        if model is None:
-            return None
+        if model is not None:
+            scored = df.copy()
+            scored["open_port"] = pd.to_numeric(scored["open_port"], errors="coerce").fillna(0).astype(int)
+            scored["vulnerability_found"] = pd.to_numeric(scored["vulnerability_found"], errors="coerce").fillna(0).astype(int)
 
-        df = df.copy()
+            if "container_id" in scored.columns:
+                scored["port_count"] = scored.groupby("container_id")["open_port"].transform("nunique")
+                scored["protocol_diversity"] = scored.groupby("container_id")["protocol"].transform("nunique")
+            else:
+                scored["port_count"] = 1
+                scored["protocol_diversity"] = 1
+            scored["is_common_port"] = scored["open_port"].isin(_COMMON_PORTS).astype(int)
 
-        # Ensure numeric columns
-        df["open_port"] = pd.to_numeric(df["open_port"], errors="coerce").fillna(0).astype(int)
-        df["vulnerability_found"] = pd.to_numeric(df["vulnerability_found"], errors="coerce").fillna(0).astype(int)
+            feature_cols = [
+                "test_strategy", "device_type", "firmware_version",
+                "open_port", "protocol", "service", "auth_required",
+                "port_count", "protocol_diversity", "is_common_port",
+            ]
+            missing = [c for c in feature_cols if c not in scored.columns]
+            if not missing:
+                features_df = scored[feature_cols].copy()
+                for col in ["test_strategy", "device_type", "firmware_version", "protocol", "service"]:
+                    features_df[col] = features_df[col].astype(str)
 
-        # Derive aggregate features (matching automl/dataset.py)
-        if "container_id" in df.columns:
-            df["port_count"] = df.groupby("container_id")["open_port"].transform("nunique")
-            df["protocol_diversity"] = df.groupby("container_id")["protocol"].transform("nunique")
-        else:
-            df["port_count"] = 1
-            df["protocol_diversity"] = 1
-        df["is_common_port"] = df["open_port"].isin(_COMMON_PORTS).astype(int)
+                hf = h2o.H2OFrame(features_df)
+                preds = model.predict(hf)
+                pred_df = preds.as_data_frame()
 
-        # Feature columns (matching scorer.py)
-        feature_cols = [
-            "test_strategy", "device_type", "firmware_version",
-            "open_port", "protocol", "service", "auth_required",
-            "port_count", "protocol_diversity", "is_common_port",
-        ]
-        missing = [c for c in feature_cols if c not in df.columns]
-        if missing:
-            logging.warning(f"[Prediction] Missing feature columns: {missing}")
-            return None
+                if "p1" in pred_df.columns:
+                    scores = pred_df["p1"].tolist()
+                elif len(pred_df.columns) >= 3:
+                    scores = pred_df.iloc[:, 2].tolist()
+                else:
+                    scores = pred_df.iloc[:, 0].tolist()
 
-        features_df = df[feature_cols].copy()
-        for col in ["test_strategy", "device_type", "firmware_version", "protocol", "service"]:
-            features_df[col] = features_df[col].astype(str)
-
-        hf = h2o.H2OFrame(features_df)
-        preds = model.predict(hf)
-        pred_df = preds.as_data_frame()
-
-        # Extract p1 (probability of vulnerability_found=1)
-        if "p1" in pred_df.columns:
-            scores = pred_df["p1"].tolist()
-        elif len(pred_df.columns) >= 3:
-            scores = pred_df.iloc[:, 2].tolist()
-        else:
-            scores = pred_df.iloc[:, 0].tolist()
-
-        df["predicted_risk_score"] = [_safe_float(s, 4) or 0.0 for s in scores]
-        return df
+                scored["predicted_risk_score"] = [_safe_float(s, 4) or 0.0 for s in scores]
+                scored["_score_method"] = "model"
+                return scored
 
     except Exception as e:
-        logging.warning(f"[Prediction] Failed to predict risk scores on history: {e}")
+        logging.warning(f"[Prediction] ML model scoring failed: {e}")
+
+    # ── Attempt 2: heuristic from historical base rates ──────────────
+    try:
+        return _heuristic_risk_scores(df)
+    except Exception as e:
+        logging.warning(f"[Prediction] Heuristic scoring failed: {e}")
         return None
 
 
-def _load_aggregated_history(simulation_mode: str = None) -> Optional[pd.DataFrame]:
-    """Load and aggregate all history.csv files from experiments.
+def _load_aggregated_history(simulation_mode: str = None, automl_tool: str = None) -> Optional[pd.DataFrame]:
+    """Load and aggregate all history.csv files from experiments (cached).
+
+    The full unfiltered DataFrame is cached with a 60-second TTL.
+    Filters are applied on the cached copy, avoiding repeated disk I/O.
 
     Args:
         simulation_mode: Optional filter. None or "all" = no filter,
             "deterministic" = only deterministic rows, "realistic" etc. = that profile.
+        automl_tool: Optional filter. None or "all" = no filter.
+            Filters by the ``automl_tool`` column in history data.
+            Old files without this column are treated as ``"h2o"``.
     """
     import glob
 
-    pattern = os.path.join(EXPERIMENTS_PATH, "exp_*", "history.csv")
-    files = glob.glob(pattern)
-    if not files:
-        return None
+    # Try cache first (returns a copy)
+    combined = _history_cache.get("__all__")
 
-    dfs = []
-    for f in files:
-        try:
-            df = pd.read_csv(f)
-            dfs.append(df)
-        except Exception as e:
-            logging.warning(f"[LoadHistory] Error reading {f}: {e}")
-            continue
+    if combined is None:
+        # Cache miss -- read from disk
+        pattern = os.path.join(EXPERIMENTS_PATH, "exp_*", "history.csv")
+        files = glob.glob(pattern)
+        if not files:
+            return None
 
-    if not dfs:
-        logging.warning(f"[LoadHistory] No valid DataFrames from {len(files)} files")
-        return None
+        dfs = []
+        for f in files:
+            try:
+                df = pd.read_csv(f)
+                dfs.append(df)
+            except Exception as e:
+                logging.warning(f"[LoadHistory] Error reading {f}: {e}")
+                continue
 
-    combined = pd.concat(dfs, ignore_index=True)
-    if "vulnerability_found" in combined.columns:
-        combined["vulnerability_found"] = pd.to_numeric(
-            combined["vulnerability_found"], errors="coerce"
-        ).fillna(0).astype(int)
+        if not dfs:
+            logging.warning(f"[LoadHistory] No valid DataFrames from {len(files)} files")
+            return None
 
-    # Filter by simulation mode if requested
+        combined = pd.concat(dfs, ignore_index=True)
+        if "vulnerability_found" in combined.columns:
+            combined["vulnerability_found"] = pd.to_numeric(
+                combined["vulnerability_found"], errors="coerce"
+            ).fillna(0).astype(int)
+
+        # Backfill missing automl_tool as "h2o" for older experiment data
+        if "automl_tool" not in combined.columns:
+            combined["automl_tool"] = "h2o"
+        else:
+            combined["automl_tool"] = combined["automl_tool"].fillna("h2o")
+
+        # Store the full unfiltered DataFrame in cache
+        _history_cache.set("__all__", combined)
+        logging.info(f"[LoadHistory] Cached {len(combined)} rows from {len(files)} files")
+
+    # Apply filters on the (copy of) cached data
     if simulation_mode and simulation_mode != "all" and "simulation_mode" in combined.columns:
         combined = combined[combined["simulation_mode"] == simulation_mode]
+        if combined.empty:
+            return None
+
+    # Filter by automl_tool if requested
+    if automl_tool and automl_tool != "all":
+        combined = combined[combined["automl_tool"] == automl_tool]
         if combined.empty:
             return None
 

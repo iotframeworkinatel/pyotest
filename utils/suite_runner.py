@@ -159,14 +159,16 @@ def run_suite(suite: TestSuite, simulation_context: dict = None) -> dict:
                     tc, status="error",
                     error="Test execution timed out (120s)",
                 ))
-                _log_test_result(history, metrics, tc, "error", 120000)
+                _log_test_result(history, metrics, tc, "error", 120000,
+                                 sim_mode=_sim_mode, sim_iteration=_sim_iteration)
             continue
         except Exception as e:
             for tc in test_cases:
                 results_detail.append(_build_result_entry(
                     tc, status="error", error=str(e),
                 ))
-                _log_test_result(history, metrics, tc, "error", 0)
+                _log_test_result(history, metrics, tc, "error", 0,
+                                 sim_mode=_sim_mode, sim_iteration=_sim_iteration)
             continue
 
         # Parse pytest output and map results back to test cases
@@ -269,7 +271,8 @@ def _map_results_to_test_cases(
             results_detail.append(_build_result_entry(
                 tc, status="completed", vulnerability_found=False,
             ))
-            _log_test_result(history, metrics, tc, "completed", 0, vuln_found=False)
+            _log_test_result(history, metrics, tc, "completed", 0, vuln_found=False,
+                             sim_mode=sim_mode, sim_iteration=sim_iteration)
         return
 
     # Build lookup: try to match each tc.test_id to a pytest function name
@@ -367,6 +370,24 @@ def _build_result_entry(tc, **extra) -> dict:
     return entry
 
 
+# IP -> (device_type, firmware_version) mapping for IoT lab containers
+_DEVICE_INFO = {
+    "172.20.0.10": ("ftp_server",       "vsftpd-3.0.3"),
+    "172.20.0.11": ("http_server",      "nginx-1.19.0"),
+    "172.20.0.12": ("telnet_gateway",   "busybox-1.31.1"),
+    "172.20.0.13": ("ftp_server",       "pure-ftpd-1.0.50"),
+    "172.20.0.14": ("web_admin_panel",  "flask-2.0.1"),
+    "172.20.0.15": ("http_server",      "httpd-2.4"),
+    "172.20.0.16": ("mqtt_broker",      "mosquitto-2.0.15"),
+    "172.20.0.17": ("ssh_server",       "openssh-6.6.1"),
+    "172.20.0.20": ("ftp_server",       "pure-ftpd-1.0.49"),
+    "172.20.0.21": ("coap_sensor",      "aiocoap-0.4.7"),
+    "172.20.0.22": ("modbus_plc",       "pymodbus-3.5.2"),
+    "172.20.0.23": ("http_api",         "flask-2.3.2"),
+    "172.20.0.24": ("dns_server",       "dnslib-0.9.23"),
+}
+
+
 def _log_test_result(
     history, metrics, tc, status, elapsed_ms, vuln_found=False,
     sim_mode=None, sim_iteration=None,
@@ -377,11 +398,15 @@ def _log_test_result(
     if vuln_found:
         metrics["vulns_detected"] += 1
 
+    dev_type, fw_version = _DEVICE_INFO.get(
+        tc.target_ip, ("target", "unknown")
+    )
+
     row = {
         "test_strategy": "generated",
         "container_id": tc.target_ip,
-        "device_type": "target",
-        "firmware_version": "unknown",
+        "device_type": dev_type,
+        "firmware_version": fw_version,
         "open_port": tc.port,
         "protocol": tc.protocol,
         "service": tc.protocol,
@@ -392,8 +417,8 @@ def _log_test_result(
         "timeout": 0,
         "vulnerability_found": int(vuln_found),
         "execution_time_ms": elapsed_ms,
-        "simulation_mode": sim_mode or "deterministic",
-        "simulation_iteration": sim_iteration or 0,
+        "simulation_mode": sim_mode or "unknown",
+        "simulation_iteration": sim_iteration if sim_iteration is not None else -1,
     }
 
     history.log(row)

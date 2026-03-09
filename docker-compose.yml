@@ -142,6 +142,56 @@ services:
       iot_bridge:
         ipv4_address: 172.20.0.24
 
+  # ── AutoML Framework Containers ──────────────────────────────────────
+
+  autogluon-server:
+    build:
+      context: .
+      dockerfile: docker/autogluon/Dockerfile
+    container_name: autogluon_server
+    restart: unless-stopped
+    volumes:
+      - ./models:/app/models
+    networks:
+      iot_bridge:
+        ipv4_address: 172.20.0.25
+
+  pycaret-server:
+    build:
+      context: .
+      dockerfile: docker/pycaret/Dockerfile
+    container_name: pycaret_server
+    restart: unless-stopped
+    volumes:
+      - ./models:/app/models
+    networks:
+      iot_bridge:
+        ipv4_address: 172.20.0.26
+
+  tpot-server:
+    build:
+      context: .
+      dockerfile: docker/tpot/Dockerfile
+    container_name: tpot_server
+    restart: unless-stopped
+    volumes:
+      - ./models:/app/models
+    networks:
+      iot_bridge:
+        ipv4_address: 172.20.0.27
+
+  autosklearn-server:
+    build:
+      context: .
+      dockerfile: docker/autosklearn/Dockerfile
+    container_name: autosklearn_server
+    restart: unless-stopped
+    volumes:
+      - ./models:/app/models
+    networks:
+      iot_bridge:
+        ipv4_address: 172.20.0.28
+
   scanner:
     build: .
     user: root

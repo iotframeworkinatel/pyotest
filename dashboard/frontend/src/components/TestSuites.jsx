@@ -194,6 +194,10 @@ export default function TestSuites({ apiUrl, onRunSuite, visible = true }) {
   const resumingRef = useRef(false); // true while resume-on-mount is setting state
   const selectedSuiteIdRef = useRef(null); // ref for use in async callbacks
 
+  // ---- AutoML Framework state ----
+  const [automlTool, setAutomlTool] = useState("h2o");
+  const [availableFrameworks, setAvailableFrameworks] = useState(["h2o"]);
+
   const stopLoopPolling = useCallback(() => {
     if (loopPollRef.current) {
       clearInterval(loopPollRef.current);
@@ -238,6 +242,14 @@ export default function TestSuites({ apiUrl, onRunSuite, visible = true }) {
     fetch(`${apiUrl}/api/simulation/profiles`)
       .then(r => r.json())
       .then(d => setSimProfiles(d.profiles || []))
+      .catch(() => {});
+    // Fetch available AutoML frameworks
+    fetch(`${apiUrl}/api/automl/frameworks`)
+      .then(r => r.json())
+      .then(d => {
+        const fws = (d.frameworks || []).map(f => f.name);
+        if (fws.length > 0) setAvailableFrameworks(fws);
+      })
       .catch(() => {});
   }, [fetchSuites]);
 
@@ -302,7 +314,7 @@ export default function TestSuites({ apiUrl, onRunSuite, visible = true }) {
     setMlLoading(true);
     setMlError(null);
     try {
-      const res = await fetch(`${apiUrl}/api/ml/status`);
+      const res = await fetch(`${apiUrl}/api/ml/status?automl_tool=${automlTool}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setMlStatus(data);
@@ -311,7 +323,7 @@ export default function TestSuites({ apiUrl, onRunSuite, visible = true }) {
     } finally {
       setMlLoading(false);
     }
-  }, [apiUrl]);
+  }, [apiUrl, automlTool]);
 
   useEffect(() => {
     fetchMlStatus();
@@ -585,7 +597,7 @@ export default function TestSuites({ apiUrl, onRunSuite, visible = true }) {
   const handleRetrain = async () => {
     setRetrainMessage(null);
     try {
-      const res = await fetch(`${apiUrl}/api/ml/retrain`, { method: "POST" });
+      const res = await fetch(`${apiUrl}/api/ml/retrain?automl_tool=${automlTool}`, { method: "POST" });
       if (!res.ok) throw new Error(`Retrain failed: HTTP ${res.status}`);
       const data = await res.json();
 
@@ -623,6 +635,7 @@ export default function TestSuites({ apiUrl, onRunSuite, visible = true }) {
           train_every_n: loopTrainEveryN,
           simulation_mode: simMode,
           simulation_seed: simSeed,
+          automl_tool: automlTool,
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -859,6 +872,15 @@ export default function TestSuites({ apiUrl, onRunSuite, visible = true }) {
                             Enhanced &times;{suite.enhancement_count}
                           </span>
                         )}
+                        {suite.automl_tool && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-600">
+                            {suite.automl_tool === "h2o" ? "H2O" :
+                             suite.automl_tool === "autogluon" ? "AutoGluon" :
+                             suite.automl_tool === "pycaret" ? "PyCaret" :
+                             suite.automl_tool === "tpot" ? "TPOT" :
+                             suite.automl_tool === "autosklearn" ? "auto-sklearn" : suite.automl_tool}
+                          </span>
+                        )}
                       </div>
 
                       {/* Protocol badges */}
@@ -896,6 +918,13 @@ export default function TestSuites({ apiUrl, onRunSuite, visible = true }) {
             <div className={`px-4 py-3 flex items-center gap-2 transition-all duration-500 ${isTraining ? "bg-gradient-to-r from-violet-600 via-fuchsia-500 to-violet-600 bg-[length:200%_100%] animate-[shimmer_2s_ease-in-out_infinite]" : "bg-gradient-to-r from-violet-600 to-fuchsia-600"}`}>
               <BrainCircuit className={`w-4 h-4 text-white ${isTraining ? "animate-pulse" : ""}`} />
               <h3 className="text-sm font-bold text-white">ML Insights</h3>
+              <span className="text-[10px] font-medium text-white/80 bg-white/15 px-1.5 py-0.5 rounded">
+                {automlTool === "h2o" ? "H2O" :
+                 automlTool === "autogluon" ? "AutoGluon" :
+                 automlTool === "pycaret" ? "PyCaret" :
+                 automlTool === "tpot" ? "TPOT" :
+                 automlTool === "autosklearn" ? "auto-sklearn" : automlTool}
+              </span>
               {isTraining && (
                 <span className="ml-auto inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-white backdrop-blur-sm">
                   <Loader2 className="w-3 h-3 animate-spin" />
@@ -1253,6 +1282,18 @@ export default function TestSuites({ apiUrl, onRunSuite, visible = true }) {
                         : JSON.stringify(suiteDetail.generation_params)}
                     </span>
                   )}
+                  {suiteDetail.metadata?.automl_tool && (
+                    <span className="flex items-center gap-1">
+                      <Cpu className="w-3.5 h-3.5 text-blue-500" />
+                      <strong>Scored with:</strong>{" "}
+                      {suiteDetail.metadata.automl_tool === "h2o" ? "H2O" :
+                       suiteDetail.metadata.automl_tool === "autogluon" ? "AutoGluon" :
+                       suiteDetail.metadata.automl_tool === "pycaret" ? "PyCaret" :
+                       suiteDetail.metadata.automl_tool === "tpot" ? "TPOT" :
+                       suiteDetail.metadata.automl_tool === "autosklearn" ? "auto-sklearn" :
+                       suiteDetail.metadata.automl_tool}
+                    </span>
+                  )}
                   {suiteDetail.recommended_count > 0 && (
                     <span className="flex items-center gap-1">
                       <Zap className="w-3.5 h-3.5 text-amber-500" />
@@ -1413,6 +1454,27 @@ export default function TestSuites({ apiUrl, onRunSuite, visible = true }) {
                     />
                   </div>
                 )}
+
+                {/* AutoML Framework */}
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-gray-600 font-medium">AutoML:</label>
+                  <select
+                    value={automlTool}
+                    onChange={(e) => setAutomlTool(e.target.value)}
+                    disabled={loopStatus === "running"}
+                    className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:ring-2 focus:ring-violet-400 focus:outline-none disabled:opacity-50"
+                  >
+                    {availableFrameworks.map((fw) => (
+                      <option key={fw} value={fw}>
+                        {fw === "h2o" ? "H2O" :
+                         fw === "autogluon" ? "AutoGluon" :
+                         fw === "pycaret" ? "PyCaret" :
+                         fw === "tpot" ? "TPOT" :
+                         fw === "autosklearn" ? "auto-sklearn" : fw}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
                 <button
                   onClick={handleStartTrainLoop}
