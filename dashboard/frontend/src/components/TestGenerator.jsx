@@ -211,6 +211,11 @@ export default function TestGenerator({ apiUrl, onSuiteGenerated }) {
   const [automlTool, setAutomlTool] = useState("h2o");
   const [availableFrameworks, setAvailableFrameworks] = useState(["h2o"]);
 
+  // ---- LLM Generation State ----
+  const [llmEnabled, setLlmEnabled] = useState(false);
+  const [llmProvider, setLlmProvider] = useState("claude");
+  const [llmProviders, setLlmProviders] = useState([]);
+
   // ---- Generation State ----
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState(null);
@@ -291,6 +296,16 @@ export default function TestGenerator({ apiUrl, onSuiteGenerated }) {
       .then((d) => {
         const fws = (d.frameworks || []).map((f) => f.name);
         if (fws.length > 0) setAvailableFrameworks(fws);
+      })
+      .catch(() => {});
+    // Fetch available LLM providers
+    fetch(`${apiUrl}/api/llm/providers`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((d) => {
+        if (d.providers && d.providers.length > 0) setLlmProviders(d.providers);
       })
       .catch(() => {});
   }, [fetchDevices, fetchProtocols]);
@@ -512,6 +527,8 @@ export default function TestGenerator({ apiUrl, onSuiteGenerated }) {
         name: suiteName.trim() || undefined,
         force_new: forceNew,
         automl_tool: automlTool,
+        llm_enabled: llmEnabled,
+        llm_provider: llmProvider,
       };
 
       const res = await fetch(`${apiUrl}/api/generate`, {
@@ -534,6 +551,7 @@ export default function TestGenerator({ apiUrl, onSuiteGenerated }) {
         action: data.action ?? "created",
         testsAdded: data.tests_added ?? 0,
         enhancementCount: data.metadata?.enhancement_count ?? 0,
+        llmTestsAdded: data.metadata?.llm_tests_added ?? 0,
       });
 
       if (onSuiteGenerated) {
@@ -554,6 +572,8 @@ export default function TestGenerator({ apiUrl, onSuiteGenerated }) {
     suiteName,
     forceNew,
     automlTool,
+    llmEnabled,
+    llmProvider,
     onSuiteGenerated,
   ]);
 
@@ -1087,6 +1107,60 @@ export default function TestGenerator({ apiUrl, onSuiteGenerated }) {
                 )}
               </button>
             </div>
+
+            {/* LLM Test Generation Toggle */}
+            <div className="py-3 px-4 bg-gray-50 rounded-xl border border-gray-200 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Sparkles className="w-4 h-4 text-violet-500" />
+                  <div>
+                    <p className="text-sm font-medium text-gray-700">
+                      LLM test generation
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      Use an LLM to generate novel tests alongside registry tests
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setLlmEnabled(!llmEnabled)}
+                  className="flex-shrink-0"
+                >
+                  {llmEnabled ? (
+                    <ToggleRight className="w-8 h-8 text-violet-500" />
+                  ) : (
+                    <ToggleLeft className="w-8 h-8 text-gray-400" />
+                  )}
+                </button>
+              </div>
+              {/* Provider dropdown — shown when LLM is enabled */}
+              {llmEnabled && (
+                <div className="flex items-center gap-3 pl-7">
+                  <label className="text-xs font-medium text-gray-500 whitespace-nowrap">
+                    Provider
+                  </label>
+                  <select
+                    value={llmProvider}
+                    onChange={(e) => setLlmProvider(e.target.value)}
+                    className="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:ring-2 focus:ring-violet-300 focus:border-violet-400 outline-none"
+                  >
+                    {llmProviders.length > 0 ? (
+                      llmProviders.map((p) => (
+                        <option key={p.id} value={p.id} disabled={!p.available}>
+                          {p.name}{!p.available ? " (no API key)" : ""}
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="claude">Claude (Anthropic)</option>
+                        <option value="openai">GPT (OpenAI)</option>
+                        <option value="gemini">Gemini (Google)</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1122,6 +1196,11 @@ export default function TestGenerator({ apiUrl, onSuiteGenerated }) {
                 {generateSuccess.action === "enhanced" && generateSuccess.testsAdded > 0 && (
                   <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-md font-semibold">
                     +{generateSuccess.testsAdded} new tests added
+                  </span>
+                )}
+                {generateSuccess.llmTestsAdded > 0 && (
+                  <span className="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-md font-semibold">
+                    {generateSuccess.llmTestsAdded} LLM-generated
                   </span>
                 )}
                 {generateSuccess.suiteName && (

@@ -13,3 +13,7 @@ matplotlib
 aiocoap
 pymodbus==2.5.3
 pyyaml
+scikit-learn
+anthropic
+openai
+google-genai

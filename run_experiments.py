@@ -108,8 +108,24 @@ def format_duration(seconds):
 # Step 1: Clear experiment data
 # ----------------------------------------------------------------------
 
-def clear_experiment_data():
-    """Remove all old experiment data for a clean start."""
+def clear_experiment_data(only_llm=False):
+    """Remove old experiment data for a clean start.
+
+    If only_llm=True, only remove LLM experiment directories (exp_LLM-*)
+    and preserve all other experiment data.
+    """
+    if only_llm:
+        log("Clearing only LLM experiment data (preserving core experiments)...")
+        for d in glob.glob(os.path.join(EXPERIMENTS_DIR, "exp_LLM-*")):
+            shutil.rmtree(d, ignore_errors=True)
+            log(f"  Removed {os.path.basename(d)}")
+        # Clear aggregated history (will be rebuilt from remaining exp_* dirs)
+        for agg_name in glob.glob(os.path.join(EXPERIMENTS_DIR, "aggregated_history*.csv")):
+            os.remove(agg_name)
+            log(f"  Removed {os.path.basename(agg_name)}")
+        log("LLM experiment data cleared (core experiments preserved).")
+        return
+
     log("Clearing old experiment data...")
 
     # Clear experiment directories (but keep backups)
@@ -150,6 +166,91 @@ def clear_experiment_data():
     reset_iot_containers()
 
     log("Experiment data cleared.")
+
+
+# ----------------------------------------------------------------------
+# Step 1b: Discover completed experiments (for --resume)
+# ----------------------------------------------------------------------
+
+def discover_completed_experiments(expected_iters):
+    """Scan existing experiment dirs and return set of completed (tool, mode, phase) tuples.
+
+    - Groups experiment dirs by (automl_tool, simulation_mode, phase)
+    - Counts total iterations per group (each exp dir = 1 iteration)
+    - Complete = total iterations >= expected_iters
+    - Deletes empty/crashed dirs (0 data rows)
+    - Deletes ALL dirs for incomplete combos so they can be re-run from scratch
+    """
+    import csv
+    from collections import defaultdict
+
+    # Map (tool, mode, phase) -> list of (dir_path, iteration_count)
+    combo_dirs = defaultdict(list)
+
+    exp_dirs = sorted(glob.glob(os.path.join(EXPERIMENTS_DIR, "exp_*")))
+    for exp_dir in exp_dirs:
+        history_csv = os.path.join(exp_dir, "history.csv")
+        if not os.path.exists(history_csv):
+            # No history file at all — remove
+            log(f"  Removing empty dir (no history.csv): {os.path.basename(exp_dir)}")
+            shutil.rmtree(exp_dir, ignore_errors=True)
+            continue
+
+        # Read first data row to classify
+        tool = mode = baseline = ""
+        has_llm = False
+        n_rows = 0
+        try:
+            with open(history_csv, newline="") as fh:
+                reader = csv.DictReader(fh)
+                for row in reader:
+                    n_rows += 1
+                    if n_rows == 1:
+                        tool = row.get("automl_tool", "")
+                        mode = row.get("simulation_mode", "")
+                        baseline = row.get("baseline_strategy", "")
+                    if row.get("test_strategy") == "llm_generated":
+                        has_llm = True
+        except Exception as e:
+            log(f"  Error reading {os.path.basename(exp_dir)}/history.csv: {e}", "WARN")
+            continue
+
+        if n_rows == 0:
+            log(f"  Removing crashed dir (0 data rows): {os.path.basename(exp_dir)}")
+            shutil.rmtree(exp_dir, ignore_errors=True)
+            continue
+
+        # Classify phase
+        if baseline and baseline != "ml_guided":
+            phase = "baseline"
+            key = (baseline, mode, phase)
+        elif has_llm:
+            phase = "llm"
+            key = (tool, mode, phase)
+        else:
+            phase = "framework"
+            key = (tool, mode, phase)
+
+        combo_dirs[key].append((exp_dir, n_rows))
+
+    # Determine completed vs incomplete
+    completed = set()
+    for key, dirs_and_counts in combo_dirs.items():
+        total_iters = len(dirs_and_counts)  # each exp dir = 1 iteration
+        if total_iters >= expected_iters:
+            completed.add(key)
+            log(f"  Complete: {key} ({total_iters} iterations)")
+        else:
+            # Incomplete — delete all dirs for this combo so it can re-run cleanly
+            log(f"  Incomplete: {key} ({total_iters}/{expected_iters} iterations) — removing for re-run")
+            for dir_path, _ in dirs_and_counts:
+                shutil.rmtree(dir_path, ignore_errors=True)
+
+    # Also clean up aggregated history CSVs (will be rebuilt)
+    for agg in glob.glob(os.path.join(EXPERIMENTS_DIR, "aggregated_history*.csv")):
+        os.remove(agg)
+
+    return completed
 
 
 # ----------------------------------------------------------------------
@@ -221,14 +322,25 @@ def generate_suite(devices, automl_tool="h2o"):
 # Step 4: Run a single experiment
 # ----------------------------------------------------------------------
 
-def run_experiment(suite_id, name, mode, seed, iterations, train_every_n, automl_tool="h2o"):
+def run_experiment(suite_id, name, mode, seed, iterations, train_every_n, automl_tool="h2o",
+                   temporal_training=False, baseline_strategy=None, llm_enabled=False,
+                   llm_generate_every_n=10):
     """
     Start a train-loop experiment and poll until completion.
     Returns a dict of final metrics.
     """
     fw_label = FRAMEWORK_LABELS.get(automl_tool, automl_tool)
+    extra_info = []
+    if temporal_training:
+        extra_info.append("temporal")
+    if baseline_strategy:
+        extra_info.append(f"baseline={baseline_strategy}")
+    if llm_enabled:
+        extra_info.append("LLM")
+    extra_str = f" [{', '.join(extra_info)}]" if extra_info else ""
+
     log(f"{'=' * 70}")
-    log(f"STARTING EXPERIMENT: {name}")
+    log(f"STARTING EXPERIMENT: {name}{extra_str}")
     log(f"  Mode: {mode} | Framework: {fw_label} | Seed: {seed}")
     log(f"  Iterations: {iterations} | Train every: {train_every_n}")
     log(f"{'=' * 70}")
@@ -242,6 +354,10 @@ def run_experiment(suite_id, name, mode, seed, iterations, train_every_n, automl
         "simulation_seed": seed,
         "train_every_n": train_every_n,
         "automl_tool": automl_tool,
+        "temporal_training": temporal_training,
+        "baseline_strategy": baseline_strategy,
+        "llm_enabled": llm_enabled,
+        "llm_generate_every_n": llm_generate_every_n,
     }
     resp = api_post(f"/api/suites/{suite_id}/train-loop", body, timeout=60)
 
@@ -579,23 +695,180 @@ def print_cross_framework_matrix(all_results):
 
 
 # ----------------------------------------------------------------------
+# Baseline experiment configurations
+# ----------------------------------------------------------------------
+
+BASELINES = [
+    ("BASELINE-RANDOM", "random"),
+    ("BASELINE-CVSS", "cvss_priority"),
+    ("BASELINE-ROBIN", "round_robin"),
+    ("BASELINE-NOML", "no_ml"),
+]
+
+# LLM experiment configurations (single framework + LLM generation)
+LLM_EXPERIMENTS = [
+    ("LLM-DET-100", "deterministic", 42, 100, 10),
+    ("LLM-MED-100", "medium", 42, 100, 10),
+    ("LLM-REAL-100", "realistic", 42, 100, 10),
+]
+
+
+def run_baseline_experiments(suite_id, devices, all_results, completed=None):
+    """Run baseline experiments: 4 baselines × 3 modes × 100 iterations = 1,200 iterations."""
+    log(f"\n{'#' * 70}")
+    log(f"  BASELINE EXPERIMENTS")
+    log(f"  {len(BASELINES)} baselines × {len(SIM_MODES)} modes")
+    log(f"{'#' * 70}")
+
+    for baseline_name, strategy in BASELINES:
+        for base_name, mode, seed, iters, train_n in SIM_MODES:
+            experiment_name = f"{baseline_name}-{mode.upper()[:3]}-{iters}"
+
+            if completed and (strategy, mode, "baseline") in completed:
+                log(f"  SKIP (already completed): {experiment_name} [{strategy}/{mode}]")
+                all_results.append({"name": experiment_name, "status": "skipped_resume",
+                                    "mode": mode, "automl_tool": "h2o",
+                                    "baseline_strategy": strategy})
+                continue
+
+            log(f"\n  Baseline: {strategy} | Mode: {mode}")
+
+            reset_iot_containers()
+
+            result = run_experiment(
+                suite_id, experiment_name, mode, seed, iters,
+                train_every_n=0,  # Baselines don't train
+                automl_tool="h2o",  # Placeholder (not used for baselines)
+                baseline_strategy=strategy,
+            )
+            all_results.append(result)
+
+
+LLM_FRAMEWORKS = AUTOML_FRAMEWORKS  # LLM experiments run across all AutoML frameworks
+
+
+def run_llm_experiments(suite_id, devices, all_results, completed=None):
+    """Run LLM experiments: N frameworks × 3 modes × 100 iterations."""
+    log(f"\n{'#' * 70}")
+    log(f"  LLM GENERATION EXPERIMENTS")
+    log(f"  {len(LLM_EXPERIMENTS)} modes × {len(LLM_FRAMEWORKS)} frameworks + LLM")
+    log(f"{'#' * 70}")
+
+    for fw in LLM_FRAMEWORKS:
+        fw_label = FRAMEWORK_LABELS.get(fw, fw)
+        for base_name, mode, seed, iters, train_n in LLM_EXPERIMENTS:
+            experiment_name = f"{base_name}-{fw_label}"
+
+            if completed and (fw, mode, "llm") in completed:
+                log(f"  SKIP (already completed): {experiment_name} [{fw}/{mode}/llm]")
+                all_results.append({"name": experiment_name, "status": "skipped_resume",
+                                    "mode": mode, "automl_tool": fw})
+                continue
+
+            log(f"\n  LLM + {fw_label} | Mode: {mode}")
+
+            reset_iot_containers()
+            clear_between_experiments(automl_tool=fw)
+
+            result = run_experiment(
+                suite_id, experiment_name, mode, seed, iters, train_n,
+                automl_tool=fw,
+                temporal_training=True,
+                llm_enabled=True,
+                llm_generate_every_n=25,
+            )
+            all_results.append(result)
+
+
+def run_lopo_analysis():
+    """Run leave-one-protocol-out analysis as post-processing."""
+    log(f"\n{'#' * 70}")
+    log(f"  LOPO GENERALIZATION ANALYSIS")
+    log(f"{'#' * 70}")
+
+    lopo_results = []
+    for fw in AUTOML_FRAMEWORKS:
+        fw_label = FRAMEWORK_LABELS.get(fw, fw)
+        log(f"\n  LOPO for {fw_label}...")
+
+        for _, mode, _, _, _ in SIM_MODES:
+            resp = api_get(f"/api/hypothesis/generalization?automl_tool={fw}&simulation_mode={mode}", timeout=300)
+            if resp and resp.get("status") == "ok":
+                summary = resp.get("summary", {})
+                log(f"    {mode}: LOPO AUC={summary.get('mean_auc', 'N/A')}, "
+                    f"evaluated={summary.get('n_evaluated', 0)}/{summary.get('n_protocols', 0)}")
+                lopo_results.append({
+                    "framework": fw,
+                    "mode": mode,
+                    "mean_auc": summary.get("mean_auc"),
+                    "verdict": summary.get("verdict"),
+                })
+            else:
+                log(f"    {mode}: LOPO failed or insufficient data")
+
+    # Print LOPO summary
+    if lopo_results:
+        print(f"\n{'LOPO GENERALIZATION RESULTS':^80}")
+        print("=" * 80)
+        print(f"{'Framework':<15} {'Mode':<15} {'Mean LOPO AUC':<15} {'Verdict':<20}")
+        print("-" * 80)
+        for r in lopo_results:
+            fw = FRAMEWORK_LABELS.get(r["framework"], r["framework"])
+            auc = f"{r['mean_auc']:.4f}" if r.get("mean_auc") is not None else "N/A"
+            print(f"{fw:<15} {r['mode']:<15} {auc:<15} {r.get('verdict', 'N/A'):<20}")
+        print("=" * 80)
+
+    return lopo_results
+
+
+# ----------------------------------------------------------------------
 # Main
 # ----------------------------------------------------------------------
 
 def main():
     total_start = time.time()
 
-    total_experiments = len(AUTOML_FRAMEWORKS) * len(SIM_MODES)
+    # Parse CLI arguments
+    quick_mode = "--quick" in sys.argv  # 5 iterations instead of 100 for smoke testing
+    skip_baselines = "--skip-baselines" in sys.argv
+    skip_llm = "--skip-llm" in sys.argv
+    skip_lopo = "--skip-lopo" in sys.argv
+    only_baselines = "--only-baselines" in sys.argv
+    only_llm = "--only-llm" in sys.argv
+    resume_mode = "--resume" in sys.argv
+
+    if quick_mode:
+        # Override iteration counts for quick testing
+        for i, (name, mode, seed, _, train_n) in enumerate(SIM_MODES):
+            SIM_MODES[i] = (name, mode, seed, 5, 5)
+        for i, (name, mode, seed, _, train_n) in enumerate(LLM_EXPERIMENTS):
+            LLM_EXPERIMENTS[i] = (name, mode, seed, 5, 5)
+        log("QUICK MODE: Using 5 iterations instead of 100")
+
+    n_framework_exps = len(AUTOML_FRAMEWORKS) * len(SIM_MODES)
+    n_baseline_exps = len(BASELINES) * len(SIM_MODES)
+    n_llm_exps = len(LLM_EXPERIMENTS)
+    total_experiments = n_framework_exps + n_baseline_exps + n_llm_exps
+
     est_hours = total_experiments * 100 * 2.5 / 60 / 60  # rough: ~2.5 min per iteration
 
     print(f"""
     ==============================================================
-      Emergence - Multi-Framework PhD Experiment Runner
+      Emergence - Multi-Framework PhD Experiment Runner v2
 
-      {len(AUTOML_FRAMEWORKS)} frameworks x {len(SIM_MODES)} modes x 100 iterations = {total_experiments} experiments
+      ML Frameworks:  {n_framework_exps} experiments ({len(AUTOML_FRAMEWORKS)} fw × {len(SIM_MODES)} modes)
+      Baselines:      {n_baseline_exps} experiments ({len(BASELINES)} baselines × {len(SIM_MODES)} modes)
+      LLM Generation: {n_llm_exps} experiments
+      LOPO Analysis:  {len(AUTOML_FRAMEWORKS)} frameworks × {len(SIM_MODES)} modes (post-processing)
+
       Frameworks: {', '.join(FRAMEWORK_LABELS[fw] for fw in AUTOML_FRAMEWORKS)}
-      Modes: deterministic -> medium -> realistic
+      Baselines:  {', '.join(name for _, name in BASELINES)}
+      Modes:      deterministic → medium → realistic
+
+      Total: {total_experiments} experiments
       Estimated duration: ~{est_hours:.0f} hours
+      {'QUICK MODE: 5 iterations' if quick_mode else 'Full mode: 100 iterations'}
+      {'RESUME MODE: Skipping completed experiments' if resume_mode else ''}
     ==============================================================
     """)
 
@@ -629,8 +902,19 @@ def main():
     else:
         log("Could not check framework status — proceeding anyway", "WARN")
 
-    # Step 1: Clear everything
-    clear_experiment_data()
+    # Step 1: Clear experiment data (preserve core results when running --only-llm)
+    completed = set()
+    if resume_mode:
+        expected_iters = 5 if quick_mode else 100
+        log("RESUME MODE: Preserving completed experiment data")
+        completed = discover_completed_experiments(expected_iters)
+        log(f"  {len(completed)} fully completed experiment combos found")
+        for key in sorted(completed):
+            log(f"    {key}")
+        # Reset IoT containers to a known-good state before resuming
+        reset_iot_containers()
+    else:
+        clear_experiment_data(only_llm=only_llm)
 
     # Step 2: Scan devices
     devices = scan_devices()
@@ -647,7 +931,9 @@ def main():
     # ── Framework-first loop ──────────────────────────────────────────
     # Keeps each framework container warm while cycling through modes.
     # Model is cleared between mode switches to prevent contamination.
-    for fw in AUTOML_FRAMEWORKS:
+    if only_llm or only_baselines:
+        log(f"\nSkipping ML framework experiments ({'--only-llm' if only_llm else '--only-baselines'})")
+    for fw in ([] if only_llm or only_baselines else AUTOML_FRAMEWORKS):
         fw_label = FRAMEWORK_LABELS.get(fw, fw)
 
         # Check if framework is available
@@ -671,16 +957,36 @@ def main():
         log(f"  Running {len(SIM_MODES)} simulation modes")
         log(f"{'#' * 70}")
 
+        first_run_in_block = True
         for mode_idx, (base_name, mode, seed, iters, train_n) in enumerate(SIM_MODES):
             experiment_num += 1
             experiment_name = f"{base_name}-{fw.upper()}"
+
+            # Resume: skip already-completed experiments
+            if resume_mode and (fw, mode, "framework") in completed:
+                log(f"  SKIP (already completed): {experiment_name} [{fw}/{mode}]")
+                all_results.append({"name": experiment_name, "status": "skipped_resume",
+                                    "mode": mode, "automl_tool": fw})
+                continue
+
+            # First non-skipped mode in this block — ensure clean state
+            if first_run_in_block:
+                first_run_in_block = False
+                if resume_mode:
+                    log(f"  Preparing fresh state for {fw_label}/{mode}...")
+                    reset_iot_containers()
+                    clear_between_experiments(automl_tool=fw)
+                    clear_framework_model_on_server(fw)
 
             log(f"\n{'=' * 70}")
             log(f"EXPERIMENT {experiment_num}/{total_experiments}: {experiment_name}")
             log(f"  Framework: {fw_label} | Mode: {mode}")
             log(f"{'=' * 70}")
 
-            result = run_experiment(suite_id, experiment_name, mode, seed, iters, train_n, automl_tool=fw)
+            result = run_experiment(
+                suite_id, experiment_name, mode, seed, iters, train_n,
+                automl_tool=fw, temporal_training=True,  # Enable temporal splits for all ML experiments
+            )
             all_results.append(result)
 
             # Archive model, then clear between simulation modes
@@ -703,6 +1009,25 @@ def main():
             clear_between_experiments()  # Clear all models
             clear_framework_model_on_server(fw)  # Clear the server-side model too
 
+    # ── Phase 2: Baseline experiments ────────────────────────────────
+    if not skip_baselines and not only_llm:
+        run_baseline_experiments(suite_id, devices, all_results, completed=completed)
+    elif skip_baselines:
+        log("\nSkipping baseline experiments (--skip-baselines)")
+
+    # ── Phase 3: LLM generation experiments ──────────────────────────
+    if not skip_llm and not only_baselines:
+        run_llm_experiments(suite_id, devices, all_results, completed=completed)
+    elif skip_llm:
+        log("\nSkipping LLM experiments (--skip-llm)")
+
+    # ── Phase 4: LOPO generalization analysis ────────────────────────
+    lopo_results = []
+    if not skip_lopo and not only_baselines and not only_llm:
+        lopo_results = run_lopo_analysis()
+    elif skip_lopo:
+        log("\nSkipping LOPO analysis (--skip-lopo)")
+
     # -- Summary ---------------------------------------------------
     total_duration = time.time() - total_start
     log(f"\nAll experiments completed in {format_duration(total_duration)}")
@@ -713,6 +1038,11 @@ def main():
     comparison = api_get("/api/automl/comparison")
     if comparison:
         log("Cross-framework comparison data available in dashboard")
+
+    n_completed = sum(1 for r in all_results if r.get('status') == 'completed')
+    n_skipped = sum(1 for r in all_results if r.get('status') == 'skipped')
+    n_resumed = sum(1 for r in all_results if r.get('status') == 'skipped_resume')
+    n_failed = sum(1 for r in all_results if r.get('status') in ('error', 'cancelled'))
 
     print(f"""
     ==============================================================
@@ -725,11 +1055,20 @@ def main():
         - Simulation Mode: deterministic / medium / realistic
         - AutoML Framework: H2O / AutoGluon / PyCaret / TPOT / auto-sklearn
 
-      Each framework × mode combination is fully isolated.
-      Total experiments: {len(all_results)}
-      Completed: {sum(1 for r in all_results if r.get('status') == 'completed')}
-      Skipped:   {sum(1 for r in all_results if r.get('status') == 'skipped')}
-      Failed:    {sum(1 for r in all_results if r.get('status') in ('error', 'cancelled'))}
+      Experiment Summary:
+        ML Framework experiments: {n_framework_exps}
+        Baseline experiments:     {n_baseline_exps if not skip_baselines else 'skipped'}
+        LLM experiments:          {n_llm_exps if not skip_llm else 'skipped'}
+        LOPO evaluations:         {len(lopo_results)} completed
+
+      Results:
+        Total: {len(all_results)} | Completed: {n_completed} | Previously done: {n_resumed} | Skipped: {n_skipped} | Failed: {n_failed}
+
+      New Hypotheses Available:
+        H8: Temporal Predictive Validity
+        H9: ML Value Over Baselines
+        H10: LLM Generation Effectiveness
+        H11: Cross-Protocol Generalization (LOPO)
     ==============================================================
     """)
 

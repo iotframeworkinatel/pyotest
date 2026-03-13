@@ -206,6 +206,8 @@ class GenerateRequest(BaseModel):
     name: str = ""
     force_new: bool = False
     automl_tool: str = "h2o"  # Framework for ML scoring
+    llm_enabled: bool = False  # Generate LLM tests alongside registry
+    llm_provider: str = "claude"  # LLM provider: "claude", "openai", "gemini"
 
 
 class RunRequest(BaseModel):
@@ -219,6 +221,11 @@ class TrainLoopRequest(BaseModel):
     simulation_config: Optional[dict] = None  # custom overrides (only if mode="custom")
     train_every_n: int = 0  # 0 = train only after last iteration, 1 = every iter, N = every Nth + last
     automl_tool: str = "h2o"  # Framework for ML training/scoring
+    temporal_training: bool = False  # Use expanding-window temporal train/test splits
+    baseline_strategy: Optional[str] = None  # "random"|"cvss_priority"|"round_robin"|"no_ml"
+    llm_enabled: bool = False  # Enable LLM-based test generation
+    llm_generate_every_n: int = 10  # Generate new LLM tests every N iterations
+    llm_provider: str = "claude"  # LLM provider: "claude", "openai", "gemini"
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -995,6 +1002,82 @@ def remove_device(ip: str):
 # TEST GENERATION
 # ═══════════════════════════════════════════════════════════════════════
 
+_PROTOCOL_DEFAULT_PORTS_GEN = {
+    "http": 80, "https": 443, "ftp": 21, "ssh": 22, "telnet": 23,
+    "mqtt": 1883, "coap": 5683, "modbus": 502, "dnp3": 20000,
+    "bacnet": 47808, "upnp": 1900, "rtsp": 554, "snmp": 161,
+    "amqp": 5672, "opcua": 4840, "zigbee": 0, "ble": 0,
+    "banner_grabbing": 0,
+}
+
+
+def _llm_dict_to_testcase_gen(llm_test: dict, target_ip: str = "127.0.0.1") -> TestCase:
+    """Convert LLM generator output dict to a TestCase object (for /api/generate)."""
+    tid = llm_test.get("test_id", "")
+    parts = tid.replace("llm_", "", 1).split("_")
+    protocol = parts[0] if parts and parts[0] in _PROTOCOL_DEFAULT_PORTS_GEN else "unknown"
+    if protocol == "unknown":
+        code = llm_test.get("pytest_code", "").lower()
+        for proto in _PROTOCOL_DEFAULT_PORTS_GEN:
+            if proto in code:
+                protocol = proto
+                break
+    port = _PROTOCOL_DEFAULT_PORTS_GEN.get(protocol, 0)
+    return TestCase(
+        test_id=llm_test["test_id"],
+        test_name=llm_test.get("test_name", llm_test["test_id"]),
+        protocol=protocol,
+        target_ip=target_ip,
+        port=port,
+        description=llm_test.get("description", "LLM-generated test"),
+        severity=llm_test.get("severity", "medium"),
+        vulnerability_type=llm_test.get("vulnerability_type", "unknown"),
+        owasp_iot_category=llm_test.get("owasp_iot_category", "I1: Insecure Web Interface"),
+        test_origin="llm",
+        pytest_code=llm_test.get("pytest_code"),
+    )
+
+
+def _generate_llm_tests_for_suite(suite: TestSuite, devices: list[dict], provider: str = "claude") -> int:
+    """Generate LLM tests and append to suite. Returns count of tests added."""
+    try:
+        from generator.llm_generator import LLMTestGenerator
+        llm_gen = LLMTestGenerator(provider=provider)
+        if not llm_gen.is_available():
+            logging.info("[API] LLM generator not available (no API key)")
+            return 0
+
+        existing_ids = [tc.test_id for tc in suite.test_cases]
+        added = 0
+        for dev in devices:
+            ip = dev.get("ip", "127.0.0.1")
+            ports = dev.get("ports", [])
+            # Infer protocols from existing test cases for this device
+            protos = list({
+                tc.protocol for tc in suite.test_cases
+                if tc.target_ip == ip and tc.protocol != "unknown"
+            })
+            if not protos:
+                protos = ["http"]
+            new_tests = llm_gen.generate_tests_for_device(
+                device_ip=ip,
+                open_ports=ports,
+                protocols=protos,
+                existing_tests=existing_ids,
+                max_tests=5,
+            )
+            for lt in new_tests:
+                tc = _llm_dict_to_testcase_gen(lt, target_ip=ip)
+                suite.test_cases.append(tc)
+                existing_ids.append(tc.test_id)
+                added += 1
+        logging.info(f"[API] LLM generation added {added} tests across {len(devices)} devices")
+        return added
+    except Exception as e:
+        logging.warning(f"[API] LLM generation failed (non-fatal): {e}")
+        return 0
+
+
 @app.post("/api/generate")
 def generate_tests(req: GenerateRequest):
     """Generate or enhance a test suite for the selected devices and protocols."""
@@ -1039,6 +1122,11 @@ def generate_tests(req: GenerateRequest):
         if new_tests:
             suite.test_cases.extend(new_tests)
 
+        # ── LLM test generation (enhance path) ──
+        llm_added = 0
+        if req.llm_enabled:
+            llm_added = _generate_llm_tests_for_suite(suite, req.devices, provider=req.llm_provider)
+
         # Re-score ALL tests with the latest ML model
         try:
             suite = score_test_suite(suite, automl_tool=req.automl_tool)
@@ -1049,7 +1137,8 @@ def generate_tests(req: GenerateRequest):
         enhancement_count = suite.metadata.get("enhancement_count", 0) + 1
         suite.metadata["enhancement_count"] = enhancement_count
         suite.metadata["last_enhanced_at"] = datetime.utcnow().isoformat()
-        suite.metadata["tests_added_on_enhance"] = len(new_tests)
+        suite.metadata["tests_added_on_enhance"] = len(new_tests) + llm_added
+        suite.metadata["llm_tests_added"] = llm_added
         suite.metadata["fingerprint"] = fingerprint
         suite.metadata["automl_tool"] = req.automl_tool
 
@@ -1069,6 +1158,11 @@ def generate_tests(req: GenerateRequest):
             name=req.name,
         )
 
+        # ── LLM test generation (create path) ──
+        llm_added = 0
+        if req.llm_enabled:
+            llm_added = _generate_llm_tests_for_suite(suite, req.devices, provider=req.llm_provider)
+
         try:
             suite = score_test_suite(suite, automl_tool=req.automl_tool)
         except Exception as e:
@@ -1079,6 +1173,7 @@ def generate_tests(req: GenerateRequest):
         suite.metadata["enhancement_count"] = 0
         suite.metadata["last_enhanced_at"] = None
         suite.metadata["tests_added_on_enhance"] = 0
+        suite.metadata["llm_tests_added"] = llm_added
         suite.metadata["automl_tool"] = req.automl_tool
 
         _save_suite(suite)
@@ -1173,6 +1268,8 @@ def _execute_suite_and_retrain(
     simulation_context: "Optional[dict]" = None,
     skip_training: bool = False,
     automl_tool: str = "h2o",
+    temporal_training: bool = False,
+    baseline_strategy: Optional[str] = None,
 ) -> dict:
     """Core run + retrain logic shared by single-run and auto-train loop.
 
@@ -1273,6 +1370,8 @@ def _execute_suite_and_retrain(
             try:
                 _hdf = pd.read_csv(history_csv)
                 _hdf["automl_tool"] = automl_tool
+                # Tag baseline_strategy so H9 can distinguish ML vs baseline experiments
+                _hdf["baseline_strategy"] = baseline_strategy if baseline_strategy else "ml_guided"
                 _hdf.to_csv(history_csv, index=False)
             except Exception as e:
                 logging.warning(f"[API] Could not tag history with automl_tool: {e}")
@@ -1301,7 +1400,11 @@ def _execute_suite_and_retrain(
                 on_phase("training")
 
             try:
-                from generator.retrain import retrain_model_after_execution, aggregate_history
+                from generator.retrain import (
+                    retrain_model_after_execution,
+                    retrain_model_temporal,
+                    aggregate_history,
+                )
 
                 with _train_lock:
                     _train_state["status"] = "training"
@@ -1322,9 +1425,22 @@ def _execute_suite_and_retrain(
                         _train_state["finished_at"] = datetime.now().isoformat()
                         _train_state["error"] = "No history data to train on"
                 else:
-                    retrain_result = retrain_model_after_execution(
-                        agg_path, automl_tool=automl_tool,
-                    )
+                    _current_iter = simulation_context.get("iteration", 1) if simulation_context else 1
+
+                    if temporal_training and _current_iter > 1:
+                        # Temporal: train on iterations 1..(current-1), evaluate on current
+                        retrain_result = retrain_model_temporal(
+                            agg_path,
+                            current_iteration=_current_iter,
+                            train_iterations=range(1, _current_iter),
+                            automl_tool=automl_tool,
+                        )
+                    else:
+                        # Standard: train on all accumulated data
+                        retrain_result = retrain_model_after_execution(
+                            agg_path, automl_tool=automl_tool,
+                        )
+
                     with _train_lock:
                         if retrain_result.get("status") in ("error", "insufficient_data"):
                             _train_state["status"] = "error"
@@ -1378,7 +1494,50 @@ def _execute_suite_and_retrain(
                 logging.warning(f"[API] Auto-score after retrain failed (non-fatal): {e}")
                 score_result = {"status": "error", "message": str(e)}
 
-        return {"run_result": result, "retrain_result": retrain_result, "score_result": score_result}
+        # ── Phase 4: Temporal held-out evaluation (when temporal mode is on) ─
+        temporal_eval_result = None
+        if temporal_training and not skip_training and retrain_result and \
+                retrain_result.get("status") not in ("error", "insufficient_data"):
+            try:
+                from utils.temporal_eval import compute_temporal_eval
+                _current_iter = simulation_context.get("iteration", 1) if simulation_context else 1
+                _sim_mode = simulation_context.get("mode") if simulation_context else None
+
+                # Load the current iteration's history data
+                history_csv = result.get("history_csv")
+                if history_csv and os.path.exists(str(history_csv)):
+                    iter_df = pd.read_csv(history_csv)
+                    iter_df["vulnerability_found"] = pd.to_numeric(
+                        iter_df["vulnerability_found"], errors="coerce"
+                    ).fillna(0).astype(int)
+
+                    # Predict on held-out iteration using the model trained on past data
+                    scored_iter = _predict_risk_scores_on_history(iter_df)
+                    if scored_iter is not None and "predicted_risk_score" in scored_iter.columns:
+                        temporal_eval_result = compute_temporal_eval(
+                            scored_iter,
+                            train_window_size=_current_iter - 1,
+                        )
+                        temporal_eval_result["iteration"] = _current_iter
+                        # Track which scoring method was used for this iteration
+                        if "_score_method" in scored_iter.columns:
+                            temporal_eval_result["score_method"] = scored_iter["_score_method"].iloc[0]
+                        logging.info(
+                            f"[API] Temporal eval iter={_current_iter}: "
+                            f"AUC={temporal_eval_result.get('auc_roc', '?')}, "
+                            f"Brier={temporal_eval_result.get('brier_score', '?')}, "
+                            f"ECE={temporal_eval_result.get('ece', '?')}, "
+                            f"method={temporal_eval_result.get('score_method', '?')}"
+                        )
+            except Exception as e:
+                logging.warning(f"[API] Temporal evaluation failed (non-fatal): {e}")
+
+        return {
+            "run_result": result,
+            "retrain_result": retrain_result,
+            "score_result": score_result,
+            "temporal_eval": temporal_eval_result,
+        }
 
     except Exception as e:
         with _run_lock:
@@ -1502,6 +1661,50 @@ def start_train_loop(suite_id: str, req: TrainLoopRequest, background_tasks: Bac
         _loop_state["train_every_n"] = req.train_every_n
         _loop_state["automl_tool"] = req.automl_tool
 
+    # ── LLM helpers ──────────────────────────────────────────────────
+    _PROTOCOL_DEFAULT_PORTS = {
+        "http": 80, "https": 443, "ftp": 21, "ssh": 22, "telnet": 23,
+        "mqtt": 1883, "coap": 5683, "modbus": 502, "dnp3": 20000,
+        "bacnet": 47808, "upnp": 1900, "rtsp": 554, "snmp": 161,
+        "amqp": 5672, "opcua": 4840, "zigbee": 0, "ble": 0,
+        "banner_grabbing": 0,
+    }
+
+    def _infer_protocol(llm_test: dict) -> str:
+        """Infer protocol from LLM test dict (test_id or pytest_code)."""
+        tid = llm_test.get("test_id", "")
+        # test_id format: llm_<protocol>_<vuln>
+        parts = tid.replace("llm_", "", 1).split("_")
+        if parts and parts[0] in _PROTOCOL_DEFAULT_PORTS:
+            return parts[0]
+        # Fallback: scan pytest_code for known protocol keywords
+        code = llm_test.get("pytest_code", "").lower()
+        for proto in _PROTOCOL_DEFAULT_PORTS:
+            if proto in code:
+                return proto
+        return "unknown"
+
+    def _infer_port(protocol: str) -> int:
+        return _PROTOCOL_DEFAULT_PORTS.get(protocol, 0)
+
+    def _llm_dict_to_testcase(llm_test: dict, target_ip: str = "127.0.0.1") -> TestCase:
+        """Convert LLM generator output dict to a TestCase object."""
+        protocol = _infer_protocol(llm_test)
+        port = _infer_port(protocol)
+        return TestCase(
+            test_id=llm_test["test_id"],
+            test_name=llm_test.get("test_name", llm_test["test_id"]),
+            protocol=protocol,
+            target_ip=target_ip,
+            port=port,
+            description=llm_test.get("description", "LLM-generated test"),
+            severity=llm_test.get("severity", "medium"),
+            vulnerability_type=llm_test.get("vulnerability_type", "unknown"),
+            owasp_iot_category=llm_test.get("owasp_iot_category", "I1: Insecure Web Interface"),
+            test_origin="llm",
+            pytest_code=llm_test.get("pytest_code"),
+        )
+
     def _do_loop():
         # Create simulator (uses dashboard-api's Docker socket)
         simulator = EnvironmentSimulator(
@@ -1556,6 +1759,8 @@ def start_train_loop(suite_id: str, req: TrainLoopRequest, background_tasks: Bac
                     simulation_context=sim_context,
                     skip_training=not should_train,
                     automl_tool=req.automl_tool,
+                    temporal_training=req.temporal_training,
+                    baseline_strategy=req.baseline_strategy,
                 )
 
                 # ── Simulation: restore outaged containers after tests ──
@@ -1576,6 +1781,7 @@ def start_train_loop(suite_id: str, req: TrainLoopRequest, background_tasks: Bac
                 run_result = outcome.get("run_result", {})
                 retrain_result = outcome.get("retrain_result") or {}
                 score_result = outcome.get("score_result") or {}
+                temporal_eval = outcome.get("temporal_eval") or {}
                 te = run_result.get("tests_executed", 0)
                 vd = run_result.get("vulns_detected", 0)
 
@@ -1595,7 +1801,55 @@ def start_train_loop(suite_id: str, req: TrainLoopRequest, background_tasks: Bac
                     "finished_at": datetime.now().isoformat(),
                     "simulation_actions": len(sim_actions),
                     "simulation_details": sim_actions,
+                    # Temporal validation metrics (when temporal_training=True)
+                    "temporal_auc": temporal_eval.get("auc_roc"),
+                    "temporal_brier": temporal_eval.get("brier_score"),
+                    "temporal_ece": temporal_eval.get("ece"),
+                    "train_window_size": temporal_eval.get("train_window_size"),
+                    # Track which scoring method was used (model vs heuristic)
+                    "score_method": temporal_eval.get("score_method",
+                        "model" if score_result and score_result.get("status") == "scored" else "heuristic"),
+                    "llm_tests_generated": 0,
+                    "llm_gaps_detected": 0,
                 }
+
+                # ── Adaptive LLM generation (every N iterations) ──
+                if req.llm_enabled and i > 1 and i % req.llm_generate_every_n == 0:
+                    try:
+                        from generator.llm_generator import LLMTestGenerator, detect_coverage_gaps
+                        llm_gen = LLMTestGenerator(provider=req.llm_provider)
+                        if llm_gen.is_available():
+                            from generator.retrain import aggregate_history
+                            _sim_mode_for_llm = sim_config.mode if sim_config else None
+                            agg_path = aggregate_history(EXPERIMENTS_PATH, simulation_mode=_sim_mode_for_llm)
+                            if agg_path:
+                                _llm_hist = pd.read_csv(agg_path)
+                                _existing_ids = [tc.test_id for tc in suite.test_cases]
+                                gaps = detect_coverage_gaps(_llm_hist, _existing_ids)
+                                if gaps.get("low_detection_protocols") or gaps.get("underrepresented_protocols"):
+                                    new_llm = llm_gen.generate_tests_for_gaps(
+                                        gaps=gaps,
+                                        devices=suite.devices,
+                                        existing_test_ids=_existing_ids,
+                                        execution_context=(
+                                            f"Iteration {i}/{req.iterations}, "
+                                            f"detection rate: {iter_metrics.get('detection_rate', 0):.3f}"
+                                        ),
+                                    )
+                                    _default_ip = suite.devices[0]["ip"] if suite.devices else "127.0.0.1"
+                                    for lt in new_llm:
+                                        suite.test_cases.append(_llm_dict_to_testcase(lt, target_ip=_default_ip))
+                                    _save_suite(suite)
+                                    iter_metrics["llm_tests_generated"] = len(new_llm)
+                                    iter_metrics["llm_gaps_detected"] = len(
+                                        gaps.get("low_detection_protocols", [])
+                                    )
+                                    logging.info(
+                                        f"[API] Iteration {i}: Added {len(new_llm)} "
+                                        f"LLM tests for {len(gaps.get('low_detection_protocols', []))} gap protocols"
+                                    )
+                    except Exception as e:
+                        logging.warning(f"[API] LLM adaptive generation failed (non-fatal): {e}")
 
                 with _loop_lock:
                     _loop_state["iterations"].append(iter_metrics)
@@ -1865,6 +2119,18 @@ def automl_frameworks_available():
         return {"available": list_available()}
     except Exception as e:
         return {"available": ["h2o"], "error": str(e)}
+
+
+# ── LLM Provider Management ─────────────────────────────────────────────
+
+@app.get("/api/llm/providers")
+def llm_providers():
+    """List all registered LLM providers and their availability."""
+    try:
+        from generator.llm_providers.registry import list_available
+        return {"providers": list_available()}
+    except Exception as e:
+        return {"providers": [], "error": str(e)}
 
 
 _train_lock = threading.Lock()
@@ -2922,6 +3188,56 @@ def hypothesis_risk_calibration(simulation_mode: Optional[str] = None, automl_to
     else:
         verdict = "poorly_calibrated"
 
+    # ─── Score-method stratification ────────────────────────────────
+    # Separate calibration metrics by scoring method to expose the
+    # heuristic tautology: heuristic ECE ≈ 0 by construction because
+    # predicted values ARE the empirical base rates with smoothing.
+    score_method_comparison = {}
+    if "_score_method" in df.columns:
+        for method in df["_score_method"].dropna().unique():
+            method_df = df[df["_score_method"] == method]
+            n_method = len(method_df)
+            if n_method < 5:
+                continue
+            y_true_m = method_df["vulnerability_found"].values.astype(int)
+            y_score_m = method_df["predicted_risk_score"].values.astype(float)
+            # ECE/MCE
+            m_ece, m_mce = 0.0, 0.0
+            m_bin_edges = [j / 10.0 for j in range(11)]
+            for bi in range(10):
+                lo_m, hi_m = m_bin_edges[bi], m_bin_edges[bi + 1]
+                if bi == 9:
+                    m_mask = (y_score_m >= lo_m) & (y_score_m <= hi_m)
+                else:
+                    m_mask = (y_score_m >= lo_m) & (y_score_m < hi_m)
+                n_bin_m = int(m_mask.sum())
+                if n_bin_m == 0:
+                    continue
+                gap_m = abs(float(y_score_m[m_mask].mean()) - float(y_true_m[m_mask].mean()))
+                m_ece += (n_bin_m / n_method) * gap_m
+                m_mce = max(m_mce, gap_m)
+            m_brier = float(np.mean((y_score_m - y_true_m) ** 2))
+            score_method_comparison[method] = {
+                "ece": _safe_float(m_ece, 4) or 0,
+                "mce": _safe_float(m_mce, 4) or 0,
+                "brier": _safe_float(m_brier, 4) or 0,
+                "n": n_method,
+            }
+
+    # Tautology detection: heuristic ECE near zero is expected by construction
+    heuristic_data = score_method_comparison.get("heuristic") or score_method_comparison.get("heuristic_global")
+    model_data = score_method_comparison.get("model")
+    tautology_warning = False
+    tautology_explanation = None
+    if heuristic_data and heuristic_data["ece"] < 0.03:
+        tautology_warning = True
+        tautology_explanation = (
+            "Heuristic ECE ≈ 0 is a mathematical artefact, not evidence of ML calibration. "
+            "The heuristic predicts the leave-iteration-out empirical base rate with Bayesian "
+            "smoothing — so predicted ≈ observed by construction. Only the 'model' ECE "
+            "reflects genuine predictive calibration."
+        )
+
     return {
         "model_available": True,
         "score_method": score_method,
@@ -2931,6 +3247,9 @@ def hypothesis_risk_calibration(simulation_mode: Optional[str] = None, automl_to
         "ece": _safe_float(ece_sum, 4) or 0,
         "mce": _safe_float(mce, 4) or 0,
         "verdict": verdict,
+        "score_method_comparison": score_method_comparison,
+        "tautology_warning": tautology_warning,
+        "tautology_explanation": tautology_explanation,
     }
 
 
@@ -3056,16 +3375,47 @@ def hypothesis_execution_efficiency(simulation_mode: Optional[str] = None, autom
             t_stat, t_p = scipy_stats.ttest_1samp(shifted_cov, 0, alternative="greater")
             coverage_sig = bool(t_p < 0.05)
 
-            # Effect size: Cohen's d for efficiency ratio vs 1.0
-            eff_arr = np.array(eff_ratios)
-            eff_std = float(eff_arr.std())
-            cohens_d = float((eff_arr.mean() - 1.0) / eff_std) if eff_std > 0 else 0
-            cohens_d_interp = (
-                "large" if abs(cohens_d) >= 0.8
-                else "medium" if abs(cohens_d) >= 0.5
-                else "small" if abs(cohens_d) >= 0.2
+            # Effect size: rank-biserial r from Wilcoxon signed-rank test
+            # r_rb = (W+ - W-) / (W+ + W-), where W+ + W- = n*(n+1)/2
+            # Replaces Cohen's d which explodes when std ≈ 0 (d = 77-88)
+            n_nonzero = len([s for s in shifted if s != 0])
+            total_rank_sum = n_nonzero * (n_nonzero + 1) / 2
+            if total_rank_sum > 0:
+                # w_stat from wilcoxon is W+ (sum of positive ranks)
+                w_minus = total_rank_sum - w_stat
+                rank_biserial_r = float((w_stat - w_minus) / total_rank_sum)
+            else:
+                rank_biserial_r = 0.0
+            rank_biserial_interp = (
+                "large" if abs(rank_biserial_r) >= 0.5
+                else "medium" if abs(rank_biserial_r) >= 0.3
+                else "small" if abs(rank_biserial_r) >= 0.1
                 else "negligible"
             )
+
+            # 95% bootstrap CI for rank-biserial r
+            ci_low_rb = ci_high_rb = None
+            try:
+                rng = np.random.RandomState(42)
+                boot_rs = []
+                for _ in range(2000):
+                    sample = rng.choice(shifted, size=len(shifted), replace=True)
+                    nonzero = [s for s in sample if s != 0]
+                    if len(nonzero) < 2:
+                        continue
+                    try:
+                        w_b, _ = scipy_stats.wilcoxon(nonzero, alternative="greater")
+                        n_b = len(nonzero)
+                        total_b = n_b * (n_b + 1) / 2
+                        w_minus_b = total_b - w_b
+                        boot_rs.append((w_b - w_minus_b) / total_b)
+                    except (ValueError, ZeroDivisionError):
+                        continue
+                if len(boot_rs) >= 100:
+                    ci_low_rb = float(np.percentile(boot_rs, 2.5))
+                    ci_high_rb = float(np.percentile(boot_rs, 97.5))
+            except Exception:
+                pass
 
             stats_result = {
                 "wilcoxon_w": _safe_float(w_stat, 4),
@@ -3074,8 +3424,10 @@ def hypothesis_execution_efficiency(simulation_mode: Optional[str] = None, autom
                 "coverage_t": _safe_float(t_stat, 4),
                 "coverage_p": _safe_float(t_p, 6),
                 "coverage_significant": coverage_sig,
-                "cohens_d": _safe_float(cohens_d, 4),
-                "cohens_d_interpretation": cohens_d_interp,
+                "rank_biserial_r": _safe_float(rank_biserial_r, 4),
+                "rank_biserial_interpretation": rank_biserial_interp,
+                "rank_biserial_ci_low": _safe_float(ci_low_rb, 4),
+                "rank_biserial_ci_high": _safe_float(ci_high_rb, 4),
                 "n_iterations": len(eff_ratios),
             }
     except Exception as e:
@@ -3496,30 +3848,31 @@ def hypothesis_cross_framework(simulation_mode: Optional[str] = None):
             detection_rates = [round(total_vulns / total_tests, 4)] if total_tests > 0 else [0]
             vuln_counts = [total_vulns]
 
-        # Compute AUC from heuristic risk scores
-        # AUC(ROC) = Mann-Whitney U / (n_pos * n_neg) — no sklearn required
+        # Compute in-sample AUC from heuristic risk scores
+        # Uses sklearn roc_auc_score for standard computation.
+        # NOTE: This is in-sample AUC (heuristic trained on same data).
+        # Temporal held-out AUC is computed separately in Phase 1.
         auc = None
+        brier = None
         try:
+            from sklearn.metrics import roc_auc_score, brier_score_loss
             scored_df = _heuristic_risk_scores(fw_df)
             if scored_df is not None and "predicted_risk_score" in scored_df.columns:
-                y_true = scored_df["vulnerability_found"].tolist()
-                y_score = scored_df["predicted_risk_score"].tolist()
-                pos_scores = [s for s, l in zip(y_score, y_true) if l == 1]
-                neg_scores = [s for s, l in zip(y_score, y_true) if l == 0]
-                if len(pos_scores) >= 2 and len(neg_scores) >= 2:
-                    u_stat, _ = scipy_stats.mannwhitneyu(
-                        pos_scores, neg_scores, alternative="greater"
-                    )
-                    raw_auc = u_stat / (len(pos_scores) * len(neg_scores))
-                    if raw_auc > 0.55:
-                        auc = raw_auc
+                y_true = scored_df["vulnerability_found"].values.astype(int)
+                y_score = scored_df["predicted_risk_score"].values.astype(float)
+                # Need both classes present
+                if len(np.unique(y_true)) >= 2 and len(y_true) >= 10:
+                    auc = float(roc_auc_score(y_true, y_score))
+                    brier = float(brier_score_loss(y_true, y_score))
         except Exception as _auc_err:
             logging.debug(f"[Hypothesis] AUC computation failed for {fw}: {_auc_err}")
 
         frameworks_with_data[fw] = {
             "detection_rates": detection_rates,
             "vuln_counts": vuln_counts,
-            "auc": _safe_float(auc, 4) if auc else None,
+            "auc": _safe_float(auc, 4) if auc is not None else None,
+            "brier_score": _safe_float(brier, 4) if brier is not None else None,
+            "auc_type": "in_sample_heuristic",
             "n_iterations": len(detection_rates),
             "mean_detection_rate": _safe_float(np.mean(detection_rates), 4),
             "std_detection_rate": _safe_float(np.std(detection_rates), 4),
@@ -3666,6 +4019,18 @@ def hypothesis_cross_framework(simulation_mode: Optional[str] = None):
     except Exception as e:
         logging.warning(f"[Hypothesis] Failed to enrich H7 with timing: {e}")
 
+    # Note when framework differences vanish under simulation noise
+    noise_dominance_note = None
+    _mode = simulation_mode or "all"
+    if verdict == "no_significant_differences" and _mode in ("realistic", "medium"):
+        noise_dominance_note = (
+            f"No significant framework differences in {_mode} mode. This likely "
+            f"reflects environment noise (service outages, patch regressions, FP/FN "
+            f"injection) dominating framework-specific scoring differences rather "
+            f"than true framework equivalence. See /api/hypothesis/framework-interaction "
+            f"for a cross-mode variance decomposition."
+        )
+
     return {
         "status": "ok",
         "frameworks": fw_summary,
@@ -3676,6 +4041,841 @@ def hypothesis_cross_framework(simulation_mode: Optional[str] = None):
         "simulation_mode": simulation_mode or "all",
         "verdict": verdict,
         "timing": timing,
+        "noise_dominance_note": noise_dominance_note,
+    }
+
+
+# ── H7+ — Framework × Mode Interaction Analysis ───────────────────
+
+@app.get("/api/hypothesis/framework-interaction")
+def hypothesis_framework_interaction():
+    """Analyse framework × simulation-mode interaction effects.
+
+    Answers: "Does framework choice matter equally across simulation modes,
+    or does environment noise dominate in realistic mode?"
+
+    Uses two-way sum-of-squares decomposition (Type I) and per-mode
+    Kruskal-Wallis tests to separate framework, mode, and interaction
+    variance contributions.
+    """
+    import numpy as np
+    from scipy import stats as scipy_stats
+
+    # Load ALL history (no mode filter)
+    all_df = _load_aggregated_history(simulation_mode=None)
+    if all_df is None or all_df.empty:
+        return {"status": "insufficient_data", "message": "No experiment data available."}
+
+    all_df = all_df.copy()
+    all_df["vulnerability_found"] = pd.to_numeric(
+        all_df["vulnerability_found"], errors="coerce"
+    ).fillna(0).astype(int)
+
+    if "automl_tool" not in all_df.columns or "simulation_mode" not in all_df.columns:
+        return {"status": "insufficient_data", "message": "Missing automl_tool or simulation_mode columns."}
+
+    # Need simulation_iteration for per-iteration detection rates
+    iter_col = None
+    for col in ("simulation_iteration", "experiment_id"):
+        if col in all_df.columns:
+            iter_col = col
+            break
+    if iter_col is None:
+        return {"status": "insufficient_data", "message": "No iteration column available."}
+
+    # Filter to ML-guided experiments only (exclude baselines)
+    if "baseline_strategy" in all_df.columns:
+        all_df = all_df[all_df["baseline_strategy"].isin(["ml_guided", None, ""])]
+        all_df = all_df[all_df["baseline_strategy"].fillna("ml_guided") == "ml_guided"]
+
+    # Compute per-(framework, mode, iteration) detection rates
+    grouped = (
+        all_df.groupby(["automl_tool", "simulation_mode", iter_col])["vulnerability_found"]
+        .agg(total="count", vulns="sum")
+        .reset_index()
+    )
+    grouped["detection_rate"] = (grouped["vulns"] / grouped["total"]).fillna(0)
+
+    frameworks = sorted(grouped["automl_tool"].unique().tolist())
+    modes = sorted(grouped["simulation_mode"].unique().tolist())
+
+    if len(frameworks) < 2 or len(modes) < 2:
+        return {
+            "status": "insufficient_data",
+            "message": f"Need ≥2 frameworks and ≥2 modes. Found {len(frameworks)} frameworks, {len(modes)} modes.",
+        }
+
+    # ─── Two-way variance decomposition (Type I SS) ───
+    y = grouped["detection_rate"].values
+    grand_mean = float(np.mean(y))
+    ss_total = float(np.sum((y - grand_mean) ** 2))
+
+    # SS for framework (main effect A)
+    fw_means = grouped.groupby("automl_tool")["detection_rate"].mean()
+    ss_framework = 0.0
+    for fw in frameworks:
+        fw_rows = grouped[grouped["automl_tool"] == fw]
+        ss_framework += len(fw_rows) * (float(fw_means[fw]) - grand_mean) ** 2
+
+    # SS for mode (main effect B)
+    mode_means = grouped.groupby("simulation_mode")["detection_rate"].mean()
+    ss_mode = 0.0
+    for mode in modes:
+        mode_rows = grouped[grouped["simulation_mode"] == mode]
+        ss_mode += len(mode_rows) * (float(mode_means[mode]) - grand_mean) ** 2
+
+    # SS for interaction (cell means - marginal means - grand mean)
+    cell_means = grouped.groupby(["automl_tool", "simulation_mode"])["detection_rate"].mean()
+    ss_interaction = 0.0
+    for fw in frameworks:
+        for mode in modes:
+            cell_key = (fw, mode)
+            if cell_key in cell_means.index:
+                cell_rows = grouped[(grouped["automl_tool"] == fw) & (grouped["simulation_mode"] == mode)]
+                cell_mean = float(cell_means[cell_key])
+                expected = float(fw_means[fw]) + float(mode_means[mode]) - grand_mean
+                ss_interaction += len(cell_rows) * (cell_mean - expected) ** 2
+
+    ss_residual = max(ss_total - ss_framework - ss_mode - ss_interaction, 0)
+
+    # Eta-squared (proportion of variance explained)
+    def _eta_sq(ss_effect, ss_tot):
+        return float(ss_effect / ss_tot) if ss_tot > 0 else 0.0
+
+    def _eta_interp(eta):
+        if eta >= 0.14:
+            return "large"
+        elif eta >= 0.06:
+            return "medium"
+        elif eta >= 0.01:
+            return "small"
+        return "negligible"
+
+    eta_fw = _eta_sq(ss_framework, ss_total)
+    eta_mode = _eta_sq(ss_mode, ss_total)
+    eta_interaction = _eta_sq(ss_interaction, ss_total)
+    eta_residual = _eta_sq(ss_residual, ss_total)
+
+    variance_decomposition = {
+        "framework": {
+            "ss": _safe_float(ss_framework, 4),
+            "eta_squared": _safe_float(eta_fw, 4),
+            "interpretation": _eta_interp(eta_fw),
+        },
+        "simulation_mode": {
+            "ss": _safe_float(ss_mode, 4),
+            "eta_squared": _safe_float(eta_mode, 4),
+            "interpretation": _eta_interp(eta_mode),
+        },
+        "interaction": {
+            "ss": _safe_float(ss_interaction, 4),
+            "eta_squared": _safe_float(eta_interaction, 4),
+            "interpretation": _eta_interp(eta_interaction),
+        },
+        "residual": {
+            "ss": _safe_float(ss_residual, 4),
+            "eta_squared": _safe_float(eta_residual, 4),
+        },
+        "total_ss": _safe_float(ss_total, 4),
+        "n_observations": len(grouped),
+    }
+
+    # ─── Per-mode Kruskal-Wallis (framework differences within each mode) ───
+    per_mode_significance = {}
+    for mode in modes:
+        mode_df = grouped[grouped["simulation_mode"] == mode]
+        fw_groups = []
+        fw_names_in_mode = []
+        for fw in frameworks:
+            fw_rates = mode_df[mode_df["automl_tool"] == fw]["detection_rate"].values
+            if len(fw_rates) >= 2:
+                fw_groups.append(fw_rates)
+                fw_names_in_mode.append(fw)
+
+        if len(fw_groups) >= 2:
+            try:
+                h_stat, kw_p = scipy_stats.kruskal(*fw_groups)
+                per_mode_significance[mode] = {
+                    "kruskal_h": _safe_float(h_stat, 4),
+                    "p_value": _safe_float(kw_p, 6),
+                    "significant": bool(kw_p < 0.05),
+                    "n_frameworks": len(fw_groups),
+                    "mean_rates": {
+                        fw: _safe_float(float(np.mean(g)), 4)
+                        for fw, g in zip(fw_names_in_mode, fw_groups)
+                    },
+                }
+            except Exception:
+                per_mode_significance[mode] = {"error": "Kruskal-Wallis failed"}
+        else:
+            per_mode_significance[mode] = {"error": "Insufficient framework data"}
+
+    # ─── Conclusion ───
+    sig_modes = [m for m, d in per_mode_significance.items() if d.get("significant")]
+    nonsig_modes = [m for m, d in per_mode_significance.items()
+                    if d.get("significant") is not None and not d.get("significant")]
+
+    if sig_modes and nonsig_modes:
+        conclusion = (
+            f"Framework choice significantly affects detection rates in "
+            f"{', '.join(sig_modes)} mode(s) but environment noise dominates in "
+            f"{', '.join(nonsig_modes)} mode(s). "
+            f"Mode effect (η²={eta_mode:.3f}) "
+            f"{'>' if eta_mode > eta_fw else '<'} "
+            f"framework effect (η²={eta_fw:.3f})."
+        )
+    elif sig_modes:
+        conclusion = (
+            f"Framework choice matters across all tested modes: {', '.join(sig_modes)}. "
+            f"Framework η²={eta_fw:.3f}, mode η²={eta_mode:.3f}."
+        )
+    else:
+        conclusion = (
+            f"No significant framework differences in any mode. "
+            f"Environment noise dominates (mode η²={eta_mode:.3f} >> framework η²={eta_fw:.3f})."
+        )
+
+    return {
+        "status": "ok",
+        "variance_decomposition": variance_decomposition,
+        "per_mode_framework_significance": per_mode_significance,
+        "frameworks": frameworks,
+        "modes": modes,
+        "grand_mean_detection_rate": _safe_float(grand_mean, 4),
+        "conclusion": conclusion,
+    }
+
+
+# ── H8 — Temporal Predictive Validity ──────────────────────────────
+
+@app.get("/api/hypothesis/temporal-validation")
+def hypothesis_temporal_validation(
+    simulation_mode: Optional[str] = None,
+    automl_tool: Optional[str] = None,
+):
+    """H8: Does the model genuinely predict unseen iterations?
+
+    Reads temporal_metrics.csv files from experiment directories to show
+    held-out AUC/Brier/ECE progression as the training window expands.
+    Only available when experiments are run with temporal_training=True.
+    """
+    from utils.temporal_eval import load_temporal_metrics
+    import numpy as np
+
+    sim = simulation_mode or "deterministic"
+    aml = automl_tool or "h2o"
+
+    # Collect temporal metrics from experiment dirs
+    all_metrics = []
+    if os.path.exists(EXPERIMENTS_PATH):
+        for exp_dir in sorted(os.listdir(EXPERIMENTS_PATH)):
+            if not exp_dir.startswith("exp_"):
+                continue
+            csv_path = os.path.join(EXPERIMENTS_PATH, exp_dir, "temporal_metrics.csv")
+            df = load_temporal_metrics(csv_path)
+            if df is not None and not df.empty:
+                all_metrics.append(df)
+
+    # Also check loop state for in-memory temporal data
+    with _loop_lock:
+        loop_iters = _loop_state.get("iterations", [])
+        temporal_from_loop = [
+            it for it in loop_iters
+            if it.get("temporal_auc") is not None
+        ]
+
+    if not all_metrics and not temporal_from_loop:
+        return {
+            "status": "no_temporal_data",
+            "message": "No temporal validation data found. Run experiments with temporal_training=True.",
+            "iterations": [],
+            "summary": None,
+            "verdict": "insufficient_data",
+        }
+
+    # Combine from CSV files
+    if all_metrics:
+        combined = pd.concat(all_metrics, ignore_index=True)
+    else:
+        combined = pd.DataFrame()
+
+    # Add from loop state if available
+    if temporal_from_loop:
+        loop_df = pd.DataFrame([{
+            "iteration": it["iteration"],
+            "auc_roc": it.get("temporal_auc"),
+            "brier_score": it.get("temporal_brier"),
+            "ece": it.get("temporal_ece"),
+            "train_window_size": it.get("train_window_size"),
+            "score_method": it.get("score_method", "unknown"),
+        } for it in temporal_from_loop])
+        combined = pd.concat([combined, loop_df], ignore_index=True) if not combined.empty else loop_df
+
+    if combined.empty:
+        return {
+            "status": "no_temporal_data",
+            "iterations": [],
+            "summary": None,
+            "verdict": "insufficient_data",
+        }
+
+    # Build per-iteration response
+    iterations = []
+    for _, row in combined.iterrows():
+        iterations.append({
+            "iteration": int(row.get("iteration", 0)),
+            "auc_roc": float(row["auc_roc"]) if pd.notna(row.get("auc_roc")) else None,
+            "brier_score": float(row["brier_score"]) if pd.notna(row.get("brier_score")) else None,
+            "ece": float(row["ece"]) if pd.notna(row.get("ece")) else None,
+            "train_window_size": int(row.get("train_window_size", 0)),
+            "score_method": str(row.get("score_method", "unknown")) if pd.notna(row.get("score_method")) else "unknown",
+        })
+
+    # Sort by iteration
+    iterations.sort(key=lambda x: x["iteration"])
+
+    # Summary statistics
+    aucs = [it["auc_roc"] for it in iterations if it["auc_roc"] is not None]
+    briers = [it["brier_score"] for it in iterations if it["brier_score"] is not None]
+    eces = [it["ece"] for it in iterations if it["ece"] is not None]
+
+    summary = {
+        "n_evaluations": len(iterations),
+        "mean_auc": float(np.mean(aucs)) if aucs else None,
+        "std_auc": float(np.std(aucs)) if aucs else None,
+        "mean_brier": float(np.mean(briers)) if briers else None,
+        "mean_ece": float(np.mean(eces)) if eces else None,
+        "auc_trend": None,  # Computed below
+    }
+
+    # Check if AUC improves over time (Spearman correlation)
+    if len(aucs) >= 5:
+        from scipy import stats as scipy_stats
+        iters_for_trend = [it["iteration"] for it in iterations if it["auc_roc"] is not None]
+        rho, p = scipy_stats.spearmanr(iters_for_trend, aucs)
+        summary["auc_trend"] = {
+            "spearman_rho": float(rho) if not np.isnan(rho) else None,
+            "p_value": float(p) if not np.isnan(p) else None,
+            "direction": "improving" if rho > 0 and p < 0.05 else "stable" if p >= 0.05 else "declining",
+        }
+
+    # Verdict
+    mean_auc = summary.get("mean_auc")
+    mean_brier = summary.get("mean_brier")
+    if mean_auc is not None and mean_auc > 0.65 and mean_brier is not None and mean_brier < 0.25:
+        verdict = "supported"
+    elif mean_auc is not None and mean_auc > 0.55:
+        verdict = "trending"
+    elif mean_auc is not None:
+        verdict = "not_supported"
+    else:
+        verdict = "insufficient_data"
+
+    return {
+        "status": "ok",
+        "iterations": iterations,
+        "summary": summary,
+        "verdict": verdict,
+    }
+
+
+# ── H9 — ML Value Over Baselines ──────────────────────────────────
+
+@app.get("/api/hypothesis/baseline-comparison")
+def hypothesis_baseline_comparison(
+    simulation_mode: Optional[str] = None,
+):
+    """H9: Does ML-guided testing beat non-ML baselines?
+
+    Compares detection rates between ML-guided experiments and baseline
+    experiments (random, CVSS-priority, round-robin, no-ML).
+    Data comes from history.csv files tagged with baseline_strategy column.
+    """
+    import numpy as np
+    from scipy import stats as scipy_stats
+
+    sim = simulation_mode or "deterministic"
+
+    # Load aggregated history
+    all_df = _load_aggregated_history(simulation_mode=sim)
+    if all_df is None or all_df.empty:
+        return {
+            "status": "insufficient_data",
+            "message": "No experiment data available.",
+            "strategies": {},
+        }
+
+    all_df = all_df.copy()
+    all_df["vulnerability_found"] = pd.to_numeric(
+        all_df["vulnerability_found"], errors="coerce"
+    ).fillna(0).astype(int)
+
+    # Determine strategy column
+    if "baseline_strategy" not in all_df.columns:
+        all_df["baseline_strategy"] = "ml_guided"  # Default: ML experiments
+
+    all_df["baseline_strategy"] = all_df["baseline_strategy"].fillna("ml_guided")
+
+    # Grouping column for per-iteration rates
+    exp_group_col = None
+    for col in ("simulation_iteration", "experiment_id"):
+        if col in all_df.columns:
+            exp_group_col = col
+            break
+
+    strategies = {}
+    for strategy in all_df["baseline_strategy"].unique():
+        strat_df = all_df[all_df["baseline_strategy"] == strategy]
+        if strat_df.empty:
+            continue
+
+        if exp_group_col:
+            per_iter = (
+                strat_df.groupby(exp_group_col)["vulnerability_found"]
+                .agg(total="count", vulns="sum")
+                .reset_index()
+            )
+            rates = (per_iter["vulns"] / per_iter["total"]).fillna(0).tolist()
+        else:
+            total = len(strat_df)
+            vulns = int(strat_df["vulnerability_found"].sum())
+            rates = [vulns / total] if total > 0 else [0]
+
+        strategies[strategy] = {
+            "detection_rates": rates,
+            "mean_rate": float(np.mean(rates)),
+            "std_rate": float(np.std(rates)),
+            "n_iterations": len(rates),
+            "total_tests": len(strat_df),
+            "total_vulns": int(strat_df["vulnerability_found"].sum()),
+        }
+
+    # Compute ML advantage over each baseline
+    ml_data = strategies.get("ml_guided")
+    if ml_data:
+        for name, data in strategies.items():
+            if name == "ml_guided":
+                data["lift_vs_random"] = None
+                continue
+            if data["mean_rate"] > 0:
+                data["lift_vs_ml"] = float(
+                    (ml_data["mean_rate"] - data["mean_rate"]) / data["mean_rate"] * 100
+                )
+            else:
+                data["lift_vs_ml"] = None
+
+            # Mann-Whitney U test: ML vs baseline
+            if len(ml_data["detection_rates"]) >= 2 and len(data["detection_rates"]) >= 2:
+                try:
+                    u_stat, p_val = scipy_stats.mannwhitneyu(
+                        ml_data["detection_rates"],
+                        data["detection_rates"],
+                        alternative="greater",
+                    )
+                    n1, n2 = len(ml_data["detection_rates"]), len(data["detection_rates"])
+                    rank_biserial = 1 - (2 * u_stat) / (n1 * n2) if (n1 * n2) > 0 else 0
+                    data["vs_ml_test"] = {
+                        "u_statistic": float(u_stat),
+                        "p_value": float(p_val),
+                        "significant": bool(p_val < 0.05),
+                        "rank_biserial_r": float(rank_biserial),
+                    }
+                except Exception:
+                    data["vs_ml_test"] = None
+
+    # Strip raw rates from response
+    strategy_summary = {}
+    for name, data in strategies.items():
+        strategy_summary[name] = {k: v for k, v in data.items() if k != "detection_rates"}
+
+    # Verdict
+    if ml_data and len(strategies) >= 2:
+        ml_rate = ml_data["mean_rate"]
+        baseline_rates = [d["mean_rate"] for n, d in strategies.items() if n != "ml_guided"]
+        best_baseline = max(baseline_rates) if baseline_rates else 0
+        if ml_rate > best_baseline * 1.1:  # >10% better than best baseline
+            verdict = "supported"
+        elif ml_rate > best_baseline:
+            verdict = "trending"
+        else:
+            verdict = "not_supported"
+    else:
+        verdict = "insufficient_data"
+
+    return {
+        "status": "ok" if len(strategies) >= 2 else "insufficient_data",
+        "strategies": strategy_summary,
+        "simulation_mode": sim,
+        "verdict": verdict,
+    }
+
+
+# ── H10 — LLM Generation Effectiveness ─────────────────────────────
+
+@app.get("/api/hypothesis/llm-effectiveness")
+def hypothesis_llm_effectiveness(
+    simulation_mode: Optional[str] = None,
+    automl_tool: Optional[str] = None,
+):
+    """H10: Do LLM-generated tests find additional vulnerabilities beyond the registry?
+
+    Compares detection rates between LLM-generated (test_strategy='llm_generated')
+    and registry-generated (test_strategy='generated') tests using Fisher's exact
+    test, odds ratio, and per-iteration Mann-Whitney U.
+    """
+    import numpy as np
+    from scipy import stats as scipy_stats
+
+    sim = simulation_mode or "deterministic"
+    all_df = _load_aggregated_history(simulation_mode=sim, automl_tool=automl_tool)
+    if all_df is None or all_df.empty:
+        return {"status": "insufficient_data", "message": "No experiment data available."}
+
+    all_df = all_df.copy()
+    all_df["vulnerability_found"] = pd.to_numeric(
+        all_df["vulnerability_found"], errors="coerce"
+    ).fillna(0).astype(int)
+
+    if "test_strategy" not in all_df.columns:
+        return {"status": "insufficient_data", "message": "No test_strategy column in history data."}
+
+    llm_df = all_df[all_df["test_strategy"] == "llm_generated"]
+    reg_df = all_df[all_df["test_strategy"] == "generated"]
+
+    if len(llm_df) < 10 or len(reg_df) < 10:
+        return {
+            "status": "insufficient_data",
+            "message": f"Need ≥10 tests per strategy. LLM: {len(llm_df)}, Registry: {len(reg_df)}.",
+            "llm_count": len(llm_df),
+            "registry_count": len(reg_df),
+        }
+
+    llm_vulns = int(llm_df["vulnerability_found"].sum())
+    llm_total = len(llm_df)
+    reg_vulns = int(reg_df["vulnerability_found"].sum())
+    reg_total = len(reg_df)
+
+    llm_rate = llm_vulns / llm_total
+    reg_rate = reg_vulns / reg_total
+
+    # ─── Fisher's exact test (2×2 contingency table) ───
+    #                  vuln_found  vuln_not_found
+    # llm_generated      a             b
+    # generated          c             d
+    a, b = llm_vulns, llm_total - llm_vulns
+    c, d = reg_vulns, reg_total - reg_vulns
+    contingency = [[a, b], [c, d]]
+
+    fisher_p = None
+    odds_ratio = None
+    try:
+        odds_ratio_val, fisher_p_val = scipy_stats.fisher_exact(contingency)
+        fisher_p = float(fisher_p_val)
+        odds_ratio = float(odds_ratio_val)
+    except Exception as e:
+        logging.warning(f"[Hypothesis] Fisher's exact test failed for H10: {e}")
+
+    # ─── 95% CI for odds ratio (Woolf logit method) ───
+    odds_ratio_ci = None
+    if odds_ratio is not None and all(x > 0 for x in [a, b, c, d]):
+        try:
+            log_or = np.log(odds_ratio)
+            se_log_or = np.sqrt(1/a + 1/b + 1/c + 1/d)
+            ci_low = np.exp(log_or - 1.96 * se_log_or)
+            ci_high = np.exp(log_or + 1.96 * se_log_or)
+            odds_ratio_ci = [_safe_float(ci_low, 4), _safe_float(ci_high, 4)]
+        except Exception:
+            pass
+
+    # ─── Per-iteration Mann-Whitney U (if both strategies exist per iteration) ───
+    mann_whitney_result = None
+    iter_col = None
+    for col in ("simulation_iteration", "experiment_id"):
+        if col in all_df.columns:
+            iter_col = col
+            break
+
+    if iter_col:
+        llm_per_iter = (
+            llm_df.groupby(iter_col)["vulnerability_found"]
+            .mean().dropna().values
+        )
+        reg_per_iter = (
+            reg_df.groupby(iter_col)["vulnerability_found"]
+            .mean().dropna().values
+        )
+        if len(llm_per_iter) >= 3 and len(reg_per_iter) >= 3:
+            try:
+                u_stat, mw_p = scipy_stats.mannwhitneyu(
+                    llm_per_iter, reg_per_iter, alternative="two-sided"
+                )
+                n1, n2 = len(llm_per_iter), len(reg_per_iter)
+                rank_biserial = 1 - (2 * u_stat) / (n1 * n2) if (n1 * n2) > 0 else 0
+                mann_whitney_result = {
+                    "u_statistic": _safe_float(u_stat, 4),
+                    "p_value": _safe_float(mw_p, 6),
+                    "significant": bool(mw_p < 0.05),
+                    "rank_biserial_r": _safe_float(rank_biserial, 4),
+                    "n_llm_iterations": int(n1),
+                    "n_registry_iterations": int(n2),
+                }
+            except Exception as e:
+                logging.debug(f"[Hypothesis] Mann-Whitney U failed for H10: {e}")
+
+    # ─── Unique vulnerability types ───
+    unique_llm = set()
+    unique_reg = set()
+    for id_col in ("test_id", "test_type"):
+        if id_col in all_df.columns:
+            llm_vuln_rows = llm_df[llm_df["vulnerability_found"] == 1]
+            reg_vuln_rows = reg_df[reg_df["vulnerability_found"] == 1]
+            unique_llm = set(llm_vuln_rows[id_col].unique())
+            unique_reg = set(reg_vuln_rows[id_col].unique())
+            break
+    llm_exclusive = unique_llm - unique_reg
+
+    # ─── Verdict ───
+    if fisher_p is not None and fisher_p < 0.05 and llm_rate > reg_rate:
+        verdict = "supported"
+    elif llm_rate > reg_rate * 1.1:
+        verdict = "trending"
+    elif llm_rate > reg_rate:
+        verdict = "trending"
+    else:
+        verdict = "not_supported"
+
+    return {
+        "status": "ok",
+        "llm": {
+            "n_tests": llm_total,
+            "n_vulns": llm_vulns,
+            "detection_rate": _safe_float(llm_rate, 4),
+        },
+        "registry": {
+            "n_tests": reg_total,
+            "n_vulns": reg_vulns,
+            "detection_rate": _safe_float(reg_rate, 4),
+        },
+        "fisher_exact": {
+            "odds_ratio": _safe_float(odds_ratio, 4),
+            "odds_ratio_ci_95": odds_ratio_ci,
+            "p_value": _safe_float(fisher_p, 6),
+            "significant": bool(fisher_p < 0.05) if fisher_p is not None else None,
+            "contingency_table": contingency,
+        },
+        "mann_whitney": mann_whitney_result,
+        "llm_exclusive_vulns": len(llm_exclusive),
+        "rate_difference": _safe_float(llm_rate - reg_rate, 4),
+        "simulation_mode": sim,
+        "verdict": verdict,
+    }
+
+
+# ── H11 — Cross-Protocol Generalization ────────────────────────────
+
+@app.get("/api/hypothesis/generalization")
+def hypothesis_generalization(
+    automl_tool: Optional[str] = None,
+    simulation_mode: Optional[str] = None,
+):
+    """H11: Does the model generalize to unseen protocols?
+
+    Leave-one-protocol-out (LOPO) evaluation: train on all protocols
+    except one, predict on the held-out protocol. Tests OOD generalization.
+    """
+    from utils.lopo_eval import run_all_lopo, lopo_summary
+    from generator.retrain import aggregate_history
+
+    sim = simulation_mode or "deterministic"
+    aml = automl_tool or "h2o"
+
+    # Aggregate history for the specified mode
+    agg_path = aggregate_history(EXPERIMENTS_PATH, simulation_mode=sim)
+    if not agg_path:
+        return {
+            "status": "insufficient_data",
+            "message": "No experiment data available for LOPO evaluation.",
+            "protocols": [],
+            "summary": None,
+            "verdict": "insufficient_data",
+        }
+
+    # Run LOPO for all protocols
+    results = run_all_lopo(agg_path, automl_tool=aml, max_runtime_secs=120)
+    summary = lopo_summary(results)
+
+    # Clean results for API response (remove detailed error messages)
+    protocol_results = []
+    for r in results:
+        protocol_results.append({
+            "protocol": r.get("held_out"),
+            "auc_roc": r.get("auc_roc"),
+            "brier_score": r.get("brier_score"),
+            "ece": r.get("ece"),
+            "n_train": r.get("n_train"),
+            "n_test": r.get("n_test"),
+            "status": r.get("status"),
+        })
+
+    return {
+        "status": "ok" if summary.get("n_evaluated", 0) > 0 else "insufficient_data",
+        "protocols": protocol_results,
+        "summary": summary,
+        "automl_tool": aml,
+        "simulation_mode": sim,
+        "verdict": summary.get("verdict", "insufficient_data"),
+    }
+
+
+# ── Ablation Analysis ──────────────────────────────────────────────
+
+@app.get("/api/hypothesis/ablation")
+def hypothesis_ablation(simulation_mode: Optional[str] = None):
+    """Ablation analysis: marginal contribution of each system component.
+
+    Uses existing experiment variants to compute an ablation table:
+    - No prioritisation (baseline=no_ml): run ALL tests, detection ceiling
+    - Random selection (baseline=random): random subset, chance baseline
+    - CVSS heuristic (baseline=cvss_priority): non-ML intelligent baseline
+    - Round-robin (baseline=round_robin): coverage-based baseline
+    - ML-guided (ml_guided, no LLM): ML scoring only
+    - ML+LLM (ml_guided + llm_generated tests): full system
+
+    Reports per-condition detection rate, efficiency, and marginal lift.
+    """
+    import numpy as np
+
+    sim = simulation_mode or "deterministic"
+    all_df = _load_aggregated_history(simulation_mode=sim)
+    if all_df is None or all_df.empty:
+        return {"status": "insufficient_data", "message": "No experiment data available."}
+
+    all_df = all_df.copy()
+    all_df["vulnerability_found"] = pd.to_numeric(
+        all_df["vulnerability_found"], errors="coerce"
+    ).fillna(0).astype(int)
+
+    if "baseline_strategy" not in all_df.columns:
+        all_df["baseline_strategy"] = "ml_guided"
+    else:
+        all_df["baseline_strategy"] = all_df["baseline_strategy"].fillna("ml_guided")
+
+    # Determine if LLM tests exist
+    has_llm = (
+        "test_strategy" in all_df.columns
+        and (all_df["test_strategy"] == "llm_generated").any()
+    )
+
+    # Define ablation conditions in order of complexity
+    conditions = []
+
+    # 1. Random baseline
+    random_df = all_df[all_df["baseline_strategy"] == "random"]
+    if not random_df.empty:
+        conditions.append(("Random Selection", "random", random_df))
+
+    # 2. Round-robin
+    rr_df = all_df[all_df["baseline_strategy"] == "round_robin"]
+    if not rr_df.empty:
+        conditions.append(("Round-Robin", "round_robin", rr_df))
+
+    # 3. CVSS priority
+    cvss_df = all_df[all_df["baseline_strategy"] == "cvss_priority"]
+    if not cvss_df.empty:
+        conditions.append(("CVSS Priority", "cvss_priority", cvss_df))
+
+    # 4. ML-guided (no LLM)
+    ml_df = all_df[all_df["baseline_strategy"] == "ml_guided"]
+    if has_llm and "test_strategy" in ml_df.columns:
+        ml_no_llm = ml_df[ml_df["test_strategy"] != "llm_generated"]
+    else:
+        ml_no_llm = ml_df
+    if not ml_no_llm.empty:
+        conditions.append(("ML-Guided", "ml_guided", ml_no_llm))
+
+    # 5. ML+LLM (full system)
+    if has_llm:
+        ml_with_llm = ml_df  # includes both generated and llm_generated
+        if not ml_with_llm.empty and len(ml_with_llm) > len(ml_no_llm):
+            conditions.append(("ML + LLM", "ml_llm", ml_with_llm))
+
+    # 6. No-ML (all tests)
+    noml_df = all_df[all_df["baseline_strategy"] == "no_ml"]
+    if not noml_df.empty:
+        conditions.append(("No Prioritisation (All Tests)", "no_ml", noml_df))
+
+    if len(conditions) < 2:
+        return {
+            "status": "insufficient_data",
+            "message": f"Need ≥2 ablation conditions. Found: {[c[0] for c in conditions]}. "
+                       f"Baseline experiments may not have run yet.",
+        }
+
+    # Compute metrics per condition
+    iter_col = None
+    for col in ("simulation_iteration", "experiment_id"):
+        if col in all_df.columns:
+            iter_col = col
+            break
+
+    ablation_table = []
+    for label, key, cond_df in conditions:
+        n_tests = len(cond_df)
+        n_vulns = int(cond_df["vulnerability_found"].sum())
+        det_rate = n_vulns / n_tests if n_tests > 0 else 0
+
+        # Per-iteration stats for variance
+        if iter_col and iter_col in cond_df.columns:
+            per_iter = (
+                cond_df.groupby(iter_col)["vulnerability_found"]
+                .agg(total="count", vulns="sum")
+                .reset_index()
+            )
+            iter_rates = (per_iter["vulns"] / per_iter["total"]).fillna(0)
+            std_rate = float(np.std(iter_rates))
+            n_iterations = len(per_iter)
+        else:
+            std_rate = 0
+            n_iterations = 1
+
+        # Unique vulnerability types
+        unique_vulns = 0
+        for id_col in ("test_id", "test_type"):
+            if id_col in cond_df.columns:
+                unique_vulns = int(cond_df[cond_df["vulnerability_found"] == 1][id_col].nunique())
+                break
+
+        ablation_table.append({
+            "condition": label,
+            "key": key,
+            "n_tests": n_tests,
+            "n_vulns": n_vulns,
+            "detection_rate": _safe_float(det_rate, 4),
+            "std_rate": _safe_float(std_rate, 4),
+            "n_iterations": n_iterations,
+            "unique_vuln_types": unique_vulns,
+            "efficiency": _safe_float(n_vulns / n_tests, 4) if n_tests > 0 else 0,
+        })
+
+    # Compute marginal lift (each condition vs previous)
+    for i in range(1, len(ablation_table)):
+        prev_rate = ablation_table[i - 1]["detection_rate"]
+        curr_rate = ablation_table[i]["detection_rate"]
+        if prev_rate > 0:
+            lift_pct = ((curr_rate - prev_rate) / prev_rate) * 100
+        else:
+            lift_pct = 100 if curr_rate > 0 else 0
+        ablation_table[i]["marginal_lift_pct"] = _safe_float(lift_pct, 1)
+        ablation_table[i]["marginal_lift_vs"] = ablation_table[i - 1]["condition"]
+    if ablation_table:
+        ablation_table[0]["marginal_lift_pct"] = 0
+        ablation_table[0]["marginal_lift_vs"] = "(baseline)"
+
+    return {
+        "status": "ok",
+        "conditions": ablation_table,
+        "simulation_mode": sim,
+        "n_conditions": len(ablation_table),
     }
 
 
@@ -3785,10 +4985,10 @@ def hypothesis_synthesis(simulation_mode: Optional[str] = None, automl_tool: Opt
             "verdict": h5.get("verdict", "insufficient_data"),
             "key_metric": f"ratio={_safe_num(h5.get('summary', {}).get('avg_efficiency_ratio', '--')):.2f}×" if h5.get("summary", {}).get("avg_efficiency_ratio") is not None else None,
             "p_value": stats5.get("wilcoxon_p") if stats5 else None,
-            "effect_size": stats5.get("cohens_d") if stats5 else None,
-            "effect_interpretation": stats5.get("cohens_d_interpretation") if stats5 else None,
+            "effect_size": stats5.get("rank_biserial_r") if stats5 else None,
+            "effect_interpretation": stats5.get("rank_biserial_interpretation") if stats5 else None,
             "n": stats5.get("n_iterations") if stats5 else h5.get("summary", {}).get("total_executions"),
-            "test_used": "Wilcoxon signed-rank + Cohen's d",
+            "test_used": "Wilcoxon signed-rank + rank-biserial r",
         })
     except Exception as e:
         hypotheses.append({"id": "H5", "name": "Execution Efficiency", "verdict": "error", "error": str(e)})
@@ -3831,11 +5031,99 @@ def hypothesis_synthesis(simulation_mode: Optional[str] = None, automl_tool: Opt
     except Exception as e:
         hypotheses.append({"id": "H7", "name": "Cross-Framework Comparison", "verdict": "error", "error": str(e)})
 
+    # H8 — Temporal Predictive Validity
+    try:
+        h8 = hypothesis_temporal_validation(simulation_mode=sim, automl_tool=aml)
+        if h8.get("status") != "no_temporal_data":
+            s8 = h8.get("summary") or {}
+            hypotheses.append({
+                "id": "H8",
+                "name": "Temporal Predictive Validity",
+                "description": "The model genuinely predicts unseen iterations (held-out AUC)",
+                "verdict": h8.get("verdict", "insufficient_data"),
+                "key_metric": f"AUC={s8.get('mean_auc', '--'):.3f}" if s8.get("mean_auc") is not None else None,
+                "p_value": s8.get("auc_trend", {}).get("p_value") if s8.get("auc_trend") else None,
+                "effect_size": s8.get("mean_auc"),
+                "effect_interpretation": "held-out AUC-ROC",
+                "n": s8.get("n_evaluations"),
+                "test_used": "Temporal expanding-window validation",
+            })
+    except Exception as e:
+        hypotheses.append({"id": "H8", "name": "Temporal Predictive Validity", "verdict": "error", "error": str(e)})
+
+    # H9 — ML Value Over Baselines
+    try:
+        h9 = hypothesis_baseline_comparison(simulation_mode=sim)
+        if h9.get("status") == "ok":
+            ml_strat = h9.get("strategies", {}).get("ml_guided", {})
+            hypotheses.append({
+                "id": "H9",
+                "name": "ML Value Over Baselines",
+                "description": "ML-guided testing beats non-ML baseline strategies",
+                "verdict": h9.get("verdict", "insufficient_data"),
+                "key_metric": f"ML rate={ml_strat.get('mean_rate', '--'):.3f}" if ml_strat.get("mean_rate") is not None else None,
+                "p_value": None,
+                "effect_size": ml_strat.get("mean_rate"),
+                "effect_interpretation": "ML detection rate",
+                "n": ml_strat.get("n_iterations"),
+                "test_used": "Mann-Whitney U (ML vs each baseline)",
+            })
+    except Exception as e:
+        hypotheses.append({"id": "H9", "name": "ML Value Over Baselines", "verdict": "error", "error": str(e)})
+
+    # H10 — LLM Generation Effectiveness (uses dedicated endpoint with Fisher's exact)
+    try:
+        h10 = hypothesis_llm_effectiveness(simulation_mode=sim, automl_tool=aml)
+        if h10.get("status") == "ok":
+            llm_data = h10.get("llm", {})
+            reg_data = h10.get("registry", {})
+            fisher = h10.get("fisher_exact", {})
+            hypotheses.append({
+                "id": "H10",
+                "name": "LLM Generation Effectiveness",
+                "description": "LLM-generated tests find additional vulnerabilities beyond the static registry",
+                "verdict": h10.get("verdict", "insufficient_data"),
+                "key_metric": f"LLM={llm_data.get('detection_rate', '--'):.3f} vs Reg={reg_data.get('detection_rate', '--'):.3f}" if llm_data.get("detection_rate") is not None else None,
+                "p_value": fisher.get("p_value"),
+                "effect_size": fisher.get("odds_ratio"),
+                "effect_interpretation": "odds ratio (LLM vs registry)",
+                "n": llm_data.get("n_tests"),
+                "test_used": "Fisher's exact test + odds ratio",
+            })
+    except Exception as e:
+        hypotheses.append({"id": "H10", "name": "LLM Generation Effectiveness", "verdict": "error", "error": str(e)})
+
+    # H11 — Cross-Protocol Generalization
+    try:
+        h11 = hypothesis_generalization(automl_tool=aml, simulation_mode=sim)
+        if h11.get("status") == "ok":
+            s11 = h11.get("summary") or {}
+            hypotheses.append({
+                "id": "H11",
+                "name": "Cross-Protocol Generalization",
+                "description": "The model generalizes to unseen protocols (LOPO evaluation)",
+                "verdict": h11.get("verdict", "insufficient_data"),
+                "key_metric": f"LOPO AUC={s11.get('mean_auc', '--'):.3f}" if s11.get("mean_auc") is not None else None,
+                "p_value": None,
+                "effect_size": s11.get("mean_auc"),
+                "effect_interpretation": "mean held-out AUC across protocols",
+                "n": s11.get("n_evaluated"),
+                "test_used": "Leave-one-protocol-out (LOPO)",
+            })
+    except Exception as e:
+        hypotheses.append({"id": "H11", "name": "Cross-Protocol Generalization", "verdict": "error", "error": str(e)})
+
     # ─── Aggregate summary ───
     total = len(hypotheses)
-    supported = sum(1 for h in hypotheses if h.get("verdict") in ("supported", "efficient", "significant_differences", "well_calibrated"))
-    trending = sum(1 for h in hypotheses if h.get("verdict") in ("trending", "trending_differences", "comparable", "moderately_calibrated"))
-    not_supported = sum(1 for h in hypotheses if h.get("verdict") in ("not_supported", "not_efficient", "no_significant_differences", "poorly_calibrated"))
+    supported = sum(1 for h in hypotheses if h.get("verdict") in (
+        "supported", "efficient", "significant_differences", "well_calibrated", "generalizes",
+    ))
+    trending = sum(1 for h in hypotheses if h.get("verdict") in (
+        "trending", "trending_differences", "comparable", "moderately_calibrated", "partial_generalization",
+    ))
+    not_supported = sum(1 for h in hypotheses if h.get("verdict") in (
+        "not_supported", "not_efficient", "no_significant_differences", "poorly_calibrated", "does_not_generalize",
+    ))
     errors = sum(1 for h in hypotheses if h.get("verdict") in ("error", "insufficient_data"))
 
     overall_strength = (
@@ -3843,6 +5131,37 @@ def hypothesis_synthesis(simulation_mode: Optional[str] = None, automl_tool: Opt
         else "moderate" if (supported + trending) >= total * 0.5
         else "weak" if supported > 0
         else "insufficient"
+    )
+
+    # ─── Holm-Bonferroni multiple comparison correction ───
+    # Collect all hypotheses with p-values for correction
+    hyp_with_p = [(i, h) for i, h in enumerate(hypotheses) if h.get("p_value") is not None]
+    n_tests_corrected = len(hyp_with_p)
+
+    if n_tests_corrected >= 2:
+        # Sort by p-value ascending
+        hyp_with_p.sort(key=lambda x: x[1]["p_value"])
+        alpha = 0.05
+        for rank, (idx, h) in enumerate(hyp_with_p):
+            # Holm threshold: α / (m + 1 - rank)  where rank is 1-indexed
+            holm_threshold = alpha / (n_tests_corrected + 1 - (rank + 1))
+            corrected_p = min(h["p_value"] * (n_tests_corrected - rank), 1.0)
+            hypotheses[idx]["corrected_p_value"] = _safe_float(corrected_p, 6)
+            hypotheses[idx]["significant_after_correction"] = bool(h["p_value"] <= holm_threshold)
+            hypotheses[idx]["holm_threshold"] = _safe_float(holm_threshold, 6)
+    elif n_tests_corrected == 1:
+        idx, h = hyp_with_p[0]
+        hypotheses[idx]["corrected_p_value"] = h["p_value"]
+        hypotheses[idx]["significant_after_correction"] = bool(h["p_value"] < 0.05)
+
+    # Count corrected verdicts
+    corrected_supported = sum(
+        1 for h in hypotheses
+        if h.get("significant_after_correction") is True
+    )
+    corrected_not_significant = sum(
+        1 for h in hypotheses
+        if h.get("significant_after_correction") is False
     )
 
     result = {
@@ -3854,6 +5173,12 @@ def hypothesis_synthesis(simulation_mode: Optional[str] = None, automl_tool: Opt
             "not_supported": not_supported,
             "errors_or_insufficient": errors,
             "overall_strength": overall_strength,
+            # Multiple comparison correction metadata
+            "correction_method": "holm_bonferroni",
+            "family_wise_alpha": 0.05,
+            "n_tests_corrected": n_tests_corrected,
+            "corrected_significant": corrected_supported,
+            "corrected_not_significant": corrected_not_significant,
         },
         "simulation_mode": sim,
         "automl_tool": aml,
@@ -4113,6 +5438,23 @@ def _load_aggregated_history(simulation_mode: str = None, automl_tool: str = Non
         for f in files:
             try:
                 df = pd.read_csv(f)
+                # Infer baseline_strategy from experiment directory name if column
+                # is missing.  Baseline experiment dirs are named like
+                # "exp_..._BASELINE-RANDOM-DET-100" (from run_experiments.py).
+                if "baseline_strategy" not in df.columns:
+                    _dir_name = os.path.basename(os.path.dirname(f)).upper()
+                    _BASELINE_DIR_MAP = {
+                        "BASELINE-RANDOM": "random",
+                        "BASELINE-CVSS": "cvss_priority",
+                        "BASELINE-ROBIN": "round_robin",
+                        "BASELINE-NOML": "no_ml",
+                    }
+                    _inferred = "ml_guided"
+                    for _prefix, _strategy in _BASELINE_DIR_MAP.items():
+                        if _prefix in _dir_name:
+                            _inferred = _strategy
+                            break
+                    df["baseline_strategy"] = _inferred
                 dfs.append(df)
             except Exception as e:
                 logging.warning(f"[LoadHistory] Error reading {f}: {e}")
@@ -4133,6 +5475,12 @@ def _load_aggregated_history(simulation_mode: str = None, automl_tool: str = Non
             combined["automl_tool"] = "h2o"
         else:
             combined["automl_tool"] = combined["automl_tool"].fillna("h2o")
+
+        # Backfill missing baseline_strategy as "ml_guided"
+        if "baseline_strategy" not in combined.columns:
+            combined["baseline_strategy"] = "ml_guided"
+        else:
+            combined["baseline_strategy"] = combined["baseline_strategy"].fillna("ml_guided")
 
         # Store the full unfiltered DataFrame in cache
         _history_cache.set("__all__", combined)

@@ -95,8 +95,9 @@ def _build_feature_dataframe(suite: TestSuite) -> Optional[pd.DataFrame]:
             PORT_PROTOCOL_MAP.get(p, "generic") for p in device_ports
         )
 
+        _origin = getattr(tc, 'test_origin', 'registry')
         rows.append({
-            "test_strategy": "generated",
+            "test_strategy": "llm_generated" if _origin == "llm" else "generated",
             "device_type": "unknown",
             "firmware_version": "unknown",
             "open_port": tc.port,

@@ -236,6 +236,8 @@ services:
     build: ./dashboard/backend
     container_name: dashboard_api
     restart: always
+    env_file:
+      - .env
     volumes:
         - /var/run/docker.sock:/var/run/docker.sock
         - ./experiments:/app/experiments

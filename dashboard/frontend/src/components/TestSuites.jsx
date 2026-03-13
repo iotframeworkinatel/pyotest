@@ -34,6 +34,8 @@ import {
   X,
   Sparkles,
   Repeat,
+  ToggleLeft,
+  ToggleRight,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -198,6 +200,11 @@ export default function TestSuites({ apiUrl, onRunSuite, visible = true }) {
   const [automlTool, setAutomlTool] = useState("h2o");
   const [availableFrameworks, setAvailableFrameworks] = useState(["h2o"]);
 
+  // ---- LLM Provider state ----
+  const [llmEnabled, setLlmEnabled] = useState(false);
+  const [llmProvider, setLlmProvider] = useState("claude");
+  const [llmProviders, setLlmProviders] = useState([]);
+
   const stopLoopPolling = useCallback(() => {
     if (loopPollRef.current) {
       clearInterval(loopPollRef.current);
@@ -249,6 +256,16 @@ export default function TestSuites({ apiUrl, onRunSuite, visible = true }) {
       .then(d => {
         const fws = (d.frameworks || []).map(f => f.name);
         if (fws.length > 0) setAvailableFrameworks(fws);
+      })
+      .catch(() => {});
+    // Fetch available LLM providers
+    fetch(`${apiUrl}/api/llm/providers`)
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(d => {
+        if (d.providers && d.providers.length > 0) setLlmProviders(d.providers);
       })
       .catch(() => {});
   }, [fetchSuites]);
@@ -636,6 +653,8 @@ export default function TestSuites({ apiUrl, onRunSuite, visible = true }) {
           simulation_mode: simMode,
           simulation_seed: simSeed,
           automl_tool: automlTool,
+          llm_enabled: llmEnabled,
+          llm_provider: llmProvider,
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1474,6 +1493,45 @@ export default function TestSuites({ apiUrl, onRunSuite, visible = true }) {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                {/* LLM Test Generation */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setLlmEnabled(!llmEnabled)}
+                    disabled={loopStatus === "running"}
+                    className="flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-violet-500" />
+                    <span className="text-sm text-gray-600 font-medium">LLM:</span>
+                    {llmEnabled ? (
+                      <ToggleRight className="w-6 h-6 text-violet-500" />
+                    ) : (
+                      <ToggleLeft className="w-6 h-6 text-gray-400" />
+                    )}
+                  </button>
+                  {llmEnabled && (
+                    <select
+                      value={llmProvider}
+                      onChange={(e) => setLlmProvider(e.target.value)}
+                      disabled={loopStatus === "running"}
+                      className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:ring-2 focus:ring-violet-400 focus:outline-none disabled:opacity-50"
+                    >
+                      {llmProviders.length > 0 ? (
+                        llmProviders.map((p) => (
+                          <option key={p.id} value={p.id} disabled={!p.available}>
+                            {p.name}{!p.available ? " (no key)" : ""}
+                          </option>
+                        ))
+                      ) : (
+                        <>
+                          <option value="claude">Claude</option>
+                          <option value="openai">GPT</option>
+                          <option value="gemini">Gemini</option>
+                        </>
+                      )}
+                    </select>
+                  )}
                 </div>
 
                 <button

@@ -3,10 +3,15 @@ Model Retraining — called after test suite execution to improve the ML model.
 
 Supports multiple AutoML frameworks via the ``automl_tool`` parameter.
 Defaults to H2O for backward compatibility.
+
+Includes temporal retraining support: ``retrain_model_temporal()`` trains
+only on past iterations (expanding window) for proper held-out evaluation.
 """
 import logging
 import os
 import glob
+
+import pandas as pd
 
 from automl.pipeline import train_and_save_model
 
@@ -38,6 +43,93 @@ def retrain_model_after_execution(
         return metrics
     except Exception as e:
         logging.error(f"[Retrain:{automl_tool}] Failed to retrain model: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+def retrain_model_temporal(
+    history_csv_path: str,
+    current_iteration: int,
+    train_iterations: range,
+    automl_tool: str = "h2o",
+    max_runtime_secs: int = 300,
+) -> dict:
+    """
+    Retrain model using only data from past iterations (expanding window).
+
+    This enables proper temporal validation: train on iterations 1..k,
+    then evaluate on iteration k+1. The model never sees future data.
+
+    Args:
+        history_csv_path: Path to the aggregated history CSV.
+        current_iteration: The current iteration number (for logging).
+        train_iterations: Range of iterations to include in training.
+            E.g., range(1, k) trains on iterations 1 through k-1.
+        automl_tool: Framework name.
+        max_runtime_secs: Training time budget.
+
+    Returns:
+        Model metrics dict with added 'train_window' field, or error status.
+    """
+    if not os.path.exists(history_csv_path):
+        logging.warning(f"[Retrain:temporal] History file not found: {history_csv_path}")
+        return {"status": "error", "message": "History file not found"}
+
+    try:
+        # Load full history and filter to training window
+        full_df = pd.read_csv(history_csv_path)
+
+        if "simulation_iteration" not in full_df.columns:
+            logging.warning("[Retrain:temporal] No simulation_iteration column — "
+                            "falling back to full retrain")
+            return retrain_model_after_execution(history_csv_path, automl_tool)
+
+        train_iters = list(train_iterations)
+        train_df = full_df[full_df["simulation_iteration"].isin(train_iters)]
+
+        if len(train_df) < 10:
+            logging.warning(
+                f"[Retrain:temporal] Insufficient training data: "
+                f"{len(train_df)} rows from iterations {train_iters[:3]}..{train_iters[-1:]}"
+            )
+            return {
+                "status": "insufficient_data",
+                "rows": len(train_df),
+                "train_window": [min(train_iters), max(train_iters)] if train_iters else [],
+            }
+
+        # Write filtered training data to a temporary file
+        train_csv = history_csv_path.replace(".csv", f"_temporal_train.csv")
+        train_df.to_csv(train_csv, index=False)
+
+        # Train the model on the filtered data
+        metrics = train_and_save_model(
+            train_csv,
+            automl_tool=automl_tool,
+            max_runtime_secs=max_runtime_secs,
+        )
+
+        # Add temporal metadata
+        metrics["train_window"] = [min(train_iters), max(train_iters)]
+        metrics["train_iterations_count"] = len(train_iters)
+        metrics["train_rows"] = len(train_df)
+        metrics["current_iteration"] = current_iteration
+
+        logging.info(
+            f"[Retrain:temporal:{automl_tool}] Model trained on iterations "
+            f"{min(train_iters)}-{max(train_iters)} ({len(train_df)} rows), "
+            f"AUC={metrics.get('auc', '?')}"
+        )
+
+        # Clean up temporary file
+        try:
+            os.remove(train_csv)
+        except OSError:
+            pass
+
+        return metrics
+
+    except Exception as e:
+        logging.error(f"[Retrain:temporal:{automl_tool}] Failed: {e}")
         return {"status": "error", "message": str(e)}
 
 

@@ -42,16 +42,15 @@ import {
   Layers,
   FileText,
   CheckCircle2,
+  Clock,
+  GitCompare,
+  Sparkles,
+  Globe,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Colour palette
 // ---------------------------------------------------------------------------
-const STRATEGY_COLORS = {
-  generated: "#3b82f6",
-  static: "#ffffff",
-  unknown: "#d1d5db",
-};
 
 const RULE_COLORS = [
   "#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#06b6d4", "#ef4444",
@@ -311,7 +310,7 @@ export default function Hypothesis({ apiUrl, visible = true }) {
   const [iterations, setIterations] = useState([]);
   const [availableProtocols, setAvailableProtocols] = useState([]);
   const [selectedProtocol, setSelectedProtocol] = useState(null);
-  const [strategyAnalysis, setStrategyAnalysis] = useState(null);
+
   const [stats, setStats] = useState(null);
   const [recEffectiveness, setRecEffectiveness] = useState(null);
   const [protocolConvergence, setProtocolConvergence] = useState(null);
@@ -319,11 +318,17 @@ export default function Hypothesis({ apiUrl, visible = true }) {
   const [execEfficiency, setExecEfficiency] = useState(null);
   const [discoveryCoverage, setDiscoveryCoverage] = useState(null);
   const [crossFramework, setCrossFramework] = useState(null);
+  const [temporalValidation, setTemporalValidation] = useState(null);
+  const [baselineComparison, setBaselineComparison] = useState(null);
+  const [generalization, setGeneralization] = useState(null);
   const [synthesis, setSynthesis] = useState(null);
+  const [frameworkInteraction, setFrameworkInteraction] = useState(null);
+  const [llmEffectiveness, setLlmEffectiveness] = useState(null);
+  const [ablation, setAblation] = useState(null);
   const [iterDebug, setIterDebug] = useState(null);
   const [sectionLoading, setSectionLoading] = useState({
     iterationMetrics: true,
-    compositionAnalysis: true,
+
     statisticalTests: true,
     recEffectiveness: true,
     protocolConvergence: true,
@@ -331,7 +336,13 @@ export default function Hypothesis({ apiUrl, visible = true }) {
     execEfficiency: true,
     discoveryCoverage: true,
     crossFramework: true,
+    temporalValidation: true,
+    baselineComparison: true,
+    generalization: true,
     synthesis: true,
+    frameworkInteraction: true,
+    llmEffectiveness: true,
+    ablation: true,
   });
   const [refreshing, setRefreshing] = useState(false);
   const [fetchErrors, setFetchErrors] = useState([]);
@@ -401,10 +412,7 @@ export default function Hypothesis({ apiUrl, visible = true }) {
         if (d.available_protocols) setAvailableProtocols(d.available_protocols);
       }
     );
-    fetchSection("compositionAnalysis",
-      `${apiUrl}/api/hypothesis/composition-analysis?${t}${sq}${aq}`,
-      setStrategyAnalysis
-    );
+
     fetchStats(protocol, simMode, automlFilter);
     fetchSection("recEffectiveness",
       `${apiUrl}/api/hypothesis/recommendation-effectiveness?${t}${sq}${aq}`,
@@ -430,6 +438,30 @@ export default function Hypothesis({ apiUrl, visible = true }) {
       `${apiUrl}/api/hypothesis/cross-framework?${t}${sq}`,
       setCrossFramework
     );
+    fetchSection("temporalValidation",
+      `${apiUrl}/api/hypothesis/temporal-validation?${t}${sq}${aq}`,
+      setTemporalValidation
+    );
+    fetchSection("baselineComparison",
+      `${apiUrl}/api/hypothesis/baseline-comparison?${t}${sq}`,
+      setBaselineComparison
+    );
+    fetchSection("generalization",
+      `${apiUrl}/api/hypothesis/generalization?${t}${sq}${aq}`,
+      setGeneralization
+    );
+    fetchSection("frameworkInteraction",
+      `${apiUrl}/api/hypothesis/framework-interaction?${t}`,
+      setFrameworkInteraction
+    );
+    fetchSection("llmEffectiveness",
+      `${apiUrl}/api/hypothesis/llm-effectiveness?${t}${sq}${aq}`,
+      setLlmEffectiveness
+    );
+    fetchSection("ablation",
+      `${apiUrl}/api/hypothesis/ablation?${t}${sq}`,
+      setAblation
+    );
     // synthesis is deferred — see useEffect below that triggers it after other sections finish
   }, [apiUrl, fetchSection, fetchStats, automlFilter]);
 
@@ -446,9 +478,11 @@ export default function Hypothesis({ apiUrl, visible = true }) {
   // hypothesis functions, and by then individual endpoint caches are warm.
   useEffect(() => {
     const otherSections = [
-      "iterationMetrics", "compositionAnalysis", "statisticalTests",
+      "iterationMetrics", "statisticalTests",
       "recEffectiveness", "protocolConvergence", "riskCalibration",
       "execEfficiency", "discoveryCoverage", "crossFramework",
+      "temporalValidation", "baselineComparison", "generalization",
+      "frameworkInteraction", "llmEffectiveness", "ablation",
     ];
     const allOthersDone = otherSections.every((s) => !sectionLoading[s]);
     if (allOthersDone && hasMountedRef.current && !synthesisFetchedRef.current) {
@@ -571,16 +605,6 @@ export default function Hypothesis({ apiUrl, visible = true }) {
   const spearmanP =
     stats && stats.spearman_p != null ? N(stats.spearman_p).toExponential(2) : "--";
 
-  // Strategy comparison
-  const strategyData =
-    strategyAnalysis && strategyAnalysis.strategies
-      ? strategyAnalysis.strategies.map((s) => ({
-          strategy: s.strategy,
-          detection_rate: s.detection_rate != null ? +(N(s.detection_rate) * 100).toFixed(1) : 0,
-          total_tests: s.total_tests || 0,
-          vulns_found: s.vulns_found || 0,
-        }))
-      : [];
 
   // H2: Recommendation effectiveness bar data
   const isStrategyFallback = recEffectiveness?.mode === "strategy_fallback";
@@ -1151,63 +1175,6 @@ export default function Hypothesis({ apiUrl, visible = true }) {
         )}
       </Section>
 
-      {/* ================================================================= */}
-      {/* Strategy Comparison (H2 Stats)                                    */}
-      {/* ================================================================= */}
-      <Section title="Strategy Comparison (H2 Stats)" icon={BarChart3} loading={sectionLoading.compositionAnalysis}>
-        {strategyData.length === 0 ? (
-          <div className="flex items-center justify-center py-12 text-gray-500 text-sm">
-            No strategy data available
-          </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Detection rate by strategy */}
-              <div>
-                <h4 className="text-sm font-semibold text-gray-600 mb-3">
-                  Detection Rate by Strategy
-                </h4>
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={strategyData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis dataKey="strategy" tick={{ fontSize: 12 }} />
-                    <YAxis
-                      domain={[0, 100]}
-                      tick={{ fontSize: 11 }}
-                      label={{ value: "%", position: "top", offset: 0, fontSize: 11 }}
-                    />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Bar dataKey="detection_rate" name="Detection Rate (%)" radius={[4, 4, 0, 0]}>
-                      {strategyData.map((entry, i) => (
-                        <Cell
-                          key={i}
-                          fill={
-                            STRATEGY_COLORS[entry.strategy] ||
-                            RULE_COLORS[i % RULE_COLORS.length]
-                          }
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* Inline stats for H2 */}
-            {strategyAnalysis?.stats && (
-              <HypothesisStatsCard
-                stats={strategyAnalysis.stats}
-                testLabel="Chi-squared test"
-                statLabel="Chi-squared"
-                statValue={strategyAnalysis.stats.chi2}
-                pValue={strategyAnalysis.stats.chi2_p}
-                effectSize={strategyAnalysis.stats.cramers_v}
-                effectLabel={`Cram\u00e9r's V (${strategyAnalysis.stats.cramers_v_interpretation || ""})`}
-              />
-            )}
-          </>
-        )}
-      </Section>
 
       {/* ================================================================= */}
       {/* H3 — Protocol Convergence Rates                                   */}
@@ -1452,6 +1419,52 @@ export default function Hypothesis({ apiUrl, visible = true }) {
                 </div>
               </div>
             </div>
+
+            {/* Score-method comparison (model vs heuristic) */}
+            {riskCalibration.score_method_comparison && Object.keys(riskCalibration.score_method_comparison).length > 0 && (
+              <div className="mt-6">
+                <h4 className="text-sm font-semibold text-gray-600 mb-3">Score Method Comparison</h4>
+                {riskCalibration.tautology_warning && (
+                  <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="text-sm font-semibold text-amber-700">Tautology Warning</p>
+                        <p className="text-xs text-amber-600 mt-1">{riskCalibration.tautology_explanation}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {Object.entries(riskCalibration.score_method_comparison).map(([method, data]) => (
+                    <div key={method} className={`rounded-xl p-4 border ${method === "model" ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-200"}`}>
+                      <h5 className="text-xs font-semibold uppercase tracking-wide mb-2"
+                          style={{ color: method === "model" ? "#2563eb" : "#6b7280" }}>
+                        {method} {method === "heuristic" && "(base-rate lookup)"}
+                      </h5>
+                      <div className="space-y-1 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">ECE</span>
+                          <span className="font-mono font-semibold">{N(data.ece).toFixed(4)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Brier</span>
+                          <span className="font-mono font-semibold">{N(data.brier).toFixed(4)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">MCE</span>
+                          <span className="font-mono font-semibold">{N(data.mce).toFixed(4)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">n</span>
+                          <span className="font-mono">{data.n}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         )}
       </Section>
@@ -1629,8 +1642,8 @@ export default function Hypothesis({ apiUrl, visible = true }) {
                 statLabel="W statistic"
                 statValue={execEfficiency.stats.wilcoxon_w}
                 pValue={execEfficiency.stats.wilcoxon_p}
-                effectSize={execEfficiency.stats.cohens_d}
-                effectLabel={`Cohen's d (${execEfficiency.stats.cohens_d_interpretation || ""})`}
+                effectSize={execEfficiency.stats.rank_biserial_r}
+                effectLabel={`Rank-biserial r (${execEfficiency.stats.rank_biserial_interpretation || ""})`}
               />
             )}
           </>
@@ -2125,6 +2138,449 @@ export default function Hypothesis({ apiUrl, visible = true }) {
                 </div>
               )}
             </div>
+
+            {/* Noise dominance note */}
+            {crossFramework.noise_dominance_note && (
+              <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                  <p className="text-xs text-amber-700">{crossFramework.noise_dominance_note}</p>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </Section>
+
+      {/* ================================================================= */}
+      {/* Framework x Mode Interaction Analysis                             */}
+      {/* ================================================================= */}
+      <Section title="Framework x Mode Interaction" icon={GitCompare} loading={sectionLoading.frameworkInteraction}>
+        {!frameworkInteraction || frameworkInteraction.status !== "ok" ? (
+          <div className="flex flex-col items-center justify-center py-8 text-gray-500">
+            <Info className="w-6 h-6 mb-2" />
+            <p className="text-sm">{frameworkInteraction?.message || "Need data from multiple frameworks and modes."}</p>
+          </div>
+        ) : (
+          <>
+            <Card className="mb-4 border-l-4 border-l-indigo-400">
+              <CardContent className="py-3">
+                <p className="text-sm text-gray-700 leading-relaxed">{frameworkInteraction.conclusion}</p>
+              </CardContent>
+            </Card>
+
+            {/* Variance decomposition */}
+            <h4 className="text-sm font-semibold text-gray-600 mb-3">Variance Decomposition (eta-squared)</h4>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              {["framework", "simulation_mode", "interaction", "residual"].map((factor) => {
+                const d = frameworkInteraction.variance_decomposition?.[factor];
+                if (!d) return null;
+                const label = factor === "simulation_mode" ? "Mode" : factor.charAt(0).toUpperCase() + factor.slice(1);
+                return (
+                  <div key={factor} className="rounded-xl bg-gray-50 p-3 border border-gray-200 text-center">
+                    <h5 className="text-xs font-semibold text-gray-500 uppercase mb-1">{label}</h5>
+                    <span className="text-lg font-bold text-gray-800">{N(d.eta_squared).toFixed(3)}</span>
+                    {d.interpretation && (
+                      <p className="text-xs text-gray-500 mt-0.5">{d.interpretation}</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Per-mode significance */}
+            <h4 className="text-sm font-semibold text-gray-600 mb-3">Per-Mode Framework Significance</h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {Object.entries(frameworkInteraction.per_mode_framework_significance || {}).map(([mode, d]) => (
+                <div key={mode} className={`rounded-xl p-3 border ${d.significant ? "bg-green-50 border-green-200" : "bg-gray-50 border-gray-200"}`}>
+                  <h5 className="text-xs font-semibold uppercase mb-1">{mode}</h5>
+                  {d.error ? (
+                    <p className="text-xs text-gray-400">{d.error}</p>
+                  ) : (
+                    <>
+                      <p className="text-sm font-mono">H={N(d.kruskal_h).toFixed(2)}, p={N(d.p_value).toFixed(4)}</p>
+                      <span className={`text-xs px-1.5 py-0.5 rounded ${d.significant ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                        {d.significant ? "Significant" : "Not significant"}
+                      </span>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </Section>
+
+      {/* ================================================================= */}
+      {/* H8 — Temporal Predictive Validity                                 */}
+      {/* ================================================================= */}
+      <Section title="H8 — Temporal Predictive Validity" icon={Clock} loading={sectionLoading.temporalValidation}>
+        {!temporalValidation || temporalValidation.status === "no_temporal_data" ? (
+          <div className="flex flex-col items-center justify-center py-12 text-gray-500">
+            <Info className="w-8 h-8 mb-2 text-gray-500" />
+            <p className="text-sm">{temporalValidation?.message || "No temporal validation data available."}</p>
+            <p className="text-xs mt-1">Run experiments with temporal_training=True to generate held-out metrics.</p>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-3 mb-4">
+              <h4 className="text-base font-semibold text-gray-800">
+                H8 — Temporal Predictive Validity
+              </h4>
+              {temporalValidation.verdict === "supported" ? (
+                <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">Supported</span>
+              ) : temporalValidation.verdict === "trending" ? (
+                <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-medium">Trending</span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-medium">Not Supported</span>
+              )}
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              Does the model genuinely predict outcomes on unseen iterations? Evaluated via expanding-window train/test split.
+            </p>
+
+            {/* Summary stats */}
+            {temporalValidation.summary && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <div className="rounded-xl bg-gray-50 p-3 border border-gray-200">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Mean Held-Out AUC</p>
+                  <p className="text-lg font-bold text-gray-900">{temporalValidation.summary.mean_auc != null ? N(temporalValidation.summary.mean_auc).toFixed(3) : "--"}</p>
+                </div>
+                <div className="rounded-xl bg-gray-50 p-3 border border-gray-200">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Mean Brier Score</p>
+                  <p className="text-lg font-bold text-gray-900">{temporalValidation.summary.mean_brier != null ? N(temporalValidation.summary.mean_brier).toFixed(4) : "--"}</p>
+                </div>
+                <div className="rounded-xl bg-gray-50 p-3 border border-gray-200">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Mean ECE</p>
+                  <p className="text-lg font-bold text-gray-900">{temporalValidation.summary.mean_ece != null ? N(temporalValidation.summary.mean_ece).toFixed(4) : "--"}</p>
+                </div>
+                <div className="rounded-xl bg-gray-50 p-3 border border-gray-200">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Evaluations</p>
+                  <p className="text-lg font-bold text-gray-900">{temporalValidation.summary.n_evaluations ?? "--"}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Temporal AUC progression chart */}
+            {temporalValidation.iterations && temporalValidation.iterations.length > 0 && (
+              <div>
+                <h5 className="text-sm font-semibold text-gray-700 mb-2">Held-Out AUC Over Iterations</h5>
+                <ResponsiveContainer width="100%" height={280}>
+                  <LineChart data={temporalValidation.iterations.map(it => ({
+                    iteration: it.iteration,
+                    auc: it.auc_roc,
+                    brier: it.brier_score,
+                  }))}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="iteration" tick={{ fontSize: 11 }} label={{ value: "Iteration", position: "bottom", offset: -2, fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} domain={[0, 1]} />
+                    <Tooltip content={<ChartTooltip />} />
+                    <Legend />
+                    <ReferenceLine y={0.5} stroke="#ef4444" strokeDasharray="4 4" label={{ value: "Random (0.5)", position: "right", fontSize: 10, fill: "#ef4444" }} />
+                    <Line type="monotone" dataKey="auc" name="Held-Out AUC" stroke="#8b5cf6" strokeWidth={2} dot={{ fill: "#8b5cf6", r: 3 }} connectNulls />
+                    <Line type="monotone" dataKey="brier" name="Brier Score" stroke="#f97316" strokeWidth={1.5} strokeDasharray="4 3" dot={{ fill: "#f97316", r: 2 }} connectNulls />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* AUC trend */}
+            {temporalValidation.summary?.auc_trend && (
+              <div className="mt-3 rounded-xl bg-gray-50 p-3 border border-gray-200">
+                <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">AUC Trend (Spearman)</p>
+                <p className="text-sm text-gray-700">
+                  ρ = {N(temporalValidation.summary.auc_trend.spearman_rho).toFixed(3)},
+                  p = {N(temporalValidation.summary.auc_trend.p_value).toExponential(2)}
+                  — <strong>{temporalValidation.summary.auc_trend.direction}</strong>
+                </p>
+              </div>
+            )}
+          </>
+        )}
+      </Section>
+
+      {/* ================================================================= */}
+      {/* H9 — Baseline Comparison                                          */}
+      {/* ================================================================= */}
+      <Section title="H9 — ML Value Over Baselines" icon={GitCompare} loading={sectionLoading.baselineComparison}>
+        {!baselineComparison || baselineComparison.status === "insufficient_data" ? (
+          <div className="flex flex-col items-center justify-center py-12 text-gray-500">
+            <Info className="w-8 h-8 mb-2 text-gray-500" />
+            <p className="text-sm">{baselineComparison?.message || "No baseline comparison data available."}</p>
+            <p className="text-xs mt-1">Run baseline experiments (random, CVSS, round-robin, no-ML) to compare.</p>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-3 mb-4">
+              <h4 className="text-base font-semibold text-gray-800">
+                H9 — ML Value Over Baselines
+              </h4>
+              {baselineComparison.verdict === "supported" ? (
+                <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">ML Wins</span>
+              ) : baselineComparison.verdict === "trending" ? (
+                <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-medium">Slight Edge</span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-medium">No Advantage</span>
+              )}
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              Compares ML-guided test selection against non-ML baselines (random, CVSS-priority, round-robin, exhaustive).
+            </p>
+
+            {/* Strategy comparison table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-2 px-3 text-xs font-semibold text-gray-600">Strategy</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-600">Mean Det. Rate</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-600">Std Dev</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-600">Iterations</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-600">Lift vs ML</th>
+                    <th className="text-center py-2 px-3 text-xs font-semibold text-gray-600">Sig?</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(baselineComparison.strategies || {}).map(([name, data]) => (
+                    <tr key={name} className={`border-b border-gray-100 ${name === "ml_guided" ? "bg-blue-50 font-medium" : ""}`}>
+                      <td className="py-2 px-3 font-medium text-gray-800">{name === "ml_guided" ? "ML-Guided" : name.replace("_", " ")}</td>
+                      <td className="text-right py-2 px-3">{data.mean_rate != null ? (N(data.mean_rate) * 100).toFixed(1) + "%" : "--"}</td>
+                      <td className="text-right py-2 px-3 text-gray-500">{data.std_rate != null ? N(data.std_rate).toFixed(3) : "--"}</td>
+                      <td className="text-right py-2 px-3">{data.n_iterations ?? "--"}</td>
+                      <td className="text-right py-2 px-3">{data.lift_vs_ml != null ? `${data.lift_vs_ml > 0 ? "+" : ""}${N(data.lift_vs_ml).toFixed(1)}%` : "--"}</td>
+                      <td className="text-center py-2 px-3">
+                        {data.vs_ml_test?.significant ? (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-green-100 text-green-700">sig</span>
+                        ) : data.vs_ml_test ? (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">n.s.</span>
+                        ) : "--"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </Section>
+
+      {/* ================================================================= */}
+      {/* H11 — Cross-Protocol Generalization (LOPO)                        */}
+      {/* ================================================================= */}
+      <Section title="H11 — Cross-Protocol Generalization" icon={Globe} loading={sectionLoading.generalization}>
+        {!generalization || generalization.status === "insufficient_data" ? (
+          <div className="flex flex-col items-center justify-center py-12 text-gray-500">
+            <Info className="w-8 h-8 mb-2 text-gray-500" />
+            <p className="text-sm">{generalization?.message || "No generalization data available."}</p>
+            <p className="text-xs mt-1">LOPO analysis runs after experiments complete. Check experiment data availability.</p>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-3 mb-4">
+              <h4 className="text-base font-semibold text-gray-800">
+                H11 — Leave-One-Protocol-Out Generalization
+              </h4>
+              {generalization.verdict === "generalizes" ? (
+                <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">Generalizes</span>
+              ) : generalization.verdict === "partial_generalization" ? (
+                <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-medium">Partial</span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-medium">Does Not Generalize</span>
+              )}
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              Tests whether the model can predict vulnerabilities on protocols it has never seen during training.
+            </p>
+
+            {/* LOPO summary */}
+            {generalization.summary && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <div className="rounded-xl bg-gray-50 p-3 border border-gray-200">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Mean LOPO AUC</p>
+                  <p className="text-lg font-bold text-gray-900">{generalization.summary.mean_auc != null ? N(generalization.summary.mean_auc).toFixed(3) : "--"}</p>
+                </div>
+                <div className="rounded-xl bg-gray-50 p-3 border border-gray-200">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Min / Max AUC</p>
+                  <p className="text-lg font-bold text-gray-900">
+                    {generalization.summary.min_auc != null ? N(generalization.summary.min_auc).toFixed(3) : "--"} / {generalization.summary.max_auc != null ? N(generalization.summary.max_auc).toFixed(3) : "--"}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-gray-50 p-3 border border-gray-200">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Mean Brier</p>
+                  <p className="text-lg font-bold text-gray-900">{generalization.summary.mean_brier != null ? N(generalization.summary.mean_brier).toFixed(4) : "--"}</p>
+                </div>
+                <div className="rounded-xl bg-gray-50 p-3 border border-gray-200">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Protocols Evaluated</p>
+                  <p className="text-lg font-bold text-gray-900">{generalization.summary.n_evaluated ?? 0} / {generalization.summary.n_protocols ?? 0}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Per-protocol table */}
+            {generalization.protocols && generalization.protocols.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-2 px-3 text-xs font-semibold text-gray-600">Held-Out Protocol</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-600">AUC</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-600">Brier</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-600">ECE</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-600">Train/Test Size</th>
+                      <th className="text-center py-2 px-3 text-xs font-semibold text-gray-600">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {generalization.protocols.map((p) => (
+                      <tr key={p.protocol} className="border-b border-gray-100">
+                        <td className="py-2 px-3 font-medium text-gray-800">{p.protocol}</td>
+                        <td className="text-right py-2 px-3">{p.auc_roc != null ? N(p.auc_roc).toFixed(3) : "--"}</td>
+                        <td className="text-right py-2 px-3">{p.brier_score != null ? N(p.brier_score).toFixed(4) : "--"}</td>
+                        <td className="text-right py-2 px-3">{p.ece != null ? N(p.ece).toFixed(4) : "--"}</td>
+                        <td className="text-right py-2 px-3 text-gray-500">{p.n_train ?? "--"} / {p.n_test ?? "--"}</td>
+                        <td className="text-center py-2 px-3">
+                          {p.status === "ok" ? (
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-green-100 text-green-700">ok</span>
+                          ) : (
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{p.status}</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+      </Section>
+
+      {/* ================================================================= */}
+      {/* H10 — LLM Generation Effectiveness                               */}
+      {/* ================================================================= */}
+      <Section title="H10 — LLM Generation Effectiveness" icon={Sparkles} loading={sectionLoading.llmEffectiveness}>
+        {!llmEffectiveness || llmEffectiveness.status !== "ok" ? (
+          <div className="flex flex-col items-center justify-center py-8 text-gray-500">
+            <Info className="w-6 h-6 mb-2" />
+            <p className="text-sm">{llmEffectiveness?.message || "No LLM test data available yet."}</p>
+          </div>
+        ) : (
+          <>
+            <Card className="mb-4 border-l-4 border-l-pink-400">
+              <CardContent className="py-3">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-pink-600 uppercase tracking-wider mb-1">
+                      H10 — LLM Generation Effectiveness
+                    </p>
+                    <p className="text-gray-700 text-sm leading-relaxed">
+                      LLM-generated tests find additional vulnerabilities beyond the static registry.
+                    </p>
+                  </div>
+                  <VerdictBadge verdict={llmEffectiveness.verdict} />
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              <div className="rounded-xl bg-blue-50 p-3 border border-blue-200 text-center">
+                <h5 className="text-xs font-semibold text-blue-600 uppercase mb-1">Registry Rate</h5>
+                <span className="text-lg font-bold">{(N(llmEffectiveness.registry?.detection_rate) * 100).toFixed(1)}%</span>
+                <p className="text-xs text-gray-500">{llmEffectiveness.registry?.n_tests} tests</p>
+              </div>
+              <div className="rounded-xl bg-pink-50 p-3 border border-pink-200 text-center">
+                <h5 className="text-xs font-semibold text-pink-600 uppercase mb-1">LLM Rate</h5>
+                <span className="text-lg font-bold">{(N(llmEffectiveness.llm?.detection_rate) * 100).toFixed(1)}%</span>
+                <p className="text-xs text-gray-500">{llmEffectiveness.llm?.n_tests} tests</p>
+              </div>
+              <div className="rounded-xl bg-gray-50 p-3 border border-gray-200 text-center">
+                <h5 className="text-xs font-semibold text-gray-600 uppercase mb-1">Fisher p-value</h5>
+                <span className="text-lg font-bold font-mono">
+                  {llmEffectiveness.fisher_exact?.p_value != null ? N(llmEffectiveness.fisher_exact.p_value).toExponential(2) : "--"}
+                </span>
+                <p className="text-xs text-gray-500">
+                  {llmEffectiveness.fisher_exact?.significant ? "Significant" : "Not significant"}
+                </p>
+              </div>
+              <div className="rounded-xl bg-gray-50 p-3 border border-gray-200 text-center">
+                <h5 className="text-xs font-semibold text-gray-600 uppercase mb-1">Odds Ratio</h5>
+                <span className="text-lg font-bold font-mono">
+                  {llmEffectiveness.fisher_exact?.odds_ratio != null ? N(llmEffectiveness.fisher_exact.odds_ratio).toFixed(2) : "--"}
+                </span>
+                {llmEffectiveness.fisher_exact?.odds_ratio_ci_95 && (
+                  <p className="text-xs text-gray-500">
+                    95% CI: [{N(llmEffectiveness.fisher_exact.odds_ratio_ci_95[0]).toFixed(2)}, {N(llmEffectiveness.fisher_exact.odds_ratio_ci_95[1]).toFixed(2)}]
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {llmEffectiveness.llm_exclusive_vulns > 0 && (
+              <p className="text-sm text-green-700 bg-green-50 p-2 rounded border border-green-200">
+                LLM tests discovered {llmEffectiveness.llm_exclusive_vulns} unique vulnerability type(s) not found by registry tests.
+              </p>
+            )}
+          </>
+        )}
+      </Section>
+
+      {/* ================================================================= */}
+      {/* Ablation Analysis                                                 */}
+      {/* ================================================================= */}
+      <Section title="Ablation Analysis" icon={Layers} loading={sectionLoading.ablation}>
+        {!ablation || ablation.status !== "ok" ? (
+          <div className="flex flex-col items-center justify-center py-8 text-gray-500">
+            <Info className="w-6 h-6 mb-2" />
+            <p className="text-sm">{ablation?.message || "Ablation data not yet available."}</p>
+            <p className="text-xs mt-1">Requires baseline + ML + LLM experiments to compute marginal contributions.</p>
+          </div>
+        ) : (
+          <>
+            <Card className="mb-4 border-l-4 border-l-teal-400">
+              <CardContent className="py-3">
+                <p className="text-sm font-semibold text-teal-600 uppercase tracking-wider mb-1">
+                  Component Ablation
+                </p>
+                <p className="text-gray-700 text-sm leading-relaxed">
+                  Marginal contribution of each system component, from random baseline to full ML+LLM system.
+                </p>
+              </CardContent>
+            </Card>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase">Condition</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase">Detection Rate</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase">Tests</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase">Vulns</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase">Unique Types</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase">Marginal Lift</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(ablation.conditions || []).map((c, i) => (
+                    <tr key={c.key} className={`border-b border-gray-100 ${i % 2 === 0 ? "bg-gray-50/50" : ""}`}>
+                      <td className="py-2 px-3 font-medium">{c.condition}</td>
+                      <td className="py-2 px-3 text-right font-mono">{(N(c.detection_rate) * 100).toFixed(1)}%</td>
+                      <td className="py-2 px-3 text-right">{c.n_tests}</td>
+                      <td className="py-2 px-3 text-right">{c.n_vulns}</td>
+                      <td className="py-2 px-3 text-right">{c.unique_vuln_types}</td>
+                      <td className="py-2 px-3 text-right">
+                        {c.marginal_lift_pct != null && c.marginal_lift_pct !== 0 ? (
+                          <span className={c.marginal_lift_pct > 0 ? "text-green-600 font-semibold" : "text-red-600"}>
+                            {c.marginal_lift_pct > 0 ? "+" : ""}{N(c.marginal_lift_pct).toFixed(1)}%
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">baseline</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </>
         )}
       </Section>
@@ -2175,6 +2631,10 @@ export default function Hypothesis({ apiUrl, visible = true }) {
                     <th className="pb-2 pr-3 font-semibold text-gray-700">Test</th>
                     <th className="pb-2 pr-3 font-semibold text-gray-700 text-right">Key Metric</th>
                     <th className="pb-2 pr-3 font-semibold text-gray-700 text-right">p-value</th>
+                    <th className="pb-2 pr-3 font-semibold text-gray-700 text-right">
+                      Corrected p
+                      <span className="block text-[9px] font-normal text-gray-400">Holm-Bonferroni</span>
+                    </th>
                     <th className="pb-2 pr-3 font-semibold text-gray-700 text-right">Effect Size</th>
                     <th className="pb-2 font-semibold text-gray-700 text-center">Verdict</th>
                   </tr>
@@ -2198,6 +2658,16 @@ export default function Hypothesis({ apiUrl, visible = true }) {
                           </span>
                         ) : "--"}
                       </td>
+                      <td className="py-2.5 pr-3 text-right font-mono text-xs">
+                        {h.corrected_p_value != null ? (
+                          <span className={h.significant_after_correction ? "text-green-700 font-semibold" : "text-gray-600"}>
+                            {N(h.corrected_p_value).toExponential(2)}
+                            {h.significant_after_correction === false && h.p_value != null && N(h.p_value) < 0.05 && (
+                              <span className="ml-1 text-[9px] text-amber-600" title="Significant before correction but not after">&#x26A0;</span>
+                            )}
+                          </span>
+                        ) : "--"}
+                      </td>
                       <td className="py-2.5 pr-3 text-right text-xs">
                         {h.effect_size != null ? (
                           <span className="font-mono text-gray-800">
@@ -2209,11 +2679,11 @@ export default function Hypothesis({ apiUrl, visible = true }) {
                         ) : "--"}
                       </td>
                       <td className="py-2.5 text-center">
-                        {h.verdict === "supported" || h.verdict === "efficient" || h.verdict === "significant_differences" || h.verdict === "well_calibrated" ? (
+                        {h.verdict === "supported" || h.verdict === "efficient" || h.verdict === "significant_differences" || h.verdict === "well_calibrated" || h.verdict === "generalizes" ? (
                           <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-100 text-green-700">
                             Supported
                           </span>
-                        ) : h.verdict === "trending" || h.verdict === "trending_differences" || h.verdict === "comparable" || h.verdict === "moderately_calibrated" ? (
+                        ) : h.verdict === "trending" || h.verdict === "trending_differences" || h.verdict === "comparable" || h.verdict === "moderately_calibrated" || h.verdict === "partial_generalization" ? (
                           <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700">
                             Trending
                           </span>
@@ -2233,12 +2703,31 @@ export default function Hypothesis({ apiUrl, visible = true }) {
               </table>
             </div>
 
+            {/* Multiple comparison correction summary */}
+            {synthesis.summary?.correction_method && (
+              <div className="mt-4 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200">
+                <p className="text-xs text-amber-800">
+                  <strong>Multiple comparison correction:</strong>{" "}
+                  {synthesis.summary.correction_method === "holm_bonferroni" ? "Holm-Bonferroni" : synthesis.summary.correction_method}{" "}
+                  applied across {synthesis.summary.n_tests_corrected} tests at family-wise &#x3B1; = {synthesis.summary.family_wise_alpha}.{" "}
+                  After correction: <strong>{synthesis.summary.corrected_significant}</strong> significant,{" "}
+                  <strong>{synthesis.summary.corrected_not_significant}</strong> not significant.
+                  {synthesis.summary.corrected_significant < synthesis.summary.supported && (
+                    <span className="ml-1">
+                      ({synthesis.summary.supported - synthesis.summary.corrected_significant} hypothesis(es) lost significance after correction — marked with &#x26A0; above.)
+                    </span>
+                  )}
+                </p>
+              </div>
+            )}
+
             {/* Thesis-friendly note */}
             <div className="mt-4 px-3 py-2 rounded-lg bg-indigo-50 border border-indigo-200">
               <p className="text-xs text-indigo-700">
                 <strong>Thesis note:</strong> This synthesis table summarizes all hypothesis tests for
                 {" "}{synthesis.simulation_mode || "all"} simulation mode with {synthesis.automl_tool || "all"} AutoML framework.
                 Verdicts are based on p &lt; 0.05 significance threshold with appropriate effect size measures.
+                The "Corrected p" column applies Holm-Bonferroni correction to control the family-wise error rate across all {synthesis.summary?.n_tests_corrected || "N"} hypotheses.
                 Change the Simulation Mode and AutoML Framework filters above to generate per-condition tables.
               </p>
             </div>

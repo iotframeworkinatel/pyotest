@@ -88,14 +88,19 @@ def run_suite(suite: TestSuite, simulation_context: dict = None) -> dict:
     tests_dir = Path(experiment.root) / "tests"
     tests_dir.mkdir(parents=True, exist_ok=True)
 
-    # Group test cases by (protocol, target_ip)
+    # Group test cases by (protocol, target_ip), separating LLM tests
     groups = {}
+    llm_tests = []
     for tc in suite.test_cases:
-        key = (tc.protocol, tc.target_ip)
-        groups.setdefault(key, []).append(tc)
+        if getattr(tc, 'test_origin', 'registry') == 'llm' and getattr(tc, 'pytest_code', None):
+            llm_tests.append(tc)
+        else:
+            key = (tc.protocol, tc.target_ip)
+            groups.setdefault(key, []).append(tc)
 
     env = Environment(loader=FileSystemLoader(TEMPLATE_DIR))
 
+    # ── Execute registry tests (Jinja2 template-based) ──
     for (protocol, target_ip), test_cases in groups.items():
         # Collect ports for this device/protocol
         ports = sorted(set(str(tc.port) for tc in test_cases))
@@ -179,6 +184,75 @@ def run_suite(suite: TestSuite, simulation_context: dict = None) -> dict:
             sim_rng=_sim_rng, sim_fp_rate=_sim_fp_rate,
             sim_fn_rate=_sim_fn_rate, sim_mode=_sim_mode,
             sim_iteration=_sim_iteration,
+        )
+
+    # ── Execute LLM-generated tests (standalone .py files, no template) ──
+    for tc in llm_tests:
+        ip_safe = tc.target_ip.replace(".", "_")
+        filename = f"llm_test_{tc.test_id}_{ip_safe}.py"
+        filepath = tests_dir / filename
+
+        # Write standalone pytest code directly (IP already baked in by generator)
+        filepath.write_text(tc.pytest_code, encoding="utf-8")
+
+        try:
+            proc = subprocess.run(
+                ["pytest", filename, "-v", "--tb=short", "--no-header"],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                cwd=str(tests_dir),
+            )
+            pytest_output = proc.stdout + "\n" + proc.stderr
+            test_results = _parse_pytest_output(pytest_output)
+            status = _find_matching_result(tc, test_results)
+            if status is None and test_results:
+                status = list(test_results.values())[0]
+            if status is None:
+                status = "FAILED"
+        except subprocess.TimeoutExpired:
+            status = "ERROR"
+            results_detail.append(_build_result_entry(
+                tc, status="error", error="LLM test timed out (120s)",
+            ))
+            _log_test_result(history, metrics, tc, "error", 120000,
+                             sim_mode=_sim_mode, sim_iteration=_sim_iteration)
+            continue
+        except Exception as e:
+            results_detail.append(_build_result_entry(
+                tc, status="error", error=str(e),
+            ))
+            _log_test_result(history, metrics, tc, "error", 0,
+                             sim_mode=_sim_mode, sim_iteration=_sim_iteration)
+            continue
+
+        vuln_found = (status == "PASSED")
+        tc_status = "skipped" if status == "SKIPPED" else (
+            "error" if status == "ERROR" else "completed"
+        )
+
+        # Simulation: FP/FN noise injection (same as registry tests)
+        sim_noise_applied = None
+        if _sim_rng and tc_status == "completed":
+            if vuln_found and _sim_fn_rate > 0 and _sim_rng.random() < _sim_fn_rate:
+                vuln_found = False
+                sim_noise_applied = "false_negative"
+            elif not vuln_found and _sim_fp_rate > 0 and _sim_rng.random() < _sim_fp_rate:
+                vuln_found = True
+                sim_noise_applied = "false_positive"
+
+        results_detail.append(_build_result_entry(
+            tc, status=tc_status, vulnerability_found=vuln_found,
+            sim_noise=sim_noise_applied,
+        ))
+        _log_test_result(
+            history, metrics, tc, tc_status, 0, vuln_found=vuln_found,
+            sim_mode=_sim_mode, sim_iteration=_sim_iteration,
+        )
+
+    if llm_tests:
+        logging.info(
+            f"[SuiteRunner] Executed {len(llm_tests)} LLM-generated tests"
         )
 
     elapsed_ms = int((time.time() - start_time) * 1000)
@@ -402,8 +476,9 @@ def _log_test_result(
         tc.target_ip, ("target", "unknown")
     )
 
+    origin = getattr(tc, 'test_origin', 'registry')
     row = {
-        "test_strategy": "generated",
+        "test_strategy": "llm_generated" if origin == "llm" else "generated",
         "container_id": tc.target_ip,
         "device_type": dev_type,
         "firmware_version": fw_version,

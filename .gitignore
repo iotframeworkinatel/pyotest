@@ -20,3 +20,6 @@ experiments_backup_full/
 models/
 experiments/aggregated_history_realistic.csv
 experiments/experiment_summary.json
+experiments/aggregated_history_*.csv
+.env
+*.env.local

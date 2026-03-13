@@ -26,6 +26,8 @@ class TestCase:
     tags: list[str] = field(default_factory=list)
     risk_score: Optional[float] = None
     is_recommended: bool = False
+    test_origin: str = "registry"         # "registry" | "llm"
+    pytest_code: Optional[str] = None     # LLM tests carry their own standalone code
 
     def to_dict(self) -> dict:
         return asdict(self)
