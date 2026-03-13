@@ -1,1 +1,1 @@
-{"mode": "deterministic", "seed": 42, "iteration": 32, "false_positive_rate": 0.0, "false_negative_rate": 0.0}
+{"mode": "deterministic", "seed": 42, "iteration": 8, "false_positive_rate": 0.0, "false_negative_rate": 0.0}
