@@ -1,0 +1,4593 @@
+{
+  "suite_id": "6a0311f4",
+  "name": "PhD Experiment Suite",
+  "created_at": "2026-03-11T23:39:03.379123",
+  "devices": [
+    {
+      "ip": "172.20.0.1",
+      "ports": [
+        502,
+        1883
+      ],
+      "protocols": [
+        "modbus",
+        "mqtt"
+      ]
+    },
+    {
+      "ip": "172.20.0.10",
+      "ports": [
+        21
+      ],
+      "protocols": [
+        "ftp"
+      ]
+    },
+    {
+      "ip": "172.20.0.11",
+      "ports": [
+        80
+      ],
+      "protocols": [
+        "http"
+      ]
+    },
+    {
+      "ip": "172.20.0.12",
+      "ports": [
+        23
+      ],
+      "protocols": [
+        "telnet"
+      ]
+    },
+    {
+      "ip": "172.20.0.13",
+      "ports": [
+        21
+      ],
+      "protocols": [
+        "ftp"
+      ]
+    },
+    {
+      "ip": "172.20.0.14",
+      "ports": [
+        80
+      ],
+      "protocols": [
+        "http"
+      ]
+    },
+    {
+      "ip": "172.20.0.15",
+      "ports": [
+        80
+      ],
+      "protocols": [
+        "http"
+      ]
+    },
+    {
+      "ip": "172.20.0.16",
+      "ports": [
+        1883
+      ],
+      "protocols": [
+        "mqtt"
+      ]
+    },
+    {
+      "ip": "172.20.0.17",
+      "ports": [
+        22
+      ],
+      "protocols": [
+        "ssh"
+      ]
+    },
+    {
+      "ip": "172.20.0.20",
+      "ports": [
+        21
+      ],
+      "protocols": [
+        "ftp"
+      ]
+    },
+    {
+      "ip": "172.20.0.21",
+      "ports": [
+        5683
+      ],
+      "protocols": [
+        "coap"
+      ]
+    },
+    {
+      "ip": "172.20.0.22",
+      "ports": [
+        502
+      ],
+      "protocols": [
+        "modbus"
+      ]
+    },
+    {
+      "ip": "172.20.0.23",
+      "ports": [
+        80
+      ],
+      "protocols": [
+        "http"
+      ]
+    },
+    {
+      "ip": "172.20.0.3",
+      "ports": [
+        80
+      ],
+      "protocols": [
+        "http"
+      ]
+    }
+  ],
+  "test_cases": [
+    {
+      "test_id": "telnet_default_creds",
+      "test_name": "Telnet Default Credentials",
+      "description": "Tests Telnet with common default credentials",
+      "protocol": "telnet",
+      "port": 23,
+      "target_ip": "172.20.0.12",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Connect to Telnet",
+        "Try default credential pairs",
+        "Check for shell access"
+      ],
+      "expected_result": "Telnet accepts default credentials",
+      "payloads": [
+        "root:root",
+        "admin:admin",
+        "user:user"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01"
+      ],
+      "auth_required": true,
+      "tags": [
+        "uncommon",
+        "default-creds"
+      ],
+      "risk_score": 0.9557,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_default_credentials",
+      "test_name": "HTTP Default Credentials",
+      "description": "Tests for default admin credentials on HTTP services",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.11",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Send GET request with admin:admin Basic Auth",
+        "Check for 2xx/3xx response"
+      ],
+      "expected_result": "Server accepts default credentials",
+      "payloads": [
+        "admin:admin"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-798"
+      ],
+      "auth_required": true,
+      "tags": [
+        "common",
+        "default-creds"
+      ],
+      "risk_score": 0.9469,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_default_creds_ext",
+      "test_name": "HTTP Extended Default Credentials",
+      "description": "Tests with expanded credential list including IoT vendor defaults",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.11",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Try extended credential list on login endpoints",
+        "Check for successful authentication"
+      ],
+      "expected_result": "Server accepts vendor-default or common credentials",
+      "payloads": [
+        "admin:admin",
+        "admin:1234",
+        "root:root",
+        "user:user",
+        "admin:password",
+        "operator:operator"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-798"
+      ],
+      "auth_required": true,
+      "tags": [
+        "uncommon",
+        "default-creds"
+      ],
+      "risk_score": 0.9469,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_default_credentials",
+      "test_name": "HTTP Default Credentials",
+      "description": "Tests for default admin credentials on HTTP services",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.14",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Send GET request with admin:admin Basic Auth",
+        "Check for 2xx/3xx response"
+      ],
+      "expected_result": "Server accepts default credentials",
+      "payloads": [
+        "admin:admin"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-798"
+      ],
+      "auth_required": true,
+      "tags": [
+        "common",
+        "default-creds"
+      ],
+      "risk_score": 0.9469,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_default_creds_ext",
+      "test_name": "HTTP Extended Default Credentials",
+      "description": "Tests with expanded credential list including IoT vendor defaults",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.14",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Try extended credential list on login endpoints",
+        "Check for successful authentication"
+      ],
+      "expected_result": "Server accepts vendor-default or common credentials",
+      "payloads": [
+        "admin:admin",
+        "admin:1234",
+        "root:root",
+        "user:user",
+        "admin:password",
+        "operator:operator"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-798"
+      ],
+      "auth_required": true,
+      "tags": [
+        "uncommon",
+        "default-creds"
+      ],
+      "risk_score": 0.9469,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_default_credentials",
+      "test_name": "HTTP Default Credentials",
+      "description": "Tests for default admin credentials on HTTP services",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.15",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Send GET request with admin:admin Basic Auth",
+        "Check for 2xx/3xx response"
+      ],
+      "expected_result": "Server accepts default credentials",
+      "payloads": [
+        "admin:admin"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-798"
+      ],
+      "auth_required": true,
+      "tags": [
+        "common",
+        "default-creds"
+      ],
+      "risk_score": 0.9469,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_default_creds_ext",
+      "test_name": "HTTP Extended Default Credentials",
+      "description": "Tests with expanded credential list including IoT vendor defaults",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.15",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Try extended credential list on login endpoints",
+        "Check for successful authentication"
+      ],
+      "expected_result": "Server accepts vendor-default or common credentials",
+      "payloads": [
+        "admin:admin",
+        "admin:1234",
+        "root:root",
+        "user:user",
+        "admin:password",
+        "operator:operator"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-798"
+      ],
+      "auth_required": true,
+      "tags": [
+        "uncommon",
+        "default-creds"
+      ],
+      "risk_score": 0.9469,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_default_credentials",
+      "test_name": "HTTP Default Credentials",
+      "description": "Tests for default admin credentials on HTTP services",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.23",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Send GET request with admin:admin Basic Auth",
+        "Check for 2xx/3xx response"
+      ],
+      "expected_result": "Server accepts default credentials",
+      "payloads": [
+        "admin:admin"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-798"
+      ],
+      "auth_required": true,
+      "tags": [
+        "common",
+        "default-creds"
+      ],
+      "risk_score": 0.9469,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_default_creds_ext",
+      "test_name": "HTTP Extended Default Credentials",
+      "description": "Tests with expanded credential list including IoT vendor defaults",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.23",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Try extended credential list on login endpoints",
+        "Check for successful authentication"
+      ],
+      "expected_result": "Server accepts vendor-default or common credentials",
+      "payloads": [
+        "admin:admin",
+        "admin:1234",
+        "root:root",
+        "user:user",
+        "admin:password",
+        "operator:operator"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-798"
+      ],
+      "auth_required": true,
+      "tags": [
+        "uncommon",
+        "default-creds"
+      ],
+      "risk_score": 0.9469,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_default_credentials",
+      "test_name": "HTTP Default Credentials",
+      "description": "Tests for default admin credentials on HTTP services",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.3",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Send GET request with admin:admin Basic Auth",
+        "Check for 2xx/3xx response"
+      ],
+      "expected_result": "Server accepts default credentials",
+      "payloads": [
+        "admin:admin"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-798"
+      ],
+      "auth_required": true,
+      "tags": [
+        "common",
+        "default-creds"
+      ],
+      "risk_score": 0.9469,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_default_creds_ext",
+      "test_name": "HTTP Extended Default Credentials",
+      "description": "Tests with expanded credential list including IoT vendor defaults",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.3",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Try extended credential list on login endpoints",
+        "Check for successful authentication"
+      ],
+      "expected_result": "Server accepts vendor-default or common credentials",
+      "payloads": [
+        "admin:admin",
+        "admin:1234",
+        "root:root",
+        "user:user",
+        "admin:password",
+        "operator:operator"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-798"
+      ],
+      "auth_required": true,
+      "tags": [
+        "uncommon",
+        "default-creds"
+      ],
+      "risk_score": 0.9469,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "mqtt_open_access",
+      "test_name": "MQTT Open Access",
+      "description": "Tests if MQTT broker allows unauthenticated connections",
+      "protocol": "mqtt",
+      "port": 1883,
+      "target_ip": "172.20.0.1",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Connect to MQTT broker without credentials",
+        "Check if connection is accepted"
+      ],
+      "expected_result": "Broker accepts unauthenticated connections",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "auth"
+      ],
+      "risk_score": 0.811,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "mqtt_anon_publish",
+      "test_name": "MQTT Anonymous Publish",
+      "description": "Tests if anonymous clients can publish messages to topics",
+      "protocol": "mqtt",
+      "port": 1883,
+      "target_ip": "172.20.0.1",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Connect without auth",
+        "Publish to a test topic",
+        "Verify message was accepted"
+      ],
+      "expected_result": "Broker accepts messages from unauthenticated publisher",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "auth"
+      ],
+      "risk_score": 0.811,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "mqtt_acl_bypass",
+      "test_name": "MQTT ACL Bypass",
+      "description": "Tests if topic access control lists can be bypassed",
+      "protocol": "mqtt",
+      "port": 1883,
+      "target_ip": "172.20.0.1",
+      "vulnerability_type": "authorization",
+      "owasp_iot_category": "IoT-03: Insecure Ecosystem Interfaces",
+      "severity": "high",
+      "test_steps": [
+        "Subscribe to restricted topics",
+        "Try publishing to protected topics"
+      ],
+      "expected_result": "Client can access topics beyond its ACL permissions",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-03"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "authorization"
+      ],
+      "risk_score": 0.811,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "mqtt_topic_enum",
+      "test_name": "MQTT Topic Enumeration",
+      "description": "Enumerates available MQTT topics to discover sensitive data flows",
+      "protocol": "mqtt",
+      "port": 1883,
+      "target_ip": "172.20.0.1",
+      "vulnerability_type": "info_disclosure",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "medium",
+      "test_steps": [
+        "Subscribe to wildcard topic (#)",
+        "Collect published topic names"
+      ],
+      "expected_result": "Wildcard subscription reveals all active topics",
+      "payloads": [
+        "#",
+        "+/+"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "info-disclosure"
+      ],
+      "risk_score": 0.811,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "mqtt_retained_messages",
+      "test_name": "MQTT Retained Messages",
+      "description": "Checks for retained messages that may contain sensitive data",
+      "protocol": "mqtt",
+      "port": 1883,
+      "target_ip": "172.20.0.1",
+      "vulnerability_type": "info_disclosure",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "medium",
+      "test_steps": [
+        "Subscribe to common topics",
+        "Check for retained messages with data"
+      ],
+      "expected_result": "Retained messages contain sensitive information",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "info-disclosure"
+      ],
+      "risk_score": 0.811,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "mqtt_wildcard_sub",
+      "test_name": "MQTT Wildcard Subscribe",
+      "description": "Tests if wildcard subscriptions are allowed for full topic access",
+      "protocol": "mqtt",
+      "port": 1883,
+      "target_ip": "172.20.0.1",
+      "vulnerability_type": "authorization",
+      "owasp_iot_category": "IoT-03: Insecure Ecosystem Interfaces",
+      "severity": "high",
+      "test_steps": [
+        "Subscribe with # wildcard",
+        "Check if all topics are accessible"
+      ],
+      "expected_result": "Full wildcard subscription is allowed",
+      "payloads": [
+        "#"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-03"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "authorization"
+      ],
+      "risk_score": 0.811,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "mqtt_sensitive_topics",
+      "test_name": "MQTT Sensitive Topic Access",
+      "description": "Probes for sensitive system topics ($SYS, config, credentials)",
+      "protocol": "mqtt",
+      "port": 1883,
+      "target_ip": "172.20.0.1",
+      "vulnerability_type": "info_disclosure",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "high",
+      "test_steps": [
+        "Subscribe to $SYS/#",
+        "Subscribe to config and credential topics"
+      ],
+      "expected_result": "Sensitive system or configuration topics are readable",
+      "payloads": [
+        "$SYS/#",
+        "config/#",
+        "credentials/#"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "info-disclosure"
+      ],
+      "risk_score": 0.811,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "ftp_weak_creds_ext",
+      "test_name": "FTP Extended Weak Credentials",
+      "description": "Tests FTP with an extended list of common IoT default credentials",
+      "protocol": "ftp",
+      "port": 21,
+      "target_ip": "172.20.0.10",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Connect to FTP port",
+        "Try extended credential list",
+        "Check for successful login"
+      ],
+      "expected_result": "Server accepts weak or default credentials",
+      "payloads": [
+        "admin:admin",
+        "root:root",
+        "user:user",
+        "test:test",
+        "admin:1234",
+        "admin:password"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-798"
+      ],
+      "auth_required": true,
+      "tags": [
+        "uncommon",
+        "default-creds"
+      ],
+      "risk_score": 0.8041,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "ftp_weak_creds_ext",
+      "test_name": "FTP Extended Weak Credentials",
+      "description": "Tests FTP with an extended list of common IoT default credentials",
+      "protocol": "ftp",
+      "port": 21,
+      "target_ip": "172.20.0.13",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Connect to FTP port",
+        "Try extended credential list",
+        "Check for successful login"
+      ],
+      "expected_result": "Server accepts weak or default credentials",
+      "payloads": [
+        "admin:admin",
+        "root:root",
+        "user:user",
+        "test:test",
+        "admin:1234",
+        "admin:password"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-798"
+      ],
+      "auth_required": true,
+      "tags": [
+        "uncommon",
+        "default-creds"
+      ],
+      "risk_score": 0.8041,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "ftp_weak_creds_ext",
+      "test_name": "FTP Extended Weak Credentials",
+      "description": "Tests FTP with an extended list of common IoT default credentials",
+      "protocol": "ftp",
+      "port": 21,
+      "target_ip": "172.20.0.20",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Connect to FTP port",
+        "Try extended credential list",
+        "Check for successful login"
+      ],
+      "expected_result": "Server accepts weak or default credentials",
+      "payloads": [
+        "admin:admin",
+        "root:root",
+        "user:user",
+        "test:test",
+        "admin:1234",
+        "admin:password"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-798"
+      ],
+      "auth_required": true,
+      "tags": [
+        "uncommon",
+        "default-creds"
+      ],
+      "risk_score": 0.8041,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "mqtt_open_access",
+      "test_name": "MQTT Open Access",
+      "description": "Tests if MQTT broker allows unauthenticated connections",
+      "protocol": "mqtt",
+      "port": 1883,
+      "target_ip": "172.20.0.16",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Connect to MQTT broker without credentials",
+        "Check if connection is accepted"
+      ],
+      "expected_result": "Broker accepts unauthenticated connections",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "auth"
+      ],
+      "risk_score": 0.62,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "mqtt_anon_publish",
+      "test_name": "MQTT Anonymous Publish",
+      "description": "Tests if anonymous clients can publish messages to topics",
+      "protocol": "mqtt",
+      "port": 1883,
+      "target_ip": "172.20.0.16",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Connect without auth",
+        "Publish to a test topic",
+        "Verify message was accepted"
+      ],
+      "expected_result": "Broker accepts messages from unauthenticated publisher",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "auth"
+      ],
+      "risk_score": 0.62,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "mqtt_acl_bypass",
+      "test_name": "MQTT ACL Bypass",
+      "description": "Tests if topic access control lists can be bypassed",
+      "protocol": "mqtt",
+      "port": 1883,
+      "target_ip": "172.20.0.16",
+      "vulnerability_type": "authorization",
+      "owasp_iot_category": "IoT-03: Insecure Ecosystem Interfaces",
+      "severity": "high",
+      "test_steps": [
+        "Subscribe to restricted topics",
+        "Try publishing to protected topics"
+      ],
+      "expected_result": "Client can access topics beyond its ACL permissions",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-03"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "authorization"
+      ],
+      "risk_score": 0.62,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "mqtt_topic_enum",
+      "test_name": "MQTT Topic Enumeration",
+      "description": "Enumerates available MQTT topics to discover sensitive data flows",
+      "protocol": "mqtt",
+      "port": 1883,
+      "target_ip": "172.20.0.16",
+      "vulnerability_type": "info_disclosure",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "medium",
+      "test_steps": [
+        "Subscribe to wildcard topic (#)",
+        "Collect published topic names"
+      ],
+      "expected_result": "Wildcard subscription reveals all active topics",
+      "payloads": [
+        "#",
+        "+/+"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "info-disclosure"
+      ],
+      "risk_score": 0.62,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "mqtt_retained_messages",
+      "test_name": "MQTT Retained Messages",
+      "description": "Checks for retained messages that may contain sensitive data",
+      "protocol": "mqtt",
+      "port": 1883,
+      "target_ip": "172.20.0.16",
+      "vulnerability_type": "info_disclosure",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "medium",
+      "test_steps": [
+        "Subscribe to common topics",
+        "Check for retained messages with data"
+      ],
+      "expected_result": "Retained messages contain sensitive information",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "info-disclosure"
+      ],
+      "risk_score": 0.62,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "mqtt_wildcard_sub",
+      "test_name": "MQTT Wildcard Subscribe",
+      "description": "Tests if wildcard subscriptions are allowed for full topic access",
+      "protocol": "mqtt",
+      "port": 1883,
+      "target_ip": "172.20.0.16",
+      "vulnerability_type": "authorization",
+      "owasp_iot_category": "IoT-03: Insecure Ecosystem Interfaces",
+      "severity": "high",
+      "test_steps": [
+        "Subscribe with # wildcard",
+        "Check if all topics are accessible"
+      ],
+      "expected_result": "Full wildcard subscription is allowed",
+      "payloads": [
+        "#"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-03"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "authorization"
+      ],
+      "risk_score": 0.62,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "mqtt_sensitive_topics",
+      "test_name": "MQTT Sensitive Topic Access",
+      "description": "Probes for sensitive system topics ($SYS, config, credentials)",
+      "protocol": "mqtt",
+      "port": 1883,
+      "target_ip": "172.20.0.16",
+      "vulnerability_type": "info_disclosure",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "high",
+      "test_steps": [
+        "Subscribe to $SYS/#",
+        "Subscribe to config and credential topics"
+      ],
+      "expected_result": "Sensitive system or configuration topics are readable",
+      "payloads": [
+        "$SYS/#",
+        "config/#",
+        "credentials/#"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "info-disclosure"
+      ],
+      "risk_score": 0.62,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "modbus_read_register",
+      "test_name": "Modbus Read Holding Register",
+      "description": "Tests if Modbus holding registers can be read without auth",
+      "protocol": "modbus",
+      "port": 502,
+      "target_ip": "172.20.0.1",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "high",
+      "test_steps": [
+        "Connect to Modbus TCP port",
+        "Read holding registers 0-2"
+      ],
+      "expected_result": "Registers return data without authentication",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "ICS-CERT"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "auth"
+      ],
+      "risk_score": 0.5455,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "modbus_device_id",
+      "test_name": "Modbus Device Identification",
+      "description": "Reads Modbus device identification information",
+      "protocol": "modbus",
+      "port": 502,
+      "target_ip": "172.20.0.1",
+      "vulnerability_type": "information_disclosure",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "medium",
+      "test_steps": [
+        "Send Read Device Identification request",
+        "Parse vendor/product info"
+      ],
+      "expected_result": "Device reveals manufacturer, model, and version",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "info-disclosure"
+      ],
+      "risk_score": 0.5455,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "modbus_write_coil",
+      "test_name": "Modbus Write Coil",
+      "description": "Tests if Modbus coils can be written without authorization",
+      "protocol": "modbus",
+      "port": 502,
+      "target_ip": "172.20.0.1",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Connect to Modbus TCP",
+        "Attempt to write coil values"
+      ],
+      "expected_result": "Coil write succeeds without authentication",
+      "payloads": [],
+      "references": [
+        "ICS-CERT",
+        "OWASP IoT Top 10 - IoT-01"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "auth"
+      ],
+      "risk_score": 0.5455,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "modbus_read_input_reg",
+      "test_name": "Modbus Read Input Registers",
+      "description": "Tests reading input registers (process data) without auth",
+      "protocol": "modbus",
+      "port": 502,
+      "target_ip": "172.20.0.1",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "high",
+      "test_steps": [
+        "Read input registers 0-2",
+        "Check for process data exposure"
+      ],
+      "expected_result": "Input registers expose process data without authentication",
+      "payloads": [],
+      "references": [
+        "ICS-CERT"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "auth"
+      ],
+      "risk_score": 0.5455,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "modbus_read_discrete",
+      "test_name": "Modbus Read Discrete Inputs",
+      "description": "Tests reading discrete input registers without auth",
+      "protocol": "modbus",
+      "port": 502,
+      "target_ip": "172.20.0.1",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "high",
+      "test_steps": [
+        "Read discrete inputs 0-4",
+        "Check for accessible status data"
+      ],
+      "expected_result": "Discrete inputs are readable without authentication",
+      "payloads": [],
+      "references": [
+        "ICS-CERT"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "auth"
+      ],
+      "risk_score": 0.5455,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "modbus_read_coils",
+      "test_name": "Modbus Read Coils",
+      "description": "Tests reading coil status without authorization",
+      "protocol": "modbus",
+      "port": 502,
+      "target_ip": "172.20.0.1",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "high",
+      "test_steps": [
+        "Read coils 0-4",
+        "Check for accessible coil data"
+      ],
+      "expected_result": "Coil status is readable without authentication",
+      "payloads": [],
+      "references": [
+        "ICS-CERT"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "auth"
+      ],
+      "risk_score": 0.5455,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "modbus_write_register",
+      "test_name": "Modbus Write Holding Register",
+      "description": "Tests if holding registers can be written without authorization",
+      "protocol": "modbus",
+      "port": 502,
+      "target_ip": "172.20.0.1",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Attempt to write holding register values",
+        "Verify write was accepted"
+      ],
+      "expected_result": "Register write succeeds without authentication",
+      "payloads": [],
+      "references": [
+        "ICS-CERT",
+        "OWASP IoT Top 10 - IoT-01"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "auth"
+      ],
+      "risk_score": 0.5455,
+      "is_recommended": true,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "telnet_open",
+      "test_name": "Telnet Open Service",
+      "description": "Detects if Telnet service is running (inherently insecure)",
+      "protocol": "telnet",
+      "port": 23,
+      "target_ip": "172.20.0.12",
+      "vulnerability_type": "exposed_service",
+      "owasp_iot_category": "IoT-02: Insecure Network Services",
+      "severity": "high",
+      "test_steps": [
+        "Connect to port 23",
+        "Check for Telnet banner"
+      ],
+      "expected_result": "Telnet service is accessible",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-02"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "exposed-service"
+      ],
+      "risk_score": 0.4486,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "telnet_banner_leak",
+      "test_name": "Telnet Banner Information Leak",
+      "description": "Checks if Telnet banner reveals system information",
+      "protocol": "telnet",
+      "port": 23,
+      "target_ip": "172.20.0.12",
+      "vulnerability_type": "info_disclosure",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "medium",
+      "test_steps": [
+        "Connect to Telnet",
+        "Capture initial banner",
+        "Check for OS/version info"
+      ],
+      "expected_result": "Banner reveals OS, hostname, or version information",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "info-disclosure"
+      ],
+      "risk_score": 0.4486,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "telnet_no_encryption",
+      "test_name": "Telnet No Encryption",
+      "description": "Confirms Telnet transmits data in cleartext (no TLS/SSL)",
+      "protocol": "telnet",
+      "port": 23,
+      "target_ip": "172.20.0.12",
+      "vulnerability_type": "crypto",
+      "owasp_iot_category": "IoT-05: Use of Insecure or Outdated Components",
+      "severity": "high",
+      "test_steps": [
+        "Connect to Telnet",
+        "Verify no TLS negotiation occurs"
+      ],
+      "expected_result": "All communication is unencrypted",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-07",
+        "CWE-319"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "crypto"
+      ],
+      "risk_score": 0.4486,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "modbus_read_register",
+      "test_name": "Modbus Read Holding Register",
+      "description": "Tests if Modbus holding registers can be read without auth",
+      "protocol": "modbus",
+      "port": 502,
+      "target_ip": "172.20.0.22",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "high",
+      "test_steps": [
+        "Connect to Modbus TCP port",
+        "Read holding registers 0-2"
+      ],
+      "expected_result": "Registers return data without authentication",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "ICS-CERT"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "auth"
+      ],
+      "risk_score": 0.4385,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "modbus_device_id",
+      "test_name": "Modbus Device Identification",
+      "description": "Reads Modbus device identification information",
+      "protocol": "modbus",
+      "port": 502,
+      "target_ip": "172.20.0.22",
+      "vulnerability_type": "information_disclosure",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "medium",
+      "test_steps": [
+        "Send Read Device Identification request",
+        "Parse vendor/product info"
+      ],
+      "expected_result": "Device reveals manufacturer, model, and version",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "info-disclosure"
+      ],
+      "risk_score": 0.4385,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "modbus_write_coil",
+      "test_name": "Modbus Write Coil",
+      "description": "Tests if Modbus coils can be written without authorization",
+      "protocol": "modbus",
+      "port": 502,
+      "target_ip": "172.20.0.22",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Connect to Modbus TCP",
+        "Attempt to write coil values"
+      ],
+      "expected_result": "Coil write succeeds without authentication",
+      "payloads": [],
+      "references": [
+        "ICS-CERT",
+        "OWASP IoT Top 10 - IoT-01"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "auth"
+      ],
+      "risk_score": 0.4385,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "modbus_read_input_reg",
+      "test_name": "Modbus Read Input Registers",
+      "description": "Tests reading input registers (process data) without auth",
+      "protocol": "modbus",
+      "port": 502,
+      "target_ip": "172.20.0.22",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "high",
+      "test_steps": [
+        "Read input registers 0-2",
+        "Check for process data exposure"
+      ],
+      "expected_result": "Input registers expose process data without authentication",
+      "payloads": [],
+      "references": [
+        "ICS-CERT"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "auth"
+      ],
+      "risk_score": 0.4385,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "modbus_read_discrete",
+      "test_name": "Modbus Read Discrete Inputs",
+      "description": "Tests reading discrete input registers without auth",
+      "protocol": "modbus",
+      "port": 502,
+      "target_ip": "172.20.0.22",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "high",
+      "test_steps": [
+        "Read discrete inputs 0-4",
+        "Check for accessible status data"
+      ],
+      "expected_result": "Discrete inputs are readable without authentication",
+      "payloads": [],
+      "references": [
+        "ICS-CERT"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "auth"
+      ],
+      "risk_score": 0.4385,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "modbus_read_coils",
+      "test_name": "Modbus Read Coils",
+      "description": "Tests reading coil status without authorization",
+      "protocol": "modbus",
+      "port": 502,
+      "target_ip": "172.20.0.22",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "high",
+      "test_steps": [
+        "Read coils 0-4",
+        "Check for accessible coil data"
+      ],
+      "expected_result": "Coil status is readable without authentication",
+      "payloads": [],
+      "references": [
+        "ICS-CERT"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "auth"
+      ],
+      "risk_score": 0.4385,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "modbus_write_register",
+      "test_name": "Modbus Write Holding Register",
+      "description": "Tests if holding registers can be written without authorization",
+      "protocol": "modbus",
+      "port": 502,
+      "target_ip": "172.20.0.22",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Attempt to write holding register values",
+        "Verify write was accepted"
+      ],
+      "expected_result": "Register write succeeds without authentication",
+      "payloads": [],
+      "references": [
+        "ICS-CERT",
+        "OWASP IoT Top 10 - IoT-01"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "auth"
+      ],
+      "risk_score": 0.4385,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "ssh_weak_auth",
+      "test_name": "SSH Weak Authentication",
+      "description": "Tests SSH with common default credentials",
+      "protocol": "ssh",
+      "port": 22,
+      "target_ip": "172.20.0.17",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Connect via SSH",
+        "Try root:root, admin:admin",
+        "Check for successful login"
+      ],
+      "expected_result": "SSH accepts weak or default credentials",
+      "payloads": [
+        "root:root",
+        "admin:admin"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-798"
+      ],
+      "auth_required": true,
+      "tags": [
+        "common",
+        "default-creds"
+      ],
+      "risk_score": 0.3945,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "ssh_root_login",
+      "test_name": "SSH Root Login Permitted",
+      "description": "Checks if SSH allows direct root login",
+      "protocol": "ssh",
+      "port": 22,
+      "target_ip": "172.20.0.17",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "high",
+      "test_steps": [
+        "Connect via SSH as root",
+        "Check if root login is permitted"
+      ],
+      "expected_result": "Root login is allowed via SSH",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09"
+      ],
+      "auth_required": true,
+      "tags": [
+        "common",
+        "misconfiguration"
+      ],
+      "risk_score": 0.3945,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "ssh_password_auth",
+      "test_name": "SSH Password Authentication Enabled",
+      "description": "Checks if SSH allows password authentication (vs key-only)",
+      "protocol": "ssh",
+      "port": 22,
+      "target_ip": "172.20.0.17",
+      "vulnerability_type": "policy",
+      "owasp_iot_category": "IoT-10: Lack of Physical Hardening",
+      "severity": "low",
+      "test_steps": [
+        "Connect via SSH",
+        "Check if password authentication is accepted"
+      ],
+      "expected_result": "SSH server accepts password authentication",
+      "payloads": [],
+      "references": [
+        "CWE-308"
+      ],
+      "auth_required": true,
+      "tags": [
+        "common",
+        "policy"
+      ],
+      "risk_score": 0.3945,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "ssh_no_auth_limit",
+      "test_name": "SSH No Authentication Rate Limiting",
+      "description": "Checks if SSH has no limit on failed authentication attempts",
+      "protocol": "ssh",
+      "port": 22,
+      "target_ip": "172.20.0.17",
+      "vulnerability_type": "bruteforce",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "high",
+      "test_steps": [
+        "Attempt multiple failed logins rapidly",
+        "Check if connection is not rate-limited or blocked"
+      ],
+      "expected_result": "SSH allows unlimited authentication attempts",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-307"
+      ],
+      "auth_required": true,
+      "tags": [
+        "common",
+        "bruteforce"
+      ],
+      "risk_score": 0.3945,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "ssh_weak_auth_ext",
+      "test_name": "SSH Extended Weak Authentication",
+      "description": "Extended credential testing with IoT vendor-specific defaults",
+      "protocol": "ssh",
+      "port": 22,
+      "target_ip": "172.20.0.17",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Try extended IoT credential list",
+        "Include vendor-specific defaults"
+      ],
+      "expected_result": "SSH accepts vendor-default credentials",
+      "payloads": [
+        "admin:admin",
+        "root:toor",
+        "ubnt:ubnt",
+        "pi:raspberry",
+        "admin:password"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01"
+      ],
+      "auth_required": true,
+      "tags": [
+        "uncommon",
+        "default-creds"
+      ],
+      "risk_score": 0.3945,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "ssh_old_version",
+      "test_name": "SSH Outdated Version",
+      "description": "Checks if SSH server runs an outdated or vulnerable version",
+      "protocol": "ssh",
+      "port": 22,
+      "target_ip": "172.20.0.17",
+      "vulnerability_type": "version",
+      "owasp_iot_category": "IoT-04: Lack of Secure Update Mechanism",
+      "severity": "medium",
+      "test_steps": [
+        "Connect to SSH port",
+        "Capture version banner",
+        "Compare against known vulnerable versions"
+      ],
+      "expected_result": "SSH server version is outdated or has known CVEs",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-04"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "version"
+      ],
+      "risk_score": 0.2271,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "ssh_weak_crypto",
+      "test_name": "SSH Weak Cryptographic Algorithms",
+      "description": "Checks for weak ciphers, MACs, or key exchange algorithms",
+      "protocol": "ssh",
+      "port": 22,
+      "target_ip": "172.20.0.17",
+      "vulnerability_type": "crypto",
+      "owasp_iot_category": "IoT-05: Use of Insecure or Outdated Components",
+      "severity": "medium",
+      "test_steps": [
+        "Connect via SSH",
+        "Enumerate supported ciphers and KEX algorithms",
+        "Check for weak algorithms"
+      ],
+      "expected_result": "Server supports weak or deprecated cryptographic algorithms",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-05",
+        "CWE-327"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "crypto"
+      ],
+      "risk_score": 0.2271,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "ssh_weak_kex",
+      "test_name": "SSH Weak Key Exchange",
+      "description": "Tests for weak key exchange algorithms (diffie-hellman-group1-sha1, etc.)",
+      "protocol": "ssh",
+      "port": 22,
+      "target_ip": "172.20.0.17",
+      "vulnerability_type": "crypto",
+      "owasp_iot_category": "IoT-05: Use of Insecure or Outdated Components",
+      "severity": "medium",
+      "test_steps": [
+        "Enumerate KEX algorithms",
+        "Check for deprecated/weak algorithms"
+      ],
+      "expected_result": "Server supports weak key exchange algorithms",
+      "payloads": [],
+      "references": [
+        "CWE-327"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "crypto"
+      ],
+      "risk_score": 0.2271,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_directory_listing",
+      "test_name": "HTTP Directory Listing",
+      "description": "Checks if HTTP server exposes directory listings",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.11",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send GET to root path",
+        "Check response for directory listing indicators"
+      ],
+      "expected_result": "Server returns directory listing with file names",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09",
+        "CWE-548"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "misconfiguration"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_directory_traversal",
+      "test_name": "HTTP Directory Traversal",
+      "description": "Tests for path traversal vulnerability to access files outside web root",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.11",
+      "vulnerability_type": "path_traversal",
+      "owasp_iot_category": "IoT-07: Insecure Data Transfer and Storage",
+      "severity": "high",
+      "test_steps": [
+        "Send GET with ../../../etc/passwd payload",
+        "Check response for file content"
+      ],
+      "expected_result": "Server returns content from outside web root",
+      "payloads": [
+        "../../../etc/passwd",
+        "..\\..\\..\\etc\\passwd"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-07",
+        "CWE-22"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "path-traversal"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_dangerous_methods",
+      "test_name": "HTTP Dangerous Methods",
+      "description": "Checks if dangerous HTTP methods (PUT, DELETE, TRACE) are enabled",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.11",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send OPTIONS request",
+        "Check Allow header for dangerous methods"
+      ],
+      "expected_result": "Server allows PUT, DELETE, or TRACE methods",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09",
+        "CWE-749"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "misconfiguration"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_missing_sec_headers",
+      "test_name": "HTTP Missing Security Headers",
+      "description": "Checks for missing security headers (CSP, X-Frame-Options, HSTS, etc.)",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.11",
+      "vulnerability_type": "hardening",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send GET request",
+        "Check response headers for security headers"
+      ],
+      "expected_result": "Critical security headers are missing",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "hardening"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_sensitive_files",
+      "test_name": "HTTP Sensitive File Exposure",
+      "description": "Probes for exposed sensitive files (.env, config.php, backup files)",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.11",
+      "vulnerability_type": "info_disclosure",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "high",
+      "test_steps": [
+        "Request common sensitive file paths",
+        "Check for 200 responses with content"
+      ],
+      "expected_result": "Sensitive files are accessible without authentication",
+      "payloads": [
+        "/.env",
+        "/config.php",
+        "/wp-config.php",
+        "/.git/config"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06",
+        "CWE-538"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "info-disclosure"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_open_admin",
+      "test_name": "HTTP Open Admin Panel",
+      "description": "Checks for unauthenticated access to admin interfaces",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.11",
+      "vulnerability_type": "exposed_interface",
+      "owasp_iot_category": "IoT-02: Insecure Network Services",
+      "severity": "high",
+      "test_steps": [
+        "Request common admin paths (/admin, /dashboard, /manage)",
+        "Check for accessible admin interfaces"
+      ],
+      "expected_result": "Admin panel is accessible without authentication",
+      "payloads": [
+        "/admin",
+        "/dashboard",
+        "/manage",
+        "/admin.php"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-02",
+        "CWE-306"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "exposed-interface"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_verbose_server",
+      "test_name": "HTTP Verbose Server Header",
+      "description": "Checks if server header reveals detailed version information",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.11",
+      "vulnerability_type": "fingerprinting",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "low",
+      "test_steps": [
+        "Send GET request",
+        "Inspect Server response header"
+      ],
+      "expected_result": "Server header reveals software name and version",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "fingerprinting"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_no_auth",
+      "test_name": "HTTP No Authentication Required",
+      "description": "Checks if HTTP service requires no authentication at all",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.11",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "high",
+      "test_steps": [
+        "Send unauthenticated GET request",
+        "Check if content is served without auth"
+      ],
+      "expected_result": "Service serves content without requiring authentication",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-306"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "auth"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_sensitive_files_ext",
+      "test_name": "HTTP Extended Sensitive Files",
+      "description": "Extended probe for backup files, debug endpoints, and hidden configs",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.11",
+      "vulnerability_type": "info_disclosure",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "high",
+      "test_steps": [
+        "Request extended list of sensitive paths",
+        "Check for accessible debug/backup files"
+      ],
+      "expected_result": "Hidden sensitive files are accessible",
+      "payloads": [
+        "/.env.bak",
+        "/robots.txt",
+        "/api/debug",
+        "/server-status",
+        "/.DS_Store"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06",
+        "CWE-538"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "info-disclosure"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_open_admin_ext",
+      "test_name": "HTTP Extended Admin Panel Discovery",
+      "description": "Extended search for hidden admin interfaces and API endpoints",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.11",
+      "vulnerability_type": "exposed_interface",
+      "owasp_iot_category": "IoT-02: Insecure Network Services",
+      "severity": "high",
+      "test_steps": [
+        "Request extended admin paths",
+        "Check API versioned endpoints"
+      ],
+      "expected_result": "Hidden admin or API endpoints are accessible",
+      "payloads": [
+        "/api/v1",
+        "/api/v2",
+        "/management",
+        "/console",
+        "/actuator"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-02"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "exposed-interface"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_cors_misconfig",
+      "test_name": "HTTP CORS Misconfiguration",
+      "description": "Tests for overly permissive CORS configuration allowing any origin",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.11",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send request with Origin: evil.com header",
+        "Check Access-Control-Allow-Origin response"
+      ],
+      "expected_result": "Server reflects arbitrary origin or allows wildcard CORS",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09",
+        "CWE-942"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "misconfiguration"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_insecure_cookies",
+      "test_name": "HTTP Insecure Cookies",
+      "description": "Checks if cookies are set without Secure, HttpOnly, or SameSite flags",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.11",
+      "vulnerability_type": "hardening",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send GET request",
+        "Inspect Set-Cookie headers for security flags"
+      ],
+      "expected_result": "Cookies lack Secure, HttpOnly, or SameSite attributes",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-07"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "hardening"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_trace_method",
+      "test_name": "HTTP TRACE Method Enabled",
+      "description": "Tests if TRACE method is enabled, which can be used for XST attacks",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.11",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send TRACE request",
+        "Check if server echoes back the request"
+      ],
+      "expected_result": "Server responds to TRACE with reflected headers",
+      "payloads": [],
+      "references": [
+        "CWE-693"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "misconfiguration"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_traversal_encoded",
+      "test_name": "HTTP Encoded Path Traversal",
+      "description": "Tests path traversal with URL-encoded and double-encoded payloads",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.11",
+      "vulnerability_type": "path_traversal",
+      "owasp_iot_category": "IoT-07: Insecure Data Transfer and Storage",
+      "severity": "high",
+      "test_steps": [
+        "Send traversal payloads with URL encoding",
+        "Try double-encoding and null bytes"
+      ],
+      "expected_result": "Encoded traversal bypasses input filtering",
+      "payloads": [
+        "%2e%2e%2f",
+        "..%252f",
+        "..%00/"
+      ],
+      "references": [
+        "CWE-22",
+        "CWE-20"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "path-traversal"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_sqli_probe",
+      "test_name": "HTTP SQL Injection Probe",
+      "description": "Probes HTTP parameters for basic SQL injection vulnerabilities",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.11",
+      "vulnerability_type": "injection",
+      "owasp_iot_category": "IoT-03: Insecure Ecosystem Interfaces",
+      "severity": "critical",
+      "test_steps": [
+        "Inject SQL payloads into GET/POST parameters",
+        "Check for SQL error messages or behavior changes"
+      ],
+      "expected_result": "Application shows SQL errors or different behavior with injected payloads",
+      "payloads": [
+        "' OR '1'='1",
+        "1; DROP TABLE",
+        "' UNION SELECT NULL--"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-03",
+        "CWE-89"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "injection"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_directory_listing",
+      "test_name": "HTTP Directory Listing",
+      "description": "Checks if HTTP server exposes directory listings",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.14",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send GET to root path",
+        "Check response for directory listing indicators"
+      ],
+      "expected_result": "Server returns directory listing with file names",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09",
+        "CWE-548"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "misconfiguration"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_directory_traversal",
+      "test_name": "HTTP Directory Traversal",
+      "description": "Tests for path traversal vulnerability to access files outside web root",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.14",
+      "vulnerability_type": "path_traversal",
+      "owasp_iot_category": "IoT-07: Insecure Data Transfer and Storage",
+      "severity": "high",
+      "test_steps": [
+        "Send GET with ../../../etc/passwd payload",
+        "Check response for file content"
+      ],
+      "expected_result": "Server returns content from outside web root",
+      "payloads": [
+        "../../../etc/passwd",
+        "..\\..\\..\\etc\\passwd"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-07",
+        "CWE-22"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "path-traversal"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_dangerous_methods",
+      "test_name": "HTTP Dangerous Methods",
+      "description": "Checks if dangerous HTTP methods (PUT, DELETE, TRACE) are enabled",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.14",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send OPTIONS request",
+        "Check Allow header for dangerous methods"
+      ],
+      "expected_result": "Server allows PUT, DELETE, or TRACE methods",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09",
+        "CWE-749"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "misconfiguration"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_missing_sec_headers",
+      "test_name": "HTTP Missing Security Headers",
+      "description": "Checks for missing security headers (CSP, X-Frame-Options, HSTS, etc.)",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.14",
+      "vulnerability_type": "hardening",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send GET request",
+        "Check response headers for security headers"
+      ],
+      "expected_result": "Critical security headers are missing",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "hardening"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_sensitive_files",
+      "test_name": "HTTP Sensitive File Exposure",
+      "description": "Probes for exposed sensitive files (.env, config.php, backup files)",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.14",
+      "vulnerability_type": "info_disclosure",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "high",
+      "test_steps": [
+        "Request common sensitive file paths",
+        "Check for 200 responses with content"
+      ],
+      "expected_result": "Sensitive files are accessible without authentication",
+      "payloads": [
+        "/.env",
+        "/config.php",
+        "/wp-config.php",
+        "/.git/config"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06",
+        "CWE-538"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "info-disclosure"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_open_admin",
+      "test_name": "HTTP Open Admin Panel",
+      "description": "Checks for unauthenticated access to admin interfaces",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.14",
+      "vulnerability_type": "exposed_interface",
+      "owasp_iot_category": "IoT-02: Insecure Network Services",
+      "severity": "high",
+      "test_steps": [
+        "Request common admin paths (/admin, /dashboard, /manage)",
+        "Check for accessible admin interfaces"
+      ],
+      "expected_result": "Admin panel is accessible without authentication",
+      "payloads": [
+        "/admin",
+        "/dashboard",
+        "/manage",
+        "/admin.php"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-02",
+        "CWE-306"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "exposed-interface"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_verbose_server",
+      "test_name": "HTTP Verbose Server Header",
+      "description": "Checks if server header reveals detailed version information",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.14",
+      "vulnerability_type": "fingerprinting",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "low",
+      "test_steps": [
+        "Send GET request",
+        "Inspect Server response header"
+      ],
+      "expected_result": "Server header reveals software name and version",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "fingerprinting"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_no_auth",
+      "test_name": "HTTP No Authentication Required",
+      "description": "Checks if HTTP service requires no authentication at all",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.14",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "high",
+      "test_steps": [
+        "Send unauthenticated GET request",
+        "Check if content is served without auth"
+      ],
+      "expected_result": "Service serves content without requiring authentication",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-306"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "auth"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_sensitive_files_ext",
+      "test_name": "HTTP Extended Sensitive Files",
+      "description": "Extended probe for backup files, debug endpoints, and hidden configs",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.14",
+      "vulnerability_type": "info_disclosure",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "high",
+      "test_steps": [
+        "Request extended list of sensitive paths",
+        "Check for accessible debug/backup files"
+      ],
+      "expected_result": "Hidden sensitive files are accessible",
+      "payloads": [
+        "/.env.bak",
+        "/robots.txt",
+        "/api/debug",
+        "/server-status",
+        "/.DS_Store"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06",
+        "CWE-538"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "info-disclosure"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_open_admin_ext",
+      "test_name": "HTTP Extended Admin Panel Discovery",
+      "description": "Extended search for hidden admin interfaces and API endpoints",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.14",
+      "vulnerability_type": "exposed_interface",
+      "owasp_iot_category": "IoT-02: Insecure Network Services",
+      "severity": "high",
+      "test_steps": [
+        "Request extended admin paths",
+        "Check API versioned endpoints"
+      ],
+      "expected_result": "Hidden admin or API endpoints are accessible",
+      "payloads": [
+        "/api/v1",
+        "/api/v2",
+        "/management",
+        "/console",
+        "/actuator"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-02"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "exposed-interface"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_cors_misconfig",
+      "test_name": "HTTP CORS Misconfiguration",
+      "description": "Tests for overly permissive CORS configuration allowing any origin",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.14",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send request with Origin: evil.com header",
+        "Check Access-Control-Allow-Origin response"
+      ],
+      "expected_result": "Server reflects arbitrary origin or allows wildcard CORS",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09",
+        "CWE-942"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "misconfiguration"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_insecure_cookies",
+      "test_name": "HTTP Insecure Cookies",
+      "description": "Checks if cookies are set without Secure, HttpOnly, or SameSite flags",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.14",
+      "vulnerability_type": "hardening",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send GET request",
+        "Inspect Set-Cookie headers for security flags"
+      ],
+      "expected_result": "Cookies lack Secure, HttpOnly, or SameSite attributes",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-07"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "hardening"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_trace_method",
+      "test_name": "HTTP TRACE Method Enabled",
+      "description": "Tests if TRACE method is enabled, which can be used for XST attacks",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.14",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send TRACE request",
+        "Check if server echoes back the request"
+      ],
+      "expected_result": "Server responds to TRACE with reflected headers",
+      "payloads": [],
+      "references": [
+        "CWE-693"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "misconfiguration"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_traversal_encoded",
+      "test_name": "HTTP Encoded Path Traversal",
+      "description": "Tests path traversal with URL-encoded and double-encoded payloads",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.14",
+      "vulnerability_type": "path_traversal",
+      "owasp_iot_category": "IoT-07: Insecure Data Transfer and Storage",
+      "severity": "high",
+      "test_steps": [
+        "Send traversal payloads with URL encoding",
+        "Try double-encoding and null bytes"
+      ],
+      "expected_result": "Encoded traversal bypasses input filtering",
+      "payloads": [
+        "%2e%2e%2f",
+        "..%252f",
+        "..%00/"
+      ],
+      "references": [
+        "CWE-22",
+        "CWE-20"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "path-traversal"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_sqli_probe",
+      "test_name": "HTTP SQL Injection Probe",
+      "description": "Probes HTTP parameters for basic SQL injection vulnerabilities",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.14",
+      "vulnerability_type": "injection",
+      "owasp_iot_category": "IoT-03: Insecure Ecosystem Interfaces",
+      "severity": "critical",
+      "test_steps": [
+        "Inject SQL payloads into GET/POST parameters",
+        "Check for SQL error messages or behavior changes"
+      ],
+      "expected_result": "Application shows SQL errors or different behavior with injected payloads",
+      "payloads": [
+        "' OR '1'='1",
+        "1; DROP TABLE",
+        "' UNION SELECT NULL--"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-03",
+        "CWE-89"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "injection"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_directory_listing",
+      "test_name": "HTTP Directory Listing",
+      "description": "Checks if HTTP server exposes directory listings",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.15",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send GET to root path",
+        "Check response for directory listing indicators"
+      ],
+      "expected_result": "Server returns directory listing with file names",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09",
+        "CWE-548"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "misconfiguration"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_directory_traversal",
+      "test_name": "HTTP Directory Traversal",
+      "description": "Tests for path traversal vulnerability to access files outside web root",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.15",
+      "vulnerability_type": "path_traversal",
+      "owasp_iot_category": "IoT-07: Insecure Data Transfer and Storage",
+      "severity": "high",
+      "test_steps": [
+        "Send GET with ../../../etc/passwd payload",
+        "Check response for file content"
+      ],
+      "expected_result": "Server returns content from outside web root",
+      "payloads": [
+        "../../../etc/passwd",
+        "..\\..\\..\\etc\\passwd"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-07",
+        "CWE-22"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "path-traversal"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_dangerous_methods",
+      "test_name": "HTTP Dangerous Methods",
+      "description": "Checks if dangerous HTTP methods (PUT, DELETE, TRACE) are enabled",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.15",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send OPTIONS request",
+        "Check Allow header for dangerous methods"
+      ],
+      "expected_result": "Server allows PUT, DELETE, or TRACE methods",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09",
+        "CWE-749"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "misconfiguration"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_missing_sec_headers",
+      "test_name": "HTTP Missing Security Headers",
+      "description": "Checks for missing security headers (CSP, X-Frame-Options, HSTS, etc.)",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.15",
+      "vulnerability_type": "hardening",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send GET request",
+        "Check response headers for security headers"
+      ],
+      "expected_result": "Critical security headers are missing",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "hardening"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_sensitive_files",
+      "test_name": "HTTP Sensitive File Exposure",
+      "description": "Probes for exposed sensitive files (.env, config.php, backup files)",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.15",
+      "vulnerability_type": "info_disclosure",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "high",
+      "test_steps": [
+        "Request common sensitive file paths",
+        "Check for 200 responses with content"
+      ],
+      "expected_result": "Sensitive files are accessible without authentication",
+      "payloads": [
+        "/.env",
+        "/config.php",
+        "/wp-config.php",
+        "/.git/config"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06",
+        "CWE-538"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "info-disclosure"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_open_admin",
+      "test_name": "HTTP Open Admin Panel",
+      "description": "Checks for unauthenticated access to admin interfaces",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.15",
+      "vulnerability_type": "exposed_interface",
+      "owasp_iot_category": "IoT-02: Insecure Network Services",
+      "severity": "high",
+      "test_steps": [
+        "Request common admin paths (/admin, /dashboard, /manage)",
+        "Check for accessible admin interfaces"
+      ],
+      "expected_result": "Admin panel is accessible without authentication",
+      "payloads": [
+        "/admin",
+        "/dashboard",
+        "/manage",
+        "/admin.php"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-02",
+        "CWE-306"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "exposed-interface"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_verbose_server",
+      "test_name": "HTTP Verbose Server Header",
+      "description": "Checks if server header reveals detailed version information",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.15",
+      "vulnerability_type": "fingerprinting",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "low",
+      "test_steps": [
+        "Send GET request",
+        "Inspect Server response header"
+      ],
+      "expected_result": "Server header reveals software name and version",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "fingerprinting"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_no_auth",
+      "test_name": "HTTP No Authentication Required",
+      "description": "Checks if HTTP service requires no authentication at all",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.15",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "high",
+      "test_steps": [
+        "Send unauthenticated GET request",
+        "Check if content is served without auth"
+      ],
+      "expected_result": "Service serves content without requiring authentication",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-306"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "auth"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_sensitive_files_ext",
+      "test_name": "HTTP Extended Sensitive Files",
+      "description": "Extended probe for backup files, debug endpoints, and hidden configs",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.15",
+      "vulnerability_type": "info_disclosure",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "high",
+      "test_steps": [
+        "Request extended list of sensitive paths",
+        "Check for accessible debug/backup files"
+      ],
+      "expected_result": "Hidden sensitive files are accessible",
+      "payloads": [
+        "/.env.bak",
+        "/robots.txt",
+        "/api/debug",
+        "/server-status",
+        "/.DS_Store"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06",
+        "CWE-538"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "info-disclosure"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_open_admin_ext",
+      "test_name": "HTTP Extended Admin Panel Discovery",
+      "description": "Extended search for hidden admin interfaces and API endpoints",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.15",
+      "vulnerability_type": "exposed_interface",
+      "owasp_iot_category": "IoT-02: Insecure Network Services",
+      "severity": "high",
+      "test_steps": [
+        "Request extended admin paths",
+        "Check API versioned endpoints"
+      ],
+      "expected_result": "Hidden admin or API endpoints are accessible",
+      "payloads": [
+        "/api/v1",
+        "/api/v2",
+        "/management",
+        "/console",
+        "/actuator"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-02"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "exposed-interface"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_cors_misconfig",
+      "test_name": "HTTP CORS Misconfiguration",
+      "description": "Tests for overly permissive CORS configuration allowing any origin",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.15",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send request with Origin: evil.com header",
+        "Check Access-Control-Allow-Origin response"
+      ],
+      "expected_result": "Server reflects arbitrary origin or allows wildcard CORS",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09",
+        "CWE-942"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "misconfiguration"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_insecure_cookies",
+      "test_name": "HTTP Insecure Cookies",
+      "description": "Checks if cookies are set without Secure, HttpOnly, or SameSite flags",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.15",
+      "vulnerability_type": "hardening",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send GET request",
+        "Inspect Set-Cookie headers for security flags"
+      ],
+      "expected_result": "Cookies lack Secure, HttpOnly, or SameSite attributes",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-07"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "hardening"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_trace_method",
+      "test_name": "HTTP TRACE Method Enabled",
+      "description": "Tests if TRACE method is enabled, which can be used for XST attacks",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.15",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send TRACE request",
+        "Check if server echoes back the request"
+      ],
+      "expected_result": "Server responds to TRACE with reflected headers",
+      "payloads": [],
+      "references": [
+        "CWE-693"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "misconfiguration"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_traversal_encoded",
+      "test_name": "HTTP Encoded Path Traversal",
+      "description": "Tests path traversal with URL-encoded and double-encoded payloads",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.15",
+      "vulnerability_type": "path_traversal",
+      "owasp_iot_category": "IoT-07: Insecure Data Transfer and Storage",
+      "severity": "high",
+      "test_steps": [
+        "Send traversal payloads with URL encoding",
+        "Try double-encoding and null bytes"
+      ],
+      "expected_result": "Encoded traversal bypasses input filtering",
+      "payloads": [
+        "%2e%2e%2f",
+        "..%252f",
+        "..%00/"
+      ],
+      "references": [
+        "CWE-22",
+        "CWE-20"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "path-traversal"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_sqli_probe",
+      "test_name": "HTTP SQL Injection Probe",
+      "description": "Probes HTTP parameters for basic SQL injection vulnerabilities",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.15",
+      "vulnerability_type": "injection",
+      "owasp_iot_category": "IoT-03: Insecure Ecosystem Interfaces",
+      "severity": "critical",
+      "test_steps": [
+        "Inject SQL payloads into GET/POST parameters",
+        "Check for SQL error messages or behavior changes"
+      ],
+      "expected_result": "Application shows SQL errors or different behavior with injected payloads",
+      "payloads": [
+        "' OR '1'='1",
+        "1; DROP TABLE",
+        "' UNION SELECT NULL--"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-03",
+        "CWE-89"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "injection"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_directory_listing",
+      "test_name": "HTTP Directory Listing",
+      "description": "Checks if HTTP server exposes directory listings",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.23",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send GET to root path",
+        "Check response for directory listing indicators"
+      ],
+      "expected_result": "Server returns directory listing with file names",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09",
+        "CWE-548"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "misconfiguration"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_directory_traversal",
+      "test_name": "HTTP Directory Traversal",
+      "description": "Tests for path traversal vulnerability to access files outside web root",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.23",
+      "vulnerability_type": "path_traversal",
+      "owasp_iot_category": "IoT-07: Insecure Data Transfer and Storage",
+      "severity": "high",
+      "test_steps": [
+        "Send GET with ../../../etc/passwd payload",
+        "Check response for file content"
+      ],
+      "expected_result": "Server returns content from outside web root",
+      "payloads": [
+        "../../../etc/passwd",
+        "..\\..\\..\\etc\\passwd"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-07",
+        "CWE-22"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "path-traversal"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_dangerous_methods",
+      "test_name": "HTTP Dangerous Methods",
+      "description": "Checks if dangerous HTTP methods (PUT, DELETE, TRACE) are enabled",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.23",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send OPTIONS request",
+        "Check Allow header for dangerous methods"
+      ],
+      "expected_result": "Server allows PUT, DELETE, or TRACE methods",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09",
+        "CWE-749"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "misconfiguration"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_missing_sec_headers",
+      "test_name": "HTTP Missing Security Headers",
+      "description": "Checks for missing security headers (CSP, X-Frame-Options, HSTS, etc.)",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.23",
+      "vulnerability_type": "hardening",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send GET request",
+        "Check response headers for security headers"
+      ],
+      "expected_result": "Critical security headers are missing",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "hardening"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_sensitive_files",
+      "test_name": "HTTP Sensitive File Exposure",
+      "description": "Probes for exposed sensitive files (.env, config.php, backup files)",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.23",
+      "vulnerability_type": "info_disclosure",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "high",
+      "test_steps": [
+        "Request common sensitive file paths",
+        "Check for 200 responses with content"
+      ],
+      "expected_result": "Sensitive files are accessible without authentication",
+      "payloads": [
+        "/.env",
+        "/config.php",
+        "/wp-config.php",
+        "/.git/config"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06",
+        "CWE-538"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "info-disclosure"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_open_admin",
+      "test_name": "HTTP Open Admin Panel",
+      "description": "Checks for unauthenticated access to admin interfaces",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.23",
+      "vulnerability_type": "exposed_interface",
+      "owasp_iot_category": "IoT-02: Insecure Network Services",
+      "severity": "high",
+      "test_steps": [
+        "Request common admin paths (/admin, /dashboard, /manage)",
+        "Check for accessible admin interfaces"
+      ],
+      "expected_result": "Admin panel is accessible without authentication",
+      "payloads": [
+        "/admin",
+        "/dashboard",
+        "/manage",
+        "/admin.php"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-02",
+        "CWE-306"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "exposed-interface"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_verbose_server",
+      "test_name": "HTTP Verbose Server Header",
+      "description": "Checks if server header reveals detailed version information",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.23",
+      "vulnerability_type": "fingerprinting",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "low",
+      "test_steps": [
+        "Send GET request",
+        "Inspect Server response header"
+      ],
+      "expected_result": "Server header reveals software name and version",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "fingerprinting"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_no_auth",
+      "test_name": "HTTP No Authentication Required",
+      "description": "Checks if HTTP service requires no authentication at all",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.23",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "high",
+      "test_steps": [
+        "Send unauthenticated GET request",
+        "Check if content is served without auth"
+      ],
+      "expected_result": "Service serves content without requiring authentication",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-306"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "auth"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_sensitive_files_ext",
+      "test_name": "HTTP Extended Sensitive Files",
+      "description": "Extended probe for backup files, debug endpoints, and hidden configs",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.23",
+      "vulnerability_type": "info_disclosure",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "high",
+      "test_steps": [
+        "Request extended list of sensitive paths",
+        "Check for accessible debug/backup files"
+      ],
+      "expected_result": "Hidden sensitive files are accessible",
+      "payloads": [
+        "/.env.bak",
+        "/robots.txt",
+        "/api/debug",
+        "/server-status",
+        "/.DS_Store"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06",
+        "CWE-538"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "info-disclosure"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_open_admin_ext",
+      "test_name": "HTTP Extended Admin Panel Discovery",
+      "description": "Extended search for hidden admin interfaces and API endpoints",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.23",
+      "vulnerability_type": "exposed_interface",
+      "owasp_iot_category": "IoT-02: Insecure Network Services",
+      "severity": "high",
+      "test_steps": [
+        "Request extended admin paths",
+        "Check API versioned endpoints"
+      ],
+      "expected_result": "Hidden admin or API endpoints are accessible",
+      "payloads": [
+        "/api/v1",
+        "/api/v2",
+        "/management",
+        "/console",
+        "/actuator"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-02"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "exposed-interface"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_cors_misconfig",
+      "test_name": "HTTP CORS Misconfiguration",
+      "description": "Tests for overly permissive CORS configuration allowing any origin",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.23",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send request with Origin: evil.com header",
+        "Check Access-Control-Allow-Origin response"
+      ],
+      "expected_result": "Server reflects arbitrary origin or allows wildcard CORS",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09",
+        "CWE-942"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "misconfiguration"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_insecure_cookies",
+      "test_name": "HTTP Insecure Cookies",
+      "description": "Checks if cookies are set without Secure, HttpOnly, or SameSite flags",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.23",
+      "vulnerability_type": "hardening",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send GET request",
+        "Inspect Set-Cookie headers for security flags"
+      ],
+      "expected_result": "Cookies lack Secure, HttpOnly, or SameSite attributes",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-07"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "hardening"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_trace_method",
+      "test_name": "HTTP TRACE Method Enabled",
+      "description": "Tests if TRACE method is enabled, which can be used for XST attacks",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.23",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send TRACE request",
+        "Check if server echoes back the request"
+      ],
+      "expected_result": "Server responds to TRACE with reflected headers",
+      "payloads": [],
+      "references": [
+        "CWE-693"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "misconfiguration"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_traversal_encoded",
+      "test_name": "HTTP Encoded Path Traversal",
+      "description": "Tests path traversal with URL-encoded and double-encoded payloads",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.23",
+      "vulnerability_type": "path_traversal",
+      "owasp_iot_category": "IoT-07: Insecure Data Transfer and Storage",
+      "severity": "high",
+      "test_steps": [
+        "Send traversal payloads with URL encoding",
+        "Try double-encoding and null bytes"
+      ],
+      "expected_result": "Encoded traversal bypasses input filtering",
+      "payloads": [
+        "%2e%2e%2f",
+        "..%252f",
+        "..%00/"
+      ],
+      "references": [
+        "CWE-22",
+        "CWE-20"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "path-traversal"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_sqli_probe",
+      "test_name": "HTTP SQL Injection Probe",
+      "description": "Probes HTTP parameters for basic SQL injection vulnerabilities",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.23",
+      "vulnerability_type": "injection",
+      "owasp_iot_category": "IoT-03: Insecure Ecosystem Interfaces",
+      "severity": "critical",
+      "test_steps": [
+        "Inject SQL payloads into GET/POST parameters",
+        "Check for SQL error messages or behavior changes"
+      ],
+      "expected_result": "Application shows SQL errors or different behavior with injected payloads",
+      "payloads": [
+        "' OR '1'='1",
+        "1; DROP TABLE",
+        "' UNION SELECT NULL--"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-03",
+        "CWE-89"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "injection"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_directory_listing",
+      "test_name": "HTTP Directory Listing",
+      "description": "Checks if HTTP server exposes directory listings",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.3",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send GET to root path",
+        "Check response for directory listing indicators"
+      ],
+      "expected_result": "Server returns directory listing with file names",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09",
+        "CWE-548"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "misconfiguration"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_directory_traversal",
+      "test_name": "HTTP Directory Traversal",
+      "description": "Tests for path traversal vulnerability to access files outside web root",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.3",
+      "vulnerability_type": "path_traversal",
+      "owasp_iot_category": "IoT-07: Insecure Data Transfer and Storage",
+      "severity": "high",
+      "test_steps": [
+        "Send GET with ../../../etc/passwd payload",
+        "Check response for file content"
+      ],
+      "expected_result": "Server returns content from outside web root",
+      "payloads": [
+        "../../../etc/passwd",
+        "..\\..\\..\\etc\\passwd"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-07",
+        "CWE-22"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "path-traversal"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_dangerous_methods",
+      "test_name": "HTTP Dangerous Methods",
+      "description": "Checks if dangerous HTTP methods (PUT, DELETE, TRACE) are enabled",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.3",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send OPTIONS request",
+        "Check Allow header for dangerous methods"
+      ],
+      "expected_result": "Server allows PUT, DELETE, or TRACE methods",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09",
+        "CWE-749"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "misconfiguration"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_missing_sec_headers",
+      "test_name": "HTTP Missing Security Headers",
+      "description": "Checks for missing security headers (CSP, X-Frame-Options, HSTS, etc.)",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.3",
+      "vulnerability_type": "hardening",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send GET request",
+        "Check response headers for security headers"
+      ],
+      "expected_result": "Critical security headers are missing",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "hardening"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_sensitive_files",
+      "test_name": "HTTP Sensitive File Exposure",
+      "description": "Probes for exposed sensitive files (.env, config.php, backup files)",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.3",
+      "vulnerability_type": "info_disclosure",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "high",
+      "test_steps": [
+        "Request common sensitive file paths",
+        "Check for 200 responses with content"
+      ],
+      "expected_result": "Sensitive files are accessible without authentication",
+      "payloads": [
+        "/.env",
+        "/config.php",
+        "/wp-config.php",
+        "/.git/config"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06",
+        "CWE-538"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "info-disclosure"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_open_admin",
+      "test_name": "HTTP Open Admin Panel",
+      "description": "Checks for unauthenticated access to admin interfaces",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.3",
+      "vulnerability_type": "exposed_interface",
+      "owasp_iot_category": "IoT-02: Insecure Network Services",
+      "severity": "high",
+      "test_steps": [
+        "Request common admin paths (/admin, /dashboard, /manage)",
+        "Check for accessible admin interfaces"
+      ],
+      "expected_result": "Admin panel is accessible without authentication",
+      "payloads": [
+        "/admin",
+        "/dashboard",
+        "/manage",
+        "/admin.php"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-02",
+        "CWE-306"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "exposed-interface"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_verbose_server",
+      "test_name": "HTTP Verbose Server Header",
+      "description": "Checks if server header reveals detailed version information",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.3",
+      "vulnerability_type": "fingerprinting",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "low",
+      "test_steps": [
+        "Send GET request",
+        "Inspect Server response header"
+      ],
+      "expected_result": "Server header reveals software name and version",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "fingerprinting"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_no_auth",
+      "test_name": "HTTP No Authentication Required",
+      "description": "Checks if HTTP service requires no authentication at all",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.3",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "high",
+      "test_steps": [
+        "Send unauthenticated GET request",
+        "Check if content is served without auth"
+      ],
+      "expected_result": "Service serves content without requiring authentication",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-306"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "auth"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_sensitive_files_ext",
+      "test_name": "HTTP Extended Sensitive Files",
+      "description": "Extended probe for backup files, debug endpoints, and hidden configs",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.3",
+      "vulnerability_type": "info_disclosure",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "high",
+      "test_steps": [
+        "Request extended list of sensitive paths",
+        "Check for accessible debug/backup files"
+      ],
+      "expected_result": "Hidden sensitive files are accessible",
+      "payloads": [
+        "/.env.bak",
+        "/robots.txt",
+        "/api/debug",
+        "/server-status",
+        "/.DS_Store"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06",
+        "CWE-538"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "info-disclosure"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_open_admin_ext",
+      "test_name": "HTTP Extended Admin Panel Discovery",
+      "description": "Extended search for hidden admin interfaces and API endpoints",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.3",
+      "vulnerability_type": "exposed_interface",
+      "owasp_iot_category": "IoT-02: Insecure Network Services",
+      "severity": "high",
+      "test_steps": [
+        "Request extended admin paths",
+        "Check API versioned endpoints"
+      ],
+      "expected_result": "Hidden admin or API endpoints are accessible",
+      "payloads": [
+        "/api/v1",
+        "/api/v2",
+        "/management",
+        "/console",
+        "/actuator"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-02"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "exposed-interface"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_cors_misconfig",
+      "test_name": "HTTP CORS Misconfiguration",
+      "description": "Tests for overly permissive CORS configuration allowing any origin",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.3",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send request with Origin: evil.com header",
+        "Check Access-Control-Allow-Origin response"
+      ],
+      "expected_result": "Server reflects arbitrary origin or allows wildcard CORS",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09",
+        "CWE-942"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "misconfiguration"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_insecure_cookies",
+      "test_name": "HTTP Insecure Cookies",
+      "description": "Checks if cookies are set without Secure, HttpOnly, or SameSite flags",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.3",
+      "vulnerability_type": "hardening",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send GET request",
+        "Inspect Set-Cookie headers for security flags"
+      ],
+      "expected_result": "Cookies lack Secure, HttpOnly, or SameSite attributes",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-07"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "hardening"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_trace_method",
+      "test_name": "HTTP TRACE Method Enabled",
+      "description": "Tests if TRACE method is enabled, which can be used for XST attacks",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.3",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "medium",
+      "test_steps": [
+        "Send TRACE request",
+        "Check if server echoes back the request"
+      ],
+      "expected_result": "Server responds to TRACE with reflected headers",
+      "payloads": [],
+      "references": [
+        "CWE-693"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "misconfiguration"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_traversal_encoded",
+      "test_name": "HTTP Encoded Path Traversal",
+      "description": "Tests path traversal with URL-encoded and double-encoded payloads",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.3",
+      "vulnerability_type": "path_traversal",
+      "owasp_iot_category": "IoT-07: Insecure Data Transfer and Storage",
+      "severity": "high",
+      "test_steps": [
+        "Send traversal payloads with URL encoding",
+        "Try double-encoding and null bytes"
+      ],
+      "expected_result": "Encoded traversal bypasses input filtering",
+      "payloads": [
+        "%2e%2e%2f",
+        "..%252f",
+        "..%00/"
+      ],
+      "references": [
+        "CWE-22",
+        "CWE-20"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "path-traversal"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "http_sqli_probe",
+      "test_name": "HTTP SQL Injection Probe",
+      "description": "Probes HTTP parameters for basic SQL injection vulnerabilities",
+      "protocol": "http",
+      "port": 80,
+      "target_ip": "172.20.0.3",
+      "vulnerability_type": "injection",
+      "owasp_iot_category": "IoT-03: Insecure Ecosystem Interfaces",
+      "severity": "critical",
+      "test_steps": [
+        "Inject SQL payloads into GET/POST parameters",
+        "Check for SQL error messages or behavior changes"
+      ],
+      "expected_result": "Application shows SQL errors or different behavior with injected payloads",
+      "payloads": [
+        "' OR '1'='1",
+        "1; DROP TABLE",
+        "' UNION SELECT NULL--"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-03",
+        "CWE-89"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "injection"
+      ],
+      "risk_score": 0.1476,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "ftp_anonymous_login",
+      "test_name": "FTP Anonymous Login",
+      "description": "Tests if the FTP server allows anonymous login without credentials",
+      "protocol": "ftp",
+      "port": 21,
+      "target_ip": "172.20.0.10",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Connect to FTP port",
+        "Attempt login with anonymous/anonymous",
+        "Check for successful authentication"
+      ],
+      "expected_result": "Server accepts anonymous credentials",
+      "payloads": [
+        "anonymous:anonymous"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-287"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "default-creds"
+      ],
+      "risk_score": 0.0161,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "ftp_anonymous_real",
+      "test_name": "FTP Real Anonymous Access",
+      "description": "Verifies anonymous FTP access allows file listing and download",
+      "protocol": "ftp",
+      "port": 21,
+      "target_ip": "172.20.0.10",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Login as anonymous",
+        "Attempt to list directory contents",
+        "Check for readable files"
+      ],
+      "expected_result": "Anonymous user can list and access files",
+      "payloads": [
+        "anonymous:anonymous"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "data-exposure"
+      ],
+      "risk_score": 0.0161,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "ftp_anonymous_login",
+      "test_name": "FTP Anonymous Login",
+      "description": "Tests if the FTP server allows anonymous login without credentials",
+      "protocol": "ftp",
+      "port": 21,
+      "target_ip": "172.20.0.13",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Connect to FTP port",
+        "Attempt login with anonymous/anonymous",
+        "Check for successful authentication"
+      ],
+      "expected_result": "Server accepts anonymous credentials",
+      "payloads": [
+        "anonymous:anonymous"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-287"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "default-creds"
+      ],
+      "risk_score": 0.0161,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "ftp_anonymous_real",
+      "test_name": "FTP Real Anonymous Access",
+      "description": "Verifies anonymous FTP access allows file listing and download",
+      "protocol": "ftp",
+      "port": 21,
+      "target_ip": "172.20.0.13",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Login as anonymous",
+        "Attempt to list directory contents",
+        "Check for readable files"
+      ],
+      "expected_result": "Anonymous user can list and access files",
+      "payloads": [
+        "anonymous:anonymous"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "data-exposure"
+      ],
+      "risk_score": 0.0161,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "ftp_anonymous_login",
+      "test_name": "FTP Anonymous Login",
+      "description": "Tests if the FTP server allows anonymous login without credentials",
+      "protocol": "ftp",
+      "port": 21,
+      "target_ip": "172.20.0.20",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Connect to FTP port",
+        "Attempt login with anonymous/anonymous",
+        "Check for successful authentication"
+      ],
+      "expected_result": "Server accepts anonymous credentials",
+      "payloads": [
+        "anonymous:anonymous"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01",
+        "CWE-287"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "default-creds"
+      ],
+      "risk_score": 0.0161,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "ftp_anonymous_real",
+      "test_name": "FTP Real Anonymous Access",
+      "description": "Verifies anonymous FTP access allows file listing and download",
+      "protocol": "ftp",
+      "port": 21,
+      "target_ip": "172.20.0.20",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "critical",
+      "test_steps": [
+        "Login as anonymous",
+        "Attempt to list directory contents",
+        "Check for readable files"
+      ],
+      "expected_result": "Anonymous user can list and access files",
+      "payloads": [
+        "anonymous:anonymous"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "data-exposure"
+      ],
+      "risk_score": 0.0161,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "coap_core_discovery",
+      "test_name": "CoAP Core Resource Discovery",
+      "description": "Discovers all resources via .well-known/core endpoint",
+      "protocol": "coap",
+      "port": 5683,
+      "target_ip": "172.20.0.21",
+      "vulnerability_type": "information_disclosure",
+      "owasp_iot_category": "IoT-06: Insufficient Privacy Protection",
+      "severity": "medium",
+      "test_steps": [
+        "Send GET to /.well-known/core",
+        "Parse CoRE Link Format response"
+      ],
+      "expected_result": "Server exposes full resource directory",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06",
+        "RFC 6690"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "info-disclosure"
+      ],
+      "risk_score": 0.0002,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "coap_open_resource",
+      "test_name": "CoAP Open Resource Access",
+      "description": "Tests if CoAP resources are accessible without authentication",
+      "protocol": "coap",
+      "port": 5683,
+      "target_ip": "172.20.0.21",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "high",
+      "test_steps": [
+        "Send GET to discovered resources",
+        "Check for data in response"
+      ],
+      "expected_result": "Resources return data without authentication",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "auth"
+      ],
+      "risk_score": 0.0002,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "coap_get",
+      "test_name": "CoAP GET Access",
+      "description": "Tests basic GET access to CoAP endpoints",
+      "protocol": "coap",
+      "port": 5683,
+      "target_ip": "172.20.0.21",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "medium",
+      "test_steps": [
+        "Send GET to known CoAP paths",
+        "Check for successful response"
+      ],
+      "expected_result": "CoAP endpoints respond to unauthenticated GET requests",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-01"
+      ],
+      "auth_required": false,
+      "tags": [
+        "common",
+        "auth"
+      ],
+      "risk_score": 0.0002,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "coap_hidden_resource",
+      "test_name": "CoAP Hidden Resource Discovery",
+      "description": "Probes for hidden CoAP resources not listed in core discovery",
+      "protocol": "coap",
+      "port": 5683,
+      "target_ip": "172.20.0.21",
+      "vulnerability_type": "auth",
+      "owasp_iot_category": "IoT-01: Weak, Guessable, or Hardcoded Passwords",
+      "severity": "high",
+      "test_steps": [
+        "Probe common hidden paths (/secret, /config, /firmware)",
+        "Check for responses"
+      ],
+      "expected_result": "Hidden resources with sensitive data are accessible",
+      "payloads": [
+        "/secret",
+        "/config",
+        "/firmware",
+        "/debug"
+      ],
+      "references": [
+        "OWASP IoT Top 10 - IoT-06"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "info-disclosure"
+      ],
+      "risk_score": 0.0002,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "coap_put_allowed",
+      "test_name": "CoAP PUT Operation Allowed",
+      "description": "Tests if PUT method is allowed on CoAP resources (write access)",
+      "protocol": "coap",
+      "port": 5683,
+      "target_ip": "172.20.0.21",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "high",
+      "test_steps": [
+        "Send PUT to discovered resources",
+        "Check if write is accepted"
+      ],
+      "expected_result": "CoAP resources accept unauthorized write operations",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "misconfiguration"
+      ],
+      "risk_score": 0.0002,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    },
+    {
+      "test_id": "coap_delete_allowed",
+      "test_name": "CoAP DELETE Operation Allowed",
+      "description": "Tests if DELETE method is allowed on CoAP resources",
+      "protocol": "coap",
+      "port": 5683,
+      "target_ip": "172.20.0.21",
+      "vulnerability_type": "misconfiguration",
+      "owasp_iot_category": "IoT-09: Insecure Default Settings",
+      "severity": "high",
+      "test_steps": [
+        "Send DELETE to discovered resources",
+        "Check if deletion is accepted"
+      ],
+      "expected_result": "CoAP resources accept unauthorized delete operations",
+      "payloads": [],
+      "references": [
+        "OWASP IoT Top 10 - IoT-09"
+      ],
+      "auth_required": false,
+      "tags": [
+        "uncommon",
+        "misconfiguration"
+      ],
+      "risk_score": 0.0002,
+      "is_recommended": false,
+      "test_origin": "registry",
+      "pytest_code": null
+    }
+  ],
+  "metadata": {
+    "selected_protocols": null,
+    "severity_filter": null,
+    "include_uncommon": true,
+    "fingerprint": "2330f2a54cd22d90",
+    "enhancement_count": 0,
+    "last_enhanced_at": null,
+    "tests_added_on_enhance": 0,
+    "llm_tests_added": 0,
+    "automl_tool": "h2o",
+    "last_scored_at": "2026-03-12T05:08:12.345113",
+    "scored_with_auc": 0.8011
+  },
+  "total_tests": 140,
+  "protocols": [
+    "coap",
+    "ftp",
+    "http",
+    "modbus",
+    "mqtt",
+    "ssh",
+    "telnet"
+  ],
+  "recommended_count": 35
+}

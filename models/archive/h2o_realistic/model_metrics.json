@@ -1,0 +1,120 @@
+{
+  "framework": "h2o",
+  "leader_model_id": "StackedEnsemble_AllModels_4_AutoML_50_20260313_10811",
+  "leader_algo": "stackedensemble",
+  "auc": 0.7984,
+  "logloss": 0.5361,
+  "accuracy": null,
+  "feature_importance": [],
+  "leaderboard": [
+    {
+      "model_id": "StackedEnsemble_AllModels_4_AutoML_50_20260313_10811",
+      "auc": 0.787171,
+      "logloss": 0.544176,
+      "aucpr": 0.77683,
+      "mean_per_class_error": 0.288567,
+      "rmse": 0.430273,
+      "mse": 0.185135
+    },
+    {
+      "model_id": "GBM_grid_1_AutoML_50_20260313_10811_model_2",
+      "auc": 0.78513,
+      "logloss": 0.545087,
+      "aucpr": 0.776618,
+      "mean_per_class_error": 0.288567,
+      "rmse": 0.430789,
+      "mse": 0.185579
+    },
+    {
+      "model_id": "GBM_3_AutoML_50_20260313_10811",
+      "auc": 0.785116,
+      "logloss": 0.544893,
+      "aucpr": 0.776182,
+      "mean_per_class_error": 0.288567,
+      "rmse": 0.43081,
+      "mse": 0.185597
+    },
+    {
+      "model_id": "GBM_grid_1_AutoML_50_20260313_10811_model_1",
+      "auc": 0.785089,
+      "logloss": 0.545115,
+      "aucpr": 0.776318,
+      "mean_per_class_error": 0.288567,
+      "rmse": 0.430829,
+      "mse": 0.185614
+    },
+    {
+      "model_id": "GBM_2_AutoML_50_20260313_10811",
+      "auc": 0.785029,
+      "logloss": 0.545255,
+      "aucpr": 0.775902,
+      "mean_per_class_error": 0.288567,
+      "rmse": 0.430866,
+      "mse": 0.185646
+    },
+    {
+      "model_id": "StackedEnsemble_AllModels_3_AutoML_50_20260313_10811",
+      "auc": 0.785017,
+      "logloss": 0.544513,
+      "aucpr": 0.77545,
+      "mean_per_class_error": 0.288567,
+      "rmse": 0.430614,
+      "mse": 0.185429
+    },
+    {
+      "model_id": "GBM_grid_1_AutoML_50_20260313_10811_model_5",
+      "auc": 0.785005,
+      "logloss": 0.544619,
+      "aucpr": 0.775797,
+      "mean_per_class_error": 0.288567,
+      "rmse": 0.430717,
+      "mse": 0.185517
+    },
+    {
+      "model_id": "StackedEnsemble_AllModels_2_AutoML_50_20260313_10811",
+      "auc": 0.784925,
+      "logloss": 0.544992,
+      "aucpr": 0.77586,
+      "mean_per_class_error": 0.288567,
+      "rmse": 0.430835,
+      "mse": 0.185619
+    },
+    {
+      "model_id": "StackedEnsemble_BestOfFamily_4_AutoML_50_20260313_10811",
+      "auc": 0.784874,
+      "logloss": 0.545237,
+      "aucpr": 0.775702,
+      "mean_per_class_error": 0.288567,
+      "rmse": 0.430879,
+      "mse": 0.185657
+    },
+    {
+      "model_id": "XGBoost_grid_1_AutoML_50_20260313_10811_model_2",
+      "auc": 0.784823,
+      "logloss": 0.545073,
+      "aucpr": 0.776244,
+      "mean_per_class_error": 0.288567,
+      "rmse": 0.430995,
+      "mse": 0.185756
+    }
+  ],
+  "total_models_trained": 60,
+  "roc_curve": null,
+  "cv_auc": 0.7872,
+  "cv_logloss": 0.5442,
+  "cv_accuracy": null,
+  "cv_precision": null,
+  "cv_recall": null,
+  "cv_f1": null,
+  "cv_threshold": null,
+  "cv_summary": null,
+  "cross_validation": {
+    "available": false
+  },
+  "confusion_matrix": null,
+  "cv_confusion_matrix": null,
+  "training_time_secs": 301.47,
+  "training_rows": 13860,
+  "status": "trained",
+  "automl_tool": "h2o"
+}

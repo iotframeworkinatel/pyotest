@@ -1,0 +1,136 @@
+{
+  "framework": "h2o",
+  "leader_model_id": "XGBoost_1_AutoML_94_20260312_15636",
+  "leader_algo": "xgboost",
+  "auc": 0.853,
+  "logloss": 0.5091,
+  "accuracy": null,
+  "feature_importance": [
+    {
+      "variable": "protocol.mqtt",
+      "relative_importance": 896.5206,
+      "scaled_importance": 1.0,
+      "percentage": 0.183
+    },
+    {
+      "variable": "firmware_version.openssh-6.6.1",
+      "relative_importance": 826.2874,
+      "scaled_importance": 0.9217,
+      "percentage": 0.1687
+    },
+    {
+      "variable": "auth_required.False",
+      "relative_importance": 646.8098,
+      "scaled_importance": 0.7215,
+      "percentage": 0.132
+    },
+    {
+      "variable": "service.mqtt",
+      "relative_importance": 368.6147,
+      "scaled_importance": 0.4112,
+      "percentage": 0.0753
+    },
+    {
+      "variable": "service.modbus",
+      "relative_importance": 367.4842,
+      "scaled_importance": 0.4099,
+      "percentage": 0.075
+    },
+    {
+      "variable": "firmware_version.httpd-2.4",
+      "relative_importance": 335.9003,
+      "scaled_importance": 0.3747,
+      "percentage": 0.0686
+    },
+    {
+      "variable": "device_type.telnet_gateway",
+      "relative_importance": 252.6671,
+      "scaled_importance": 0.2818,
+      "percentage": 0.0516
+    },
+    {
+      "variable": "firmware_version.aiocoap-0.4.7",
+      "relative_importance": 249.4162,
+      "scaled_importance": 0.2782,
+      "percentage": 0.0509
+    },
+    {
+      "variable": "firmware_version.nginx-1.19.0",
+      "relative_importance": 202.7567,
+      "scaled_importance": 0.2262,
+      "percentage": 0.0414
+    },
+    {
+      "variable": "firmware_version.busybox-1.31.1",
+      "relative_importance": 191.7212,
+      "scaled_importance": 0.2139,
+      "percentage": 0.0391
+    },
+    {
+      "variable": "open_port",
+      "relative_importance": 190.3569,
+      "scaled_importance": 0.2123,
+      "percentage": 0.0389
+    },
+    {
+      "variable": "firmware_version.unknown",
+      "relative_importance": 131.2372,
+      "scaled_importance": 0.1464,
+      "percentage": 0.0268
+    },
+    {
+      "variable": "protocol.modbus",
+      "relative_importance": 112.0417,
+      "scaled_importance": 0.125,
+      "percentage": 0.0229
+    },
+    {
+      "variable": "protocol.coap",
+      "relative_importance": 85.5644,
+      "scaled_importance": 0.0954,
+      "percentage": 0.0175
+    },
+    {
+      "variable": "firmware_version.flask-2.0.1",
+      "relative_importance": 29.2441,
+      "scaled_importance": 0.0326,
+      "percentage": 0.006
+    },
+    {
+      "variable": "firmware_version.flask-2.3.2",
+      "relative_importance": 11.679,
+      "scaled_importance": 0.013,
+      "percentage": 0.0024
+    }
+  ],
+  "leaderboard": [
+    {
+      "model_id": "XGBoost_1_AutoML_94_20260312_15636",
+      "auc": 0.852844,
+      "logloss": 0.453827,
+      "aucpr": 0.901486,
+      "mean_per_class_error": 0.281573,
+      "rmse": 0.393206,
+      "mse": 0.154611
+    }
+  ],
+  "total_models_trained": 1,
+  "roc_curve": null,
+  "cv_auc": 0.8528,
+  "cv_logloss": 0.4538,
+  "cv_accuracy": null,
+  "cv_precision": null,
+  "cv_recall": null,
+  "cv_f1": null,
+  "cv_threshold": null,
+  "cv_summary": null,
+  "cross_validation": {
+    "available": false
+  },
+  "confusion_matrix": null,
+  "cv_confusion_matrix": null,
+  "training_time_secs": 163.69,
+  "training_rows": 13100,
+  "status": "trained",
+  "automl_tool": "h2o"
+}

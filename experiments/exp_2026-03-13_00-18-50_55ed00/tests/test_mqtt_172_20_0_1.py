@@ -1,0 +1,173 @@
+"""Auto-generated MQTT vulnerability tests for 172.20.0.1"""
+import pytest
+import socket
+import time
+import paho.mqtt.client as mqtt
+
+TIMEOUT = 5
+IP = "172.20.0.1"
+PORT = 1883
+
+
+def _connect(client, ip=IP, port=PORT):
+    client.connect(ip, port, TIMEOUT)
+    client.loop_start()
+    time.sleep(1)
+    return client
+
+
+@pytest.mark.vuln_id("mqtt_open_access")
+def test_mqtt_open_access():
+    client = mqtt.Client()
+    try:
+        client.connect(IP, PORT, TIMEOUT)
+        client.disconnect()
+        assert True  # Anonymous connection accepted
+    except (socket.timeout, ConnectionError, OSError):
+        pytest.fail("MQTT does not accept anonymous connections")
+
+
+@pytest.mark.vuln_id("mqtt_anon_publish")
+def test_mqtt_anon_publish():
+    client = mqtt.Client()
+    published = [False]
+
+    def on_publish(client, userdata, mid):
+        published[0] = True
+
+    client.on_publish = on_publish
+    try:
+        client.connect(IP, PORT, TIMEOUT)
+        client.loop_start()
+        result = client.publish("test/emergence", "test_payload", qos=1)
+        result.wait_for_publish(timeout=TIMEOUT)
+        client.loop_stop()
+        client.disconnect()
+        if result.rc == mqtt.MQTT_ERR_SUCCESS:
+            assert True
+            return
+    except Exception:
+        pass
+    pytest.fail("MQTT does not accept anonymous publish")
+
+
+@pytest.mark.vuln_id("mqtt_acl_bypass")
+def test_mqtt_acl_bypass():
+    client = mqtt.Client()
+    messages = []
+
+    def on_message(client, userdata, msg):
+        messages.append(msg)
+
+    client.on_message = on_message
+    try:
+        client.connect(IP, PORT, TIMEOUT)
+        client.loop_start()
+        client.subscribe("$SYS/#")
+        time.sleep(2)
+        client.loop_stop()
+        client.disconnect()
+        if len(messages) > 0:
+            assert True
+            return
+    except Exception:
+        pass
+    pytest.fail("MQTT ACL bypass not possible")
+
+
+@pytest.mark.vuln_id("mqtt_topic_enum")
+def test_mqtt_topic_enum():
+    client = mqtt.Client()
+    topics = set()
+
+    def on_message(client, userdata, msg):
+        topics.add(msg.topic)
+
+    client.on_message = on_message
+    try:
+        client.connect(IP, PORT, TIMEOUT)
+        client.loop_start()
+        client.subscribe("#")
+        time.sleep(3)
+        client.loop_stop()
+        client.disconnect()
+        if len(topics) > 0:
+            assert True
+            return
+    except Exception:
+        pass
+    pytest.fail("MQTT wildcard subscription not possible")
+
+
+@pytest.mark.vuln_id("mqtt_retained_messages")
+def test_mqtt_retained_messages():
+    client = mqtt.Client()
+    retained = []
+
+    def on_message(client, userdata, msg):
+        if msg.retain:
+            retained.append(msg)
+
+    client.on_message = on_message
+    try:
+        client.connect(IP, PORT, TIMEOUT)
+        client.loop_start()
+        client.subscribe("#")
+        time.sleep(3)
+        client.loop_stop()
+        client.disconnect()
+        if len(retained) > 0:
+            assert True
+            return
+    except Exception:
+        pass
+    pytest.fail("No retained messages found")
+
+
+@pytest.mark.vuln_id("mqtt_wildcard_sub")
+def test_mqtt_wildcard_sub():
+    client = mqtt.Client()
+    subscribed = [False]
+
+    def on_subscribe(client, userdata, mid, granted_qos):
+        subscribed[0] = True
+
+    client.on_subscribe = on_subscribe
+    try:
+        client.connect(IP, PORT, TIMEOUT)
+        client.loop_start()
+        client.subscribe("#")
+        time.sleep(1)
+        client.loop_stop()
+        client.disconnect()
+        if subscribed[0]:
+            assert True
+            return
+    except Exception:
+        pass
+    pytest.fail("MQTT wildcard subscribe not allowed")
+
+
+@pytest.mark.vuln_id("mqtt_sensitive_topics")
+def test_mqtt_sensitive_topics():
+    client = mqtt.Client()
+    sensitive = []
+
+    def on_message(client, userdata, msg):
+        sensitive.append(msg)
+
+    client.on_message = on_message
+    try:
+        client.connect(IP, PORT, TIMEOUT)
+        client.loop_start()
+        for topic in ["$SYS/#", "config/#", "credentials/#"]:
+            client.subscribe(topic)
+        time.sleep(2)
+        client.loop_stop()
+        client.disconnect()
+        if len(sensitive) > 0:
+            assert True
+            return
+    except Exception:
+        pass
+    pytest.fail("No sensitive topics accessible")

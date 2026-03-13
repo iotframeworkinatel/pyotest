@@ -1,0 +1,337 @@
+{
+  "framework": "h2o",
+  "leader_model_id": "XGBoost_3_AutoML_73_20260313_22258",
+  "leader_algo": "xgboost",
+  "auc": 0.7907,
+  "logloss": 0.5407,
+  "accuracy": null,
+  "feature_importance": [
+    {
+      "variable": "open_port",
+      "relative_importance": 1870.746,
+      "scaled_importance": 1.0,
+      "percentage": 0.2739
+    },
+    {
+      "variable": "auth_required.False",
+      "relative_importance": 1233.657,
+      "scaled_importance": 0.6594,
+      "percentage": 0.1806
+    },
+    {
+      "variable": "firmware_version.aiocoap-0.4.7",
+      "relative_importance": 932.6534,
+      "scaled_importance": 0.4985,
+      "percentage": 0.1365
+    },
+    {
+      "variable": "auth_required.True",
+      "relative_importance": 432.2886,
+      "scaled_importance": 0.2311,
+      "percentage": 0.0633
+    },
+    {
+      "variable": "firmware_version.pure-ftpd-1.0.50",
+      "relative_importance": 429.4019,
+      "scaled_importance": 0.2295,
+      "percentage": 0.0629
+    },
+    {
+      "variable": "device_type.http_server",
+      "relative_importance": 312.4902,
+      "scaled_importance": 0.167,
+      "percentage": 0.0457
+    },
+    {
+      "variable": "device_type.ftp_server",
+      "relative_importance": 286.5317,
+      "scaled_importance": 0.1532,
+      "percentage": 0.0419
+    },
+    {
+      "variable": "device_type.coap_sensor",
+      "relative_importance": 285.2091,
+      "scaled_importance": 0.1525,
+      "percentage": 0.0418
+    },
+    {
+      "variable": "firmware_version.httpd-2.4",
+      "relative_importance": 212.1104,
+      "scaled_importance": 0.1134,
+      "percentage": 0.0311
+    },
+    {
+      "variable": "firmware_version.unknown",
+      "relative_importance": 211.0159,
+      "scaled_importance": 0.1128,
+      "percentage": 0.0309
+    },
+    {
+      "variable": "protocol.ssh",
+      "relative_importance": 109.3968,
+      "scaled_importance": 0.0585,
+      "percentage": 0.016
+    },
+    {
+      "variable": "device_type.ssh_server",
+      "relative_importance": 78.208,
+      "scaled_importance": 0.0418,
+      "percentage": 0.0114
+    },
+    {
+      "variable": "protocol.http",
+      "relative_importance": 74.2518,
+      "scaled_importance": 0.0397,
+      "percentage": 0.0109
+    },
+    {
+      "variable": "firmware_version.nginx-1.19.0",
+      "relative_importance": 72.539,
+      "scaled_importance": 0.0388,
+      "percentage": 0.0106
+    },
+    {
+      "variable": "firmware_version.pure-ftpd-1.0.49",
+      "relative_importance": 68.4828,
+      "scaled_importance": 0.0366,
+      "percentage": 0.01
+    },
+    {
+      "variable": "service.ftp",
+      "relative_importance": 61.0686,
+      "scaled_importance": 0.0326,
+      "percentage": 0.0089
+    },
+    {
+      "variable": "protocol.ftp",
+      "relative_importance": 38.7978,
+      "scaled_importance": 0.0207,
+      "percentage": 0.0057
+    },
+    {
+      "variable": "firmware_version.openssh-6.6.1",
+      "relative_importance": 33.2634,
+      "scaled_importance": 0.0178,
+      "percentage": 0.0049
+    },
+    {
+      "variable": "service.http",
+      "relative_importance": 26.3119,
+      "scaled_importance": 0.0141,
+      "percentage": 0.0039
+    },
+    {
+      "variable": "firmware_version.vsftpd-3.0.3",
+      "relative_importance": 13.4395,
+      "scaled_importance": 0.0072,
+      "percentage": 0.002
+    },
+    {
+      "variable": "protocol.coap",
+      "relative_importance": 10.1897,
+      "scaled_importance": 0.0054,
+      "percentage": 0.0015
+    },
+    {
+      "variable": "protocol.mqtt",
+      "relative_importance": 9.3096,
+      "scaled_importance": 0.005,
+      "percentage": 0.0014
+    },
+    {
+      "variable": "service.modbus",
+      "relative_importance": 6.0135,
+      "scaled_importance": 0.0032,
+      "percentage": 0.0009
+    },
+    {
+      "variable": "firmware_version.flask-2.0.1",
+      "relative_importance": 5.9773,
+      "scaled_importance": 0.0032,
+      "percentage": 0.0009
+    },
+    {
+      "variable": "firmware_version.flask-2.3.2",
+      "relative_importance": 4.2751,
+      "scaled_importance": 0.0023,
+      "percentage": 0.0006
+    },
+    {
+      "variable": "device_type.target",
+      "relative_importance": 3.0919,
+      "scaled_importance": 0.0017,
+      "percentage": 0.0005
+    },
+    {
+      "variable": "device_type.http_api",
+      "relative_importance": 2.3996,
+      "scaled_importance": 0.0013,
+      "percentage": 0.0004
+    },
+    {
+      "variable": "firmware_version.pymodbus-3.5.2",
+      "relative_importance": 2.1448,
+      "scaled_importance": 0.0011,
+      "percentage": 0.0003
+    },
+    {
+      "variable": "protocol.modbus",
+      "relative_importance": 1.795,
+      "scaled_importance": 0.001,
+      "percentage": 0.0003
+    },
+    {
+      "variable": "device_type.web_admin_panel",
+      "relative_importance": 1.2419,
+      "scaled_importance": 0.0007,
+      "percentage": 0.0002
+    },
+    {
+      "variable": "service.mqtt",
+      "relative_importance": 0.9163,
+      "scaled_importance": 0.0005,
+      "percentage": 0.0001
+    },
+    {
+      "variable": "firmware_version.mosquitto-2.0.15",
+      "relative_importance": 0.86,
+      "scaled_importance": 0.0005,
+      "percentage": 0.0001
+    },
+    {
+      "variable": "device_type.mqtt_broker",
+      "relative_importance": 0.2939,
+      "scaled_importance": 0.0002,
+      "percentage": 0.0
+    },
+    {
+      "variable": "protocol_diversity",
+      "relative_importance": 0.199,
+      "scaled_importance": 0.0001,
+      "percentage": 0.0
+    },
+    {
+      "variable": "service.coap",
+      "relative_importance": 0.045,
+      "scaled_importance": 0.0,
+      "percentage": 0.0
+    },
+    {
+      "variable": "port_count",
+      "relative_importance": 0.026,
+      "scaled_importance": 0.0,
+      "percentage": 0.0
+    }
+  ],
+  "leaderboard": [
+    {
+      "model_id": "XGBoost_3_AutoML_73_20260313_22258",
+      "auc": 0.789796,
+      "logloss": 0.542207,
+      "aucpr": 0.759354,
+      "mean_per_class_error": 0.294826,
+      "rmse": 0.429194,
+      "mse": 0.184207
+    },
+    {
+      "model_id": "GBM_3_AutoML_73_20260313_22258",
+      "auc": 0.789683,
+      "logloss": 0.541622,
+      "aucpr": 0.759713,
+      "mean_per_class_error": 0.294826,
+      "rmse": 0.428867,
+      "mse": 0.183927
+    },
+    {
+      "model_id": "GBM_5_AutoML_73_20260313_22258",
+      "auc": 0.789528,
+      "logloss": 0.541557,
+      "aucpr": 0.760051,
+      "mean_per_class_error": 0.294826,
+      "rmse": 0.428881,
+      "mse": 0.183939
+    },
+    {
+      "model_id": "GBM_4_AutoML_73_20260313_22258",
+      "auc": 0.789511,
+      "logloss": 0.541385,
+      "aucpr": 0.760389,
+      "mean_per_class_error": 0.294826,
+      "rmse": 0.428844,
+      "mse": 0.183907
+    },
+    {
+      "model_id": "GBM_1_AutoML_73_20260313_22258",
+      "auc": 0.789495,
+      "logloss": 0.541284,
+      "aucpr": 0.760677,
+      "mean_per_class_error": 0.294826,
+      "rmse": 0.428827,
+      "mse": 0.183893
+    },
+    {
+      "model_id": "GBM_grid_1_AutoML_73_20260313_22258_model_2",
+      "auc": 0.78946,
+      "logloss": 0.54179,
+      "aucpr": 0.758854,
+      "mean_per_class_error": 0.294826,
+      "rmse": 0.428865,
+      "mse": 0.183925
+    },
+    {
+      "model_id": "GBM_grid_1_AutoML_73_20260313_22258_model_12",
+      "auc": 0.789434,
+      "logloss": 0.541815,
+      "aucpr": 0.758593,
+      "mean_per_class_error": 0.294826,
+      "rmse": 0.428869,
+      "mse": 0.183929
+    },
+    {
+      "model_id": "GBM_grid_1_AutoML_73_20260313_22258_model_5",
+      "auc": 0.78941,
+      "logloss": 0.541489,
+      "aucpr": 0.7596,
+      "mean_per_class_error": 0.294826,
+      "rmse": 0.428853,
+      "mse": 0.183915
+    },
+    {
+      "model_id": "GBM_grid_1_AutoML_73_20260313_22258_model_11",
+      "auc": 0.789391,
+      "logloss": 0.542175,
+      "aucpr": 0.759383,
+      "mean_per_class_error": 0.294826,
+      "rmse": 0.428968,
+      "mse": 0.184014
+    },
+    {
+      "model_id": "XGBoost_1_AutoML_73_20260313_22258",
+      "auc": 0.789332,
+      "logloss": 0.54254,
+      "aucpr": 0.758363,
+      "mean_per_class_error": 0.294826,
+      "rmse": 0.4293,
+      "mse": 0.184299
+    }
+  ],
+  "total_models_trained": 37,
+  "roc_curve": null,
+  "cv_auc": 0.7898,
+  "cv_logloss": 0.5422,
+  "cv_accuracy": null,
+  "cv_precision": null,
+  "cv_recall": null,
+  "cv_f1": null,
+  "cv_threshold": null,
+  "cv_summary": null,
+  "cross_validation": {
+    "available": false
+  },
+  "confusion_matrix": null,
+  "cv_confusion_matrix": null,
+  "training_time_secs": 121.78,
+  "training_rows": 13600,
+  "status": "trained",
+  "automl_tool": "h2o"
+}
