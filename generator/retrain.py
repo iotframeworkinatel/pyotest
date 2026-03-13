@@ -163,7 +163,8 @@ def find_all_history_files(base_dir: str = "experiments") -> list[str]:
     return sorted(glob.glob(pattern))
 
 
-def aggregate_history(base_dir: str = "experiments", simulation_mode: str = None) -> str:
+def aggregate_history(base_dir: str = "experiments", simulation_mode: str = None,
+                      automl_tool: str = None) -> str:
     """
     Aggregate history.csv files into a single file for training.
 
@@ -174,6 +175,9 @@ def aggregate_history(base_dir: str = "experiments", simulation_mode: str = None
             that different simulation experiments never contaminate each
             other's training data.  When *None*, all rows are aggregated
             into ``aggregated_history.csv`` (legacy behaviour).
+        automl_tool: If provided, only include rows matching this framework.
+            Prevents cross-framework contamination where later frameworks
+            would train on data from earlier frameworks' experiments.
 
     Returns path to the aggregated file, or "" if no data.
     """
@@ -206,11 +210,21 @@ def aggregate_history(base_dir: str = "experiments", simulation_mode: str = None
     else:
         suffix = ""
 
+    # Filter to the requested automl framework to prevent cross-framework
+    # contamination (each framework should only train on its own data)
+    if automl_tool and "automl_tool" in combined.columns:
+        combined = combined[combined["automl_tool"] == automl_tool]
+        if combined.empty:
+            logging.warning(f"[Retrain] No rows for automl_tool={automl_tool}")
+            return ""
+        suffix += f"_{automl_tool}"
+
     output_path = os.path.join(base_dir, f"aggregated_history{suffix}.csv")
     combined.to_csv(output_path, index=False)
 
     logging.info(
         f"[Retrain] Aggregated {len(history_files)} history files "
-        f"({len(combined)} rows, mode={simulation_mode or 'all'}) -> {output_path}"
+        f"({len(combined)} rows, mode={simulation_mode or 'all'}, "
+        f"framework={automl_tool or 'all'}) -> {output_path}"
     )
     return output_path

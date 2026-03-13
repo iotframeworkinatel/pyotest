@@ -1414,10 +1414,11 @@ def _execute_suite_and_retrain(
                     _train_state["auc"] = None
                     _train_state["training_rows"] = None
 
-                # Only aggregate rows from the current simulation mode
-                # to avoid cross-contamination between experiments
+                # Only aggregate rows from the current simulation mode AND
+                # framework to avoid cross-contamination between experiments
                 _sim_mode = simulation_context.get("mode") if simulation_context else None
-                agg_path = aggregate_history(EXPERIMENTS_PATH, simulation_mode=_sim_mode)
+                agg_path = aggregate_history(EXPERIMENTS_PATH, simulation_mode=_sim_mode,
+                                             automl_tool=automl_tool)
                 if not agg_path:
                     retrain_result = {"status": "error", "message": "No history data to train on"}
                     with _train_lock:
@@ -1821,7 +1822,8 @@ def start_train_loop(suite_id: str, req: TrainLoopRequest, background_tasks: Bac
                         if llm_gen.is_available():
                             from generator.retrain import aggregate_history
                             _sim_mode_for_llm = sim_config.mode if sim_config else None
-                            agg_path = aggregate_history(EXPERIMENTS_PATH, simulation_mode=_sim_mode_for_llm)
+                            agg_path = aggregate_history(EXPERIMENTS_PATH, simulation_mode=_sim_mode_for_llm,
+                                                         automl_tool=req.automl_tool)
                             if agg_path:
                                 _llm_hist = pd.read_csv(agg_path)
                                 _existing_ids = [tc.test_id for tc in suite.test_cases]

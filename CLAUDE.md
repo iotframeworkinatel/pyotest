@@ -57,15 +57,33 @@ pyotest/
 - `GET /api/llm/providers` returns availability status for the frontend dropdown.
 
 ### Simulation Modes
-- `deterministic`: No changes (baseline)
+- `deterministic`: No changes (control baseline)
+- `medium`: Moderate challenge (8% outage, 3% patch, 3% cred rotate, 5% regression, 1% FP, 5% FN)
 - `realistic`: Primary thesis mode — probability-driven service outages, vulnerability patches, credential rotations
+
+### Experiment Phases
+- **Phase 1 (ML)**: 5 frameworks × 3 modes × 100 iterations = 1,500 iterations. Temporal training enabled.
+- **Phase 2 (Baselines)**: 4 strategies × 3 modes × 100 iterations = 1,200 iterations. No training.
+- **Phase 3 (LLM)**: 5 frameworks × 3 modes × 100 iterations = 1,500 iterations. LLM generation every 25 iters.
+- **Phase 4 (LOPO)**: Post-processing only. Leave-one-protocol-out AUC for each framework/mode combo.
+
+### Hypothesis Endpoints (dashboard/backend/main.py)
+11 hypotheses (H1–H11) plus synthesis, ablation, framework-interaction, and LLM-effectiveness endpoints.
+- H1–H8: Per-experiment analysis (detection stability, recommendations, convergence, calibration, efficiency, discovery, cross-framework, temporal)
+- H9: ML vs baselines (requires Phase 2 data)
+- H10: LLM effectiveness (requires Phase 3 data)
+- H11: LOPO generalization (requires Phase 4)
+- Synthesis: Aggregates all hypotheses with Holm-Bonferroni multiple comparison correction
+- Ablation: Marginal contribution analysis (requires all phases)
 
 ## Common Tasks
 
 ### Running experiments
 ```bash
 docker compose up -d
-python run_experiments.py
+python run_experiments.py           # Full run (clears all data first)
+python run_experiments.py --resume  # Resume after crash (preserves completed experiments)
+python run_experiments.py --quick   # 5 iterations for smoke testing
 ```
 
 ### Building Docker images
@@ -83,3 +101,10 @@ cd dashboard/frontend && npm run dev
 - Suite runner runs INSIDE the Docker scanner container; LLM API calls happen OUTSIDE (dashboard-api)
 - Always derive `test_strategy` from `test_origin`, never hardcode it
 - History.csv is the source of truth for hypothesis analysis
+- `--resume` detects completed experiments by scanning `exp_*/history.csv`, deletes incomplete combos, re-runs them from scratch (API has no partial resume)
+- Experiment dirs: `exp_{timestamp}_{hex6}` — one dir per iteration, grouped by (automl_tool, simulation_mode, phase)
+- Models archived to `models/archive/{framework}_{mode}/` after each completed experiment
+- Between simulation modes: containers are reset, models are cleared to prevent cross-contamination
+- Heuristic risk scoring produces near-zero ECE by construction (tautology) — score_method stratification separates model vs heuristic metrics
+- Multiple comparison correction (Holm-Bonferroni) applied in synthesis endpoint — always report corrected p-values alongside uncorrected
+- Do NOT modify `history/history_builder.py` COLUMNS while experiments are running — append-only via `_execute_suite_and_retrain` tagging
