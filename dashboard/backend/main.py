@@ -94,6 +94,100 @@ _iteration_cache = _TTLCache(default_ttl=60)
 _prediction_cache = _TTLCache(default_ttl=120)
 
 
+# ─── DuckDB integration ──────────────────────────────────────────────
+import duckdb as _duckdb
+
+DB_PATH = os.path.join(EXPERIMENTS_PATH, "emergence.db")
+_db_lock = threading.Lock()
+
+_BASELINE_DIR_MAP_DB = {
+    "BASELINE-RANDOM": "random",
+    "BASELINE-CVSS": "cvss_priority",
+    "BASELINE-ROBIN": "round_robin",
+    "BASELINE-NOML": "no_ml",
+}
+
+
+def _db_available() -> bool:
+    return os.path.exists(DB_PATH)
+
+
+def _db_insert_history(df: pd.DataFrame, exp_dir_name: str) -> None:
+    """Append rows from one experiment iteration into DuckDB."""
+    try:
+        df = df.copy()
+        df["exp_dir_name"] = exp_dir_name
+        with _db_lock:
+            con = _duckdb.connect(DB_PATH)
+            try:
+                con.execute(
+                    "CREATE TABLE IF NOT EXISTS history AS SELECT * FROM df WHERE 1=0"
+                )
+                # Add exp_dir_name column if this is an older DB without it
+                existing = {
+                    row[0]
+                    for row in con.execute(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_name = 'history'"
+                    ).fetchall()
+                }
+                for col in df.columns:
+                    if col not in existing:
+                        con.execute(
+                            f"ALTER TABLE history ADD COLUMN \"{col}\" VARCHAR"
+                        )
+                con.execute("INSERT INTO history BY NAME SELECT * FROM df")
+            finally:
+                con.close()
+    except Exception as e:
+        logging.warning(f"[DuckDB] Failed to insert history: {e}")
+
+
+def _db_load_all(
+    simulation_mode: str = None, automl_tool: str = None
+) -> "pd.DataFrame | None":
+    """Load history from DuckDB, returning a DataFrame or None on failure."""
+    if not _db_available():
+        return None
+    try:
+        conditions = []
+        params = []
+        if simulation_mode and simulation_mode != "all":
+            conditions.append("simulation_mode = ?")
+            params.append(simulation_mode)
+        if automl_tool and automl_tool != "all":
+            conditions.append("automl_tool = ?")
+            params.append(automl_tool)
+        query = "SELECT * FROM history"
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        with _db_lock:
+            con = _duckdb.connect(DB_PATH, read_only=True)
+            try:
+                result = con.execute(query, params).df()
+            finally:
+                con.close()
+        if result.empty:
+            return None
+        # Backfill columns for rows that predate the tagged writes
+        if "automl_tool" not in result.columns:
+            result["automl_tool"] = "h2o"
+        else:
+            result["automl_tool"] = result["automl_tool"].fillna("h2o")
+        if "baseline_strategy" not in result.columns:
+            result["baseline_strategy"] = "ml_guided"
+        else:
+            result["baseline_strategy"] = result["baseline_strategy"].fillna("ml_guided")
+        if "vulnerability_found" in result.columns:
+            result["vulnerability_found"] = pd.to_numeric(
+                result["vulnerability_found"], errors="coerce"
+            ).fillna(0).astype(int)
+        return result
+    except Exception as e:
+        logging.warning(f"[DuckDB] Load failed: {e}")
+        return None
+
+
 # ─── JSON-safe float helper (NaN / Inf → None) ──────────────────────
 import math
 
@@ -1373,6 +1467,13 @@ def _execute_suite_and_retrain(
                 # Tag baseline_strategy so H9 can distinguish ML vs baseline experiments
                 _hdf["baseline_strategy"] = baseline_strategy if baseline_strategy else "ml_guided"
                 _hdf.to_csv(history_csv, index=False)
+                # Mirror to DuckDB for fast dashboard queries
+                if exp_dir:
+                    _exp_dir_name = os.path.basename(str(exp_dir))
+                    _db_insert_history(_hdf, _exp_dir_name)
+                    # Invalidate caches so dashboard reflects new data immediately
+                    _history_cache.clear()
+                    _iteration_cache.clear()
             except Exception as e:
                 logging.warning(f"[API] Could not tag history with automl_tool: {e}")
 
@@ -2148,7 +2249,8 @@ _train_state = {
 
 
 @app.post("/api/ml/retrain")
-def ml_retrain(background_tasks: BackgroundTasks, automl_tool: str = "h2o"):
+def ml_retrain(background_tasks: BackgroundTasks, automl_tool: str = "h2o",
+               suite_id: str = None):
     with _train_lock:
         if _train_state["status"] == "training":
             return {
@@ -2168,7 +2270,10 @@ def ml_retrain(background_tasks: BackgroundTasks, automl_tool: str = "h2o"):
     def _do_retrain():
         try:
             from generator.retrain import retrain_model_after_execution, aggregate_history
-            agg_path = aggregate_history(EXPERIMENTS_PATH)
+
+            # Filter by automl_tool to prevent cross-framework contamination
+            # (matches the train-loop behaviour at line ~1420)
+            agg_path = aggregate_history(EXPERIMENTS_PATH, automl_tool=automl_tool)
             if not agg_path:
                 with _train_lock:
                     _train_state["status"] = "error"
@@ -2190,6 +2295,26 @@ def ml_retrain(background_tasks: BackgroundTasks, automl_tool: str = "h2o"):
                     _train_state["auc"] = result.get("auc")
                     _train_state["training_rows"] = result.get("training_rows")
                 _train_state["finished_at"] = datetime.now().isoformat()
+
+            # Re-score the active suite and update its automl_tool metadata
+            # so the suite card badge reflects the framework actually used
+            if suite_id and result.get("status") not in ("error", "insufficient_data"):
+                try:
+                    from generator.scorer import score_test_suite as _score
+                    suite_data = _load_suite(suite_id)
+                    if suite_data:
+                        fresh_suite = TestSuite.from_dict(suite_data)
+                        fresh_suite = _score(fresh_suite, automl_tool=automl_tool)
+                        fresh_suite.metadata["automl_tool"] = automl_tool
+                        fresh_suite.metadata["last_scored_at"] = datetime.utcnow().isoformat()
+                        fresh_suite.metadata["scored_with_auc"] = result.get("auc")
+                        _save_suite(fresh_suite)
+                        logging.info(
+                            f"[API] Suite {suite_id} re-scored after manual retrain "
+                            f"(framework={automl_tool})"
+                        )
+                except Exception as e:
+                    logging.warning(f"[API] Suite re-score after manual retrain failed (non-fatal): {e}")
 
         except Exception as e:
             logging.error(f"[API] Manual retrain ({automl_tool}) failed: {e}")
@@ -2375,31 +2500,62 @@ def available_simulation_modes():
 
     import glob as glob_mod
 
-    pattern = os.path.join(EXPERIMENTS_PATH, "exp_*", "history.csv")
-    files = glob_mod.glob(pattern)
     modes = set()
-    # Track per-mode metadata: seeds used, row counts, iteration counts
     mode_meta: dict[str, dict] = {}
 
-    _usecols = ["simulation_mode", "simulation_iteration"]
-    for f in files:
+    # ── Fast path: query DuckDB ───────────────────────────────────────
+    if _db_available():
         try:
-            df = pd.read_csv(f, usecols=lambda c: c in _usecols or c == "simulation_mode")
-            if "simulation_mode" not in df.columns:
+            with _db_lock:
+                con = _duckdb.connect(DB_PATH, read_only=True)
+                try:
+                    rows = con.execute(
+                        "SELECT simulation_mode, simulation_iteration, exp_dir_name "
+                        "FROM history WHERE simulation_mode IS NOT NULL"
+                    ).fetchall()
+                finally:
+                    con.close()
+            for sim_mode, sim_iter, exp_dir_nm in rows:
+                if not sim_mode:
+                    continue
+                modes.add(sim_mode)
+                if sim_mode not in mode_meta:
+                    mode_meta[sim_mode] = {"rows": 0, "iterations": set(), "experiments": set()}
+                mode_meta[sim_mode]["rows"] += 1
+                mode_meta[sim_mode]["experiments"].add(exp_dir_nm or "")
+                if sim_iter is not None:
+                    try:
+                        mode_meta[sim_mode]["iterations"].add(int(sim_iter))
+                    except (ValueError, TypeError):
+                        pass
+        except Exception as e:
+            logging.warning(f"[SimModes] DuckDB query failed, falling back to CSV: {e}")
+            modes.clear()
+            mode_meta.clear()
+
+    if not modes:
+        # ── Fallback: CSV scanning ────────────────────────────────────
+        pattern = os.path.join(EXPERIMENTS_PATH, "exp_*", "history.csv")
+        files = glob_mod.glob(pattern)
+        _usecols = ["simulation_mode", "simulation_iteration"]
+        for f in files:
+            try:
+                df = pd.read_csv(f, usecols=lambda c: c in _usecols or c == "simulation_mode")
+                if "simulation_mode" not in df.columns:
+                    continue
+                for mode in df["simulation_mode"].dropna().unique():
+                    modes.add(mode)
+                    if mode not in mode_meta:
+                        mode_meta[mode] = {"rows": 0, "iterations": set(), "experiments": set()}
+                    mode_df = df[df["simulation_mode"] == mode]
+                    mode_meta[mode]["rows"] += len(mode_df)
+                    mode_meta[mode]["experiments"].add(os.path.basename(os.path.dirname(f)))
+                    if "simulation_iteration" in mode_df.columns:
+                        mode_meta[mode]["iterations"].update(
+                            mode_df["simulation_iteration"].dropna().astype(int).unique().tolist()
+                        )
+            except Exception:
                 continue
-            for mode in df["simulation_mode"].dropna().unique():
-                modes.add(mode)
-                if mode not in mode_meta:
-                    mode_meta[mode] = {"rows": 0, "iterations": set(), "experiments": 0}
-                mode_df = df[df["simulation_mode"] == mode]
-                mode_meta[mode]["rows"] += len(mode_df)
-                mode_meta[mode]["experiments"] += 1
-                if "simulation_iteration" in mode_df.columns:
-                    mode_meta[mode]["iterations"].update(
-                        mode_df["simulation_iteration"].dropna().astype(int).unique().tolist()
-                    )
-        except Exception:
-            continue
 
     # Also scan result JSON files for seed info
     mode_seeds: dict[str, set] = {}
@@ -2423,10 +2579,11 @@ def available_simulation_modes():
     metadata = {}
     for m in sorted_modes:
         meta = mode_meta.get(m, {})
+        _exps = meta.get("experiments", set())
         metadata[m] = {
             "rows": meta.get("rows", 0),
             "iterations": sorted(meta["iterations"]) if isinstance(meta.get("iterations"), set) else [],
-            "experiments": meta.get("experiments", 0),
+            "experiments": len(_exps) if isinstance(_exps, set) else _exps,
             "seeds": sorted(mode_seeds.get(m, [])),
         }
 
@@ -2444,69 +2601,71 @@ def hypothesis_iteration_metrics(simulation_mode: Optional[str] = None, automl_t
     if cached is not None:
         return cached
 
-    import glob as glob_mod
-
-    pattern = os.path.join(EXPERIMENTS_PATH, "exp_*", "history.csv")
-    files = sorted(glob_mod.glob(pattern))
-
-    logging.info(f"[Hypothesis] Looking for history files with pattern: {pattern}")
-    logging.info(f"[Hypothesis] Found {len(files)} history files: {files}")
-
-    if not files:
-        logging.warning(f"[Hypothesis] No history files found. EXPERIMENTS_PATH={EXPERIMENTS_PATH}, exists={os.path.exists(EXPERIMENTS_PATH)}")
-        if os.path.isdir(EXPERIMENTS_PATH):
-            try:
-                contents = os.listdir(EXPERIMENTS_PATH)
-                logging.info(f"[Hypothesis] Experiments dir contents: {contents}")
-            except Exception as e:
-                logging.warning(f"[Hypothesis] Cannot list experiments dir: {e}")
-        return {"iterations": [], "total_iterations": 0, "available_protocols": []}
-
     iterations = []
     parse_errors = []
     # Track unique vulnerabilities across iterations for discovery velocity
     seen_vuln_keys = set()
     dedup_cols = list(_DEDUP_COLS)
 
-    for f in files:
+    # ── Load all rows at once (DuckDB fast path) ─────────────────────
+    df_all = _db_load_all(simulation_mode=simulation_mode, automl_tool=automl_tool)
+
+    if df_all is None:
+        # DuckDB not available — fall back to CSV scanning
+        import glob as glob_mod
+        pattern = os.path.join(EXPERIMENTS_PATH, "exp_*", "history.csv")
+        files = sorted(glob_mod.glob(pattern))
+        logging.info(f"[Hypothesis] DuckDB unavailable, scanning {len(files)} CSV files")
+        if not files:
+            logging.warning(f"[Hypothesis] No history files found. EXPERIMENTS_PATH={EXPERIMENTS_PATH}")
+            return {"iterations": [], "total_iterations": 0, "available_protocols": []}
+        raw_dfs = []
+        for f in files:
+            try:
+                df_f = pd.read_csv(f)
+                if df_f.empty:
+                    continue
+                if simulation_mode and simulation_mode != "all" and "simulation_mode" in df_f.columns:
+                    df_f = df_f[df_f["simulation_mode"] == simulation_mode]
+                    if df_f.empty:
+                        continue
+                if automl_tool and automl_tool != "all":
+                    if "automl_tool" in df_f.columns:
+                        df_f = df_f[df_f["automl_tool"] == automl_tool]
+                    elif automl_tool != "h2o":
+                        continue
+                    if df_f.empty:
+                        continue
+                df_f["exp_dir_name"] = os.path.basename(os.path.dirname(f))
+                raw_dfs.append(df_f)
+            except Exception as exc:
+                parse_errors.append(f"Error reading {f}: {exc}")
+        if not raw_dfs:
+            return {"iterations": [], "total_iterations": 0, "available_protocols": []}
+        df_all = pd.concat(raw_dfs, ignore_index=True)
+
+    if df_all is None or df_all.empty:
+        return {"iterations": [], "total_iterations": 0, "available_protocols": []}
+
+    # Ensure exp_dir_name column exists (DuckDB path always has it; CSV path adds it above)
+    if "exp_dir_name" not in df_all.columns:
+        df_all["exp_dir_name"] = "unknown"
+
+    if "vulnerability_found" in df_all.columns:
+        df_all["vulnerability_found"] = pd.to_numeric(
+            df_all["vulnerability_found"], errors="coerce"
+        ).fillna(0).astype(int)
+
+    # Process per-experiment-iteration (sorted chronologically by dir name)
+    for exp_dir_name, df in sorted(df_all.groupby("exp_dir_name"), key=lambda x: x[0]):
         try:
-            df = pd.read_csv(f)
-            if df.empty:
-                logging.info(f"[Hypothesis] Skipping empty file: {f}")
-                continue
-
-            # Filter by simulation mode if requested
-            if simulation_mode and simulation_mode != "all" and "simulation_mode" in df.columns:
-                df = df[df["simulation_mode"] == simulation_mode]
-                if df.empty:
-                    continue
-
-            # Filter by automl_tool if requested (old files without column = h2o)
-            if automl_tool and automl_tool != "all":
-                if "automl_tool" in df.columns:
-                    df = df[df["automl_tool"] == automl_tool]
-                elif automl_tool != "h2o":
-                    # Old data has no column → treat as h2o; skip if user wants another tool
-                    continue
-                if df.empty:
-                    continue
-
-            exp_dir = os.path.basename(os.path.dirname(f))
-            # Handle both old format (exp_2026-02-25_14-30-00) and
-            # new UUID format (exp_2026-02-25_14-30-00_a1b2c3)
-            raw_ts = exp_dir.replace("exp_", "")
-            parts = raw_ts.split("_", 2)  # [date, time, maybe-uuid]
+            raw_ts = exp_dir_name.replace("exp_", "")
+            parts = raw_ts.split("_", 2)
             timestamp = f"{parts[0]} {parts[1]}" if len(parts) >= 2 else raw_ts
-
-            if "vulnerability_found" in df.columns:
-                df["vulnerability_found"] = pd.to_numeric(
-                    df["vulnerability_found"], errors="coerce"
-                ).fillna(0).astype(int)
 
             total_tests = len(df)
             total_vulns = int(df["vulnerability_found"].sum()) if "vulnerability_found" in df.columns else 0
             detection_rate = round(total_vulns / total_tests, 4) if total_tests > 0 else 0
-
             avg_exec_time = (_safe_float(df["execution_time_ms"].mean(), 2) or 0) if "execution_time_ms" in df.columns else 0
             unique_protocols = int(df["protocol"].nunique()) if "protocol" in df.columns else 0
 
@@ -2537,7 +2696,7 @@ def hypothesis_iteration_metrics(simulation_mode: Optional[str] = None, automl_t
                     }
 
             iterations.append({
-                "experiment_id": exp_dir,
+                "experiment_id": exp_dir_name,
                 "timestamp": timestamp,
                 "total_tests": total_tests,
                 "total_vulns": total_vulns,
@@ -2549,7 +2708,7 @@ def hypothesis_iteration_metrics(simulation_mode: Optional[str] = None, automl_t
                 "cumulative_unique_vulns": len(seen_vuln_keys),
             })
         except Exception as exc:
-            err_msg = f"Error parsing {f}: {exc}"
+            err_msg = f"Error processing {exp_dir_name}: {exc}"
             logging.error(f"[Hypothesis] {err_msg}", exc_info=True)
             parse_errors.append(err_msg)
 
@@ -2567,8 +2726,8 @@ def hypothesis_iteration_metrics(simulation_mode: Optional[str] = None, automl_t
         "total_iterations": len(iterations),
         "available_protocols": available_protocols,
         "_debug": {
-            "files_found": len(files),
-            "files_parsed_ok": len(iterations),
+            "source": "duckdb" if _db_available() else "csv",
+            "iterations_parsed": len(iterations),
             "parse_errors": parse_errors,
         },
     }
@@ -5430,47 +5589,54 @@ def _load_aggregated_history(simulation_mode: str = None, automl_tool: str = Non
     combined = _history_cache.get("__all__")
 
     if combined is None:
-        # Cache miss -- read from disk
-        pattern = os.path.join(EXPERIMENTS_PATH, "exp_*", "history.csv")
-        files = glob.glob(pattern)
-        if not files:
-            return None
+        # Cache miss -- try DuckDB first (fast), fall back to CSV scanning
+        if _db_available():
+            combined = _db_load_all()
+            if combined is not None:
+                logging.info(f"[LoadHistory] Loaded {len(combined)} rows from DuckDB")
 
-        dfs = []
-        for f in files:
-            try:
-                df = pd.read_csv(f)
-                # Infer baseline_strategy from experiment directory name if column
-                # is missing.  Baseline experiment dirs are named like
-                # "exp_..._BASELINE-RANDOM-DET-100" (from run_experiments.py).
-                if "baseline_strategy" not in df.columns:
-                    _dir_name = os.path.basename(os.path.dirname(f)).upper()
-                    _BASELINE_DIR_MAP = {
-                        "BASELINE-RANDOM": "random",
-                        "BASELINE-CVSS": "cvss_priority",
-                        "BASELINE-ROBIN": "round_robin",
-                        "BASELINE-NOML": "no_ml",
-                    }
-                    _inferred = "ml_guided"
-                    for _prefix, _strategy in _BASELINE_DIR_MAP.items():
-                        if _prefix in _dir_name:
-                            _inferred = _strategy
-                            break
-                    df["baseline_strategy"] = _inferred
-                dfs.append(df)
-            except Exception as e:
-                logging.warning(f"[LoadHistory] Error reading {f}: {e}")
-                continue
+        if combined is None:
+            # Fallback: legacy CSV scanning (for data not yet migrated to DuckDB)
+            pattern = os.path.join(EXPERIMENTS_PATH, "exp_*", "history.csv")
+            files = glob.glob(pattern)
+            if not files:
+                return None
 
-        if not dfs:
-            logging.warning(f"[LoadHistory] No valid DataFrames from {len(files)} files")
-            return None
+            dfs = []
+            for f in files:
+                try:
+                    df = pd.read_csv(f)
+                    # Infer baseline_strategy from experiment directory name if column
+                    # is missing.  Baseline experiment dirs are named like
+                    # "exp_..._BASELINE-RANDOM-DET-100" (from run_experiments.py).
+                    if "baseline_strategy" not in df.columns:
+                        _dir_name = os.path.basename(os.path.dirname(f)).upper()
+                        _BASELINE_DIR_MAP = {
+                            "BASELINE-RANDOM": "random",
+                            "BASELINE-CVSS": "cvss_priority",
+                            "BASELINE-ROBIN": "round_robin",
+                            "BASELINE-NOML": "no_ml",
+                        }
+                        _inferred = "ml_guided"
+                        for _prefix, _strategy in _BASELINE_DIR_MAP.items():
+                            if _prefix in _dir_name:
+                                _inferred = _strategy
+                                break
+                        df["baseline_strategy"] = _inferred
+                    dfs.append(df)
+                except Exception as e:
+                    logging.warning(f"[LoadHistory] Error reading {f}: {e}")
+                    continue
 
-        combined = pd.concat(dfs, ignore_index=True)
-        if "vulnerability_found" in combined.columns:
-            combined["vulnerability_found"] = pd.to_numeric(
-                combined["vulnerability_found"], errors="coerce"
-            ).fillna(0).astype(int)
+            if not dfs:
+                logging.warning(f"[LoadHistory] No valid DataFrames from {len(files)} files")
+                return None
+
+            combined = pd.concat(dfs, ignore_index=True)
+            if "vulnerability_found" in combined.columns:
+                combined["vulnerability_found"] = pd.to_numeric(
+                    combined["vulnerability_found"], errors="coerce"
+                ).fillna(0).astype(int)
 
         # Backfill missing automl_tool as "h2o" for older experiment data
         if "automl_tool" not in combined.columns:
@@ -5486,7 +5652,7 @@ def _load_aggregated_history(simulation_mode: str = None, automl_tool: str = Non
 
         # Store the full unfiltered DataFrame in cache
         _history_cache.set("__all__", combined)
-        logging.info(f"[LoadHistory] Cached {len(combined)} rows from {len(files)} files")
+        logging.info(f"[LoadHistory] Cached {len(combined)} rows")
 
     # Apply filters on the (copy of) cached data
     if simulation_mode and simulation_mode != "all" and "simulation_mode" in combined.columns:

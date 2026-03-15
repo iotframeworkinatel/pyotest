@@ -150,6 +150,8 @@ services:
       dockerfile: docker/autogluon/Dockerfile
     container_name: autogluon_server
     restart: unless-stopped
+    ports:
+      - "8082:8082"
     volumes:
       - ./models:/app/models
     networks:

@@ -499,18 +499,21 @@ def reset_iot_containers():
         os.remove(state_json)
         log("  Removed simulation/state.json")
 
-    # Restart all IoT containers via docker compose
+    # Recreate all IoT containers from their images to discard any
+    # in-container filesystem changes (sed edits, patched configs, etc.).
+    # NOTE: "docker compose restart" only restarts the process and does
+    # NOT reset the filesystem — we need --force-recreate for that.
     try:
         import subprocess
         result = subprocess.run(
-            ["docker", "compose", "restart"] + IOT_CONTAINERS,
+            ["docker", "compose", "up", "-d", "--force-recreate"] + IOT_CONTAINERS,
             cwd=PROJECT_ROOT,
             capture_output=True, text=True, timeout=120,
         )
         if result.returncode == 0:
-            log(f"  Restarted {len(IOT_CONTAINERS)} IoT containers")
+            log(f"  Recreated {len(IOT_CONTAINERS)} IoT containers")
         else:
-            log(f"  docker compose restart failed: {result.stderr[:200]}", "WARN")
+            log(f"  docker compose up --force-recreate failed: {result.stderr[:200]}", "WARN")
     except Exception as e:
         log(f"  Failed to restart containers: {e}", "WARN")
 

@@ -476,6 +476,11 @@ export default function TestSuites({ apiUrl, onRunSuite, visible = true }) {
             type: "success",
             text: `Model trained successfully.${aucText}${rowsText} Suite risk scores updated.`,
           });
+          // Sync dropdown to the framework that was actually trained
+          // (guards against user switching the dropdown mid-training)
+          if (statusData.automl_tool) {
+            setAutomlTool(statusData.automl_tool);
+          }
           fetchMlStatus();
           // Refresh suite data — scores were auto-updated by the backend
           fetchSuites();
@@ -614,7 +619,9 @@ export default function TestSuites({ apiUrl, onRunSuite, visible = true }) {
   const handleRetrain = async () => {
     setRetrainMessage(null);
     try {
-      const res = await fetch(`${apiUrl}/api/ml/retrain?automl_tool=${automlTool}`, { method: "POST" });
+      const params = new URLSearchParams({ automl_tool: automlTool });
+      if (selectedSuiteIdRef.current) params.append("suite_id", selectedSuiteIdRef.current);
+      const res = await fetch(`${apiUrl}/api/ml/retrain?${params}`, { method: "POST" });
       if (!res.ok) throw new Error(`Retrain failed: HTTP ${res.status}`);
       const data = await res.json();
 
@@ -1480,7 +1487,7 @@ export default function TestSuites({ apiUrl, onRunSuite, visible = true }) {
                   <select
                     value={automlTool}
                     onChange={(e) => setAutomlTool(e.target.value)}
-                    disabled={loopStatus === "running"}
+                    disabled={loopStatus === "running" || retrainStatus === "training"}
                     className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:ring-2 focus:ring-violet-400 focus:outline-none disabled:opacity-50"
                   >
                     {availableFrameworks.map((fw) => (
