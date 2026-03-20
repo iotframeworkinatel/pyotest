@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """
-One-time migration: load all existing history.csv files into DuckDB.
+Rebuild DuckDB from all existing history.csv files.
 
-Run this from the project root BEFORE resuming experiments:
+Run this from the project root after experiments complete to produce a
+self-contained, fully-tagged database that can be shared for verification:
+
     python migrate_to_duckdb.py
 
-The database file is created at experiments/emergence.db, which is on the
-same volume mounted into the dashboard-api container at /app/experiments/.
+The database is written to experiments/emergence.db (same path mounted into
+the dashboard-api container at /app/experiments/).
+
+All tagging columns (phase, test_origin, score_method, automl_tool,
+baseline_strategy) are backfilled so the DB is usable without the raw CSVs.
+Row counts per (automl_tool, simulation_mode, simulation_seed, phase) are
+printed at the end so the recipient can verify completeness.
 """
 import os
 import glob
@@ -21,6 +28,7 @@ _BASELINE_DIR_MAP = {
     "BASELINE-ROBIN": "round_robin",
     "BASELINE-NOML": "no_ml",
 }
+_NON_ML_BS = {"random", "cvss_priority", "round_robin", "no_ml"}
 
 
 def infer_baseline_strategy(exp_dir_name: str) -> str:
@@ -51,7 +59,13 @@ def main():
             exp_dir_name = os.path.basename(os.path.dirname(f))
             df["exp_dir_name"] = exp_dir_name
 
-            # Backfill columns that may be missing in older CSV files
+            # ── automl_tool ──────────────────────────────────────────────
+            if "automl_tool" not in df.columns:
+                df["automl_tool"] = "h2o"
+            else:
+                df["automl_tool"] = df["automl_tool"].fillna("h2o")
+
+            # ── baseline_strategy ────────────────────────────────────────
             if "baseline_strategy" not in df.columns:
                 df["baseline_strategy"] = infer_baseline_strategy(exp_dir_name)
             else:
@@ -59,10 +73,40 @@ def main():
                     infer_baseline_strategy(exp_dir_name)
                 )
 
-            if "automl_tool" not in df.columns:
-                df["automl_tool"] = "h2o"
+            # ── phase ────────────────────────────────────────────────────
+            # Rows written by the live API already carry an explicit phase tag.
+            # For older rows that predate the column, derive it heuristically.
+            if "phase" not in df.columns:
+                df["phase"] = df["baseline_strategy"].apply(
+                    lambda x: "baseline" if x in _NON_ML_BS else "framework"
+                )
             else:
-                df["automl_tool"] = df["automl_tool"].fillna("h2o")
+                null_mask = df["phase"].isna()
+                df.loc[null_mask, "phase"] = df.loc[null_mask, "baseline_strategy"].apply(
+                    lambda x: "baseline" if x in _NON_ML_BS else "framework"
+                )
+
+            # ── test_origin ──────────────────────────────────────────────
+            if "test_origin" not in df.columns:
+                if "test_strategy" in df.columns:
+                    df["test_origin"] = df["test_strategy"].apply(
+                        lambda x: "llm" if x == "llm_generated" else "registry"
+                    )
+                else:
+                    df["test_origin"] = "registry"
+            else:
+                df["test_origin"] = df["test_origin"].fillna("registry")
+
+            # ── score_method ─────────────────────────────────────────────
+            if "score_method" not in df.columns:
+                df["score_method"] = df["baseline_strategy"].apply(
+                    lambda x: "heuristic" if x in _NON_ML_BS else "ml"
+                )
+            else:
+                null_mask = df["score_method"].isna()
+                df.loc[null_mask, "score_method"] = df.loc[null_mask, "baseline_strategy"].apply(
+                    lambda x: "heuristic" if x in _NON_ML_BS else "ml"
+                )
 
             dfs.append(df)
         except Exception as e:
@@ -87,17 +131,36 @@ def main():
     print(f"Writing {len(combined):,} rows to {DB_PATH}...")
     con = duckdb.connect(DB_PATH)
     try:
-        # Drop and recreate to ensure schema is fresh
+        # Drop and recreate to ensure schema is fresh and consistent
         con.execute("DROP TABLE IF EXISTS history")
         con.execute("CREATE TABLE history AS SELECT * FROM combined")
-        # Indexes for common query patterns
-        con.execute("CREATE INDEX IF NOT EXISTS idx_sim_mode ON history (simulation_mode)")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_automl ON history (automl_tool)")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_exp_dir ON history (exp_dir_name)")
+        # Indexes for the four isolation dimensions used during analysis
+        con.execute("CREATE INDEX IF NOT EXISTS idx_sim_mode   ON history (simulation_mode)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_automl     ON history (automl_tool)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_seed       ON history (simulation_seed)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_phase      ON history (phase)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_exp_dir    ON history (exp_dir_name)")
         count = con.execute("SELECT COUNT(*) FROM history").fetchone()[0]
         print(f"\nDone. Migrated {count:,} rows from {len(dfs)} files to {DB_PATH}")
         if errors:
             print(f"  ({errors} files could not be read and were skipped)")
+
+        # ── Completeness report ──────────────────────────────────────────
+        # Lets the recipient verify no experiment group is missing data.
+        print("\nRow counts per experiment group (automl_tool / simulation_mode / simulation_seed / phase):")
+        summary = con.execute("""
+            SELECT
+                automl_tool,
+                simulation_mode,
+                simulation_seed,
+                phase,
+                COUNT(*)            AS rows,
+                COUNT(DISTINCT exp_dir_name) AS iterations
+            FROM history
+            GROUP BY automl_tool, simulation_mode, simulation_seed, phase
+            ORDER BY automl_tool, simulation_mode, simulation_seed, phase
+        """).df()
+        print(summary.to_string(index=False))
     finally:
         con.close()
 

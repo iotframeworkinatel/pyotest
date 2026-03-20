@@ -43,12 +43,12 @@ def train_fn(df, target, config):
 
     automl = autosklearn.classification.AutoSklearnClassifier(
         time_left_for_this_task=max_runtime,
-        per_run_time_limit=max(30, max_runtime // 10),
+        per_run_time_limit=max(60, max_runtime // 5),  # was max_runtime//10 — too tight
         seed=seed,
         n_jobs=-1,
         memory_limit=4096,
-        resampling_strategy="cv",
-        resampling_strategy_arguments={"folds": 5},
+        resampling_strategy="holdout",               # was "cv" — 5-fold CV exhausts budget
+        resampling_strategy_arguments={"train_size": 0.8},
         metric=autosklearn.metrics.roc_auc,
         tmp_folder=os.path.join(MODELS_DIR, "tmp"),
     )

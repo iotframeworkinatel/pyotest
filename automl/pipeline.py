@@ -46,6 +46,7 @@ def train_and_save_model(
     automl_tool: str = "h2o",
     max_runtime_secs: int = 300,
     seed: int = 42,
+    dynamic: bool = False,
 ) -> dict:
     """
     Train the selected AutoML framework on accumulated test history and save.
@@ -55,13 +56,14 @@ def train_and_save_model(
         automl_tool: Framework name (h2o, autogluon, pycaret, tpot, autosklearn).
         max_runtime_secs: Training time budget.
         seed: Random seed for reproducibility.
+        dynamic: If True, compute rolling temporal features (Phase 5/6).
 
     Returns:
         Model metrics dict (AUC, feature importance, leaderboard, etc.).
     """
     from automl.registry import get_adapter
 
-    history = load_history(path=history_csv_path)
+    history = load_history(path=history_csv_path, dynamic=dynamic)
 
     if len(history) < 10:
         logging.warning("[AutoML] Not enough history data to train (need >= 10 rows)")

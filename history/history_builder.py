@@ -23,6 +23,7 @@ class HistoryBuilder:
         "execution_time_ms",
         "simulation_mode",
         "simulation_iteration",
+        "simulation_seed",
     ]
 
     def __init__(self, path):

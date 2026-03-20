@@ -60,12 +60,22 @@ pyotest/
 - `deterministic`: No changes (control baseline)
 - `medium`: Moderate challenge (8% outage, 3% patch, 3% cred rotate, 5% regression, 1% FP, 5% FN)
 - `realistic`: Primary thesis mode — probability-driven service outages, vulnerability patches, credential rotations
+  - Runs with **3 seeds (42, 123, 777)** for statistical robustness. Each seed is treated as an independent replication.
+
+### Multi-Seed Robustness Strategy
+- Realistic mode runs 3 independent seeds (42, 123, 777). Deterministic and medium each run once (seed=42).
+- `simulation_seed` is stored in every `history.csv` row and used as an isolation filter in `aggregate_history()`.
+- Cross-seed leakage is impossible: each experiment's training set is filtered to `simulation_mode == mode AND simulation_seed == seed`.
+- The aggregated history filename encodes the seed: `aggregated_history_realistic_h2o_s123.csv`.
+- Resume key (`--resume`) includes seed: `(tool, mode, seed, phase)` — seed=42 and seed=123 realistic runs are tracked independently.
 
 ### Experiment Phases
-- **Phase 1 (ML)**: 5 frameworks × 3 modes × 100 iterations = 1,500 iterations. Temporal training enabled.
-- **Phase 2 (Baselines)**: 4 strategies × 3 modes × 100 iterations = 1,200 iterations. No training.
-- **Phase 3 (LLM)**: 5 frameworks × 3 modes × 100 iterations = 1,500 iterations. LLM generation every 25 iters.
+- **Phase 1 (ML)**: 5 frameworks × 5 modes (3 base + 2 extra realistic seeds) × 100 iterations = 2,500 iterations. Temporal training enabled.
+- **Phase 2 (Baselines)**: 4 strategies × 5 modes × 100 iterations = 2,000 iterations. No training.
+- **Phase 3 (LLM)**: 5 frameworks × 3 modes × 100 iterations = 1,500 iterations. LLM generation every 25 iters. Single seed (42).
 - **Phase 4 (LOPO)**: Post-processing only. Leave-one-protocol-out AUC for each framework/mode combo.
+- **Phase 5 (Dynamic)**: 5 frameworks × 3 modes × 100 iterations = 1,500 iterations. Dynamic rolling features enabled. Single seed (42).
+- **Phase 6 (Dynamic+LLM)**: Best Phase 1 framework (auto-selected by realistic AUC) × 3 modes × 100 iterations = 300 iterations. Dynamic features + LLM. Single seed (42). Framework is selected at runtime from `models/archive/{fw}_realistic/model_metrics.json` after Phase 1 completes.
 
 ### Hypothesis Endpoints (dashboard/backend/main.py)
 11 hypotheses (H1–H11) plus synthesis, ablation, framework-interaction, and LLM-effectiveness endpoints.
@@ -102,9 +112,11 @@ cd dashboard/frontend && npm run dev
 - Always derive `test_strategy` from `test_origin`, never hardcode it
 - History.csv is the source of truth for hypothesis analysis
 - `--resume` detects completed experiments by scanning `exp_*/history.csv`, deletes incomplete combos, re-runs them from scratch (API has no partial resume)
-- Experiment dirs: `exp_{timestamp}_{hex6}` — one dir per iteration, grouped by (automl_tool, simulation_mode, phase)
+- Experiment dirs: `exp_{timestamp}_{hex6}` — one dir per iteration, grouped by (automl_tool, simulation_mode, seed, phase)
 - Models archived to `models/archive/{framework}_{mode}/` after each completed experiment
 - Between simulation modes: containers are reset, models are cleared to prevent cross-contamination
 - Heuristic risk scoring produces near-zero ECE by construction (tautology) — score_method stratification separates model vs heuristic metrics
 - Multiple comparison correction (Holm-Bonferroni) applied in synthesis endpoint — always report corrected p-values alongside uncorrected
 - Do NOT modify `history/history_builder.py` COLUMNS while experiments are running — append-only via `_execute_suite_and_retrain` tagging
+- Phase 6 framework is auto-selected at runtime: `select_best_phase1_framework("realistic")` reads `models/archive/{fw}_realistic/model_metrics.json` post Phase 1. Falls back to h2o if no valid (AUC > 0.5) model found.
+- `aggregate_history()` now takes a `seed` parameter — always pass it to prevent cross-seed contamination in multi-seed runs

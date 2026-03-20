@@ -19,6 +19,7 @@ from automl.pipeline import train_and_save_model
 def retrain_model_after_execution(
     history_csv_path: str,
     automl_tool: str = "h2o",
+    dynamic: bool = False,
 ) -> dict:
     """
     Retrain the selected AutoML model after a test suite execution.
@@ -27,6 +28,7 @@ def retrain_model_after_execution(
     Args:
         history_csv_path: Path to the history CSV file.
         automl_tool: Framework name (h2o, autogluon, pycaret, tpot, autosklearn).
+        dynamic: If True, compute rolling temporal features (Phase 5/6).
 
     Returns model metrics dict or error status.
     """
@@ -35,7 +37,8 @@ def retrain_model_after_execution(
         return {"status": "error", "message": "History file not found"}
 
     try:
-        metrics = train_and_save_model(history_csv_path, automl_tool=automl_tool)
+        metrics = train_and_save_model(history_csv_path, automl_tool=automl_tool,
+                                       dynamic=dynamic)
         logging.info(
             f"[Retrain:{automl_tool}] Model retrained successfully: "
             f"AUC={metrics.get('auc', '?')}"
@@ -52,6 +55,7 @@ def retrain_model_temporal(
     train_iterations: range,
     automl_tool: str = "h2o",
     max_runtime_secs: int = 300,
+    dynamic: bool = False,
 ) -> dict:
     """
     Retrain model using only data from past iterations (expanding window).
@@ -106,6 +110,7 @@ def retrain_model_temporal(
             train_csv,
             automl_tool=automl_tool,
             max_runtime_secs=max_runtime_secs,
+            dynamic=dynamic,
         )
 
         # Add temporal metadata
@@ -164,7 +169,8 @@ def find_all_history_files(base_dir: str = "experiments") -> list[str]:
 
 
 def aggregate_history(base_dir: str = "experiments", simulation_mode: str = None,
-                      automl_tool: str = None) -> str:
+                      automl_tool: str = None, phase_tag: str = None,
+                      seed: int = None) -> str:
     """
     Aggregate history.csv files into a single file for training.
 
@@ -178,6 +184,15 @@ def aggregate_history(base_dir: str = "experiments", simulation_mode: str = None
         automl_tool: If provided, only include rows matching this framework.
             Prevents cross-framework contamination where later frameworks
             would train on data from earlier frameworks' experiments.
+        phase_tag: If provided, only include rows matching this phase label
+            (e.g. "phase5", "phase6"). This is the primary leakage-prevention
+            mechanism between Phase 1 (static features) and Phase 5/6
+            (dynamic features) — models for each phase must only train on
+            their own phase's data.
+        seed: If provided, only include rows matching this simulation seed.
+            Prevents cross-seed contamination when multiple seeds of the same
+            mode run in the same experiments directory (e.g. realistic seed=42,
+            seed=123, seed=777 for robustness testing).
 
     Returns path to the aggregated file, or "" if no data.
     """
@@ -219,12 +234,34 @@ def aggregate_history(base_dir: str = "experiments", simulation_mode: str = None
             return ""
         suffix += f"_{automl_tool}"
 
+    # Filter to the requested phase to prevent cross-phase feature contamination.
+    # Phase 5 ("phase5") rows have rolling features; Phase 1 ("framework") rows do not.
+    # Mixing them would create a training set with inconsistent feature presence.
+    if phase_tag and "phase" in combined.columns:
+        combined = combined[combined["phase"] == phase_tag]
+        if combined.empty:
+            logging.warning(f"[Retrain] No rows for phase={phase_tag}")
+            return ""
+        suffix += f"_{phase_tag}"
+
+    # Filter to the requested seed to prevent cross-seed contamination.
+    # When multiple seeds of the same simulation mode run in the same directory
+    # (e.g. realistic seed=42, seed=123, seed=777 for robustness testing),
+    # each seed's training set must remain isolated so results are independent.
+    if seed is not None and "simulation_seed" in combined.columns:
+        combined = combined[combined["simulation_seed"] == seed]
+        if combined.empty:
+            logging.warning(f"[Retrain] No rows for simulation_seed={seed}")
+            return ""
+        suffix += f"_s{seed}"
+
     output_path = os.path.join(base_dir, f"aggregated_history{suffix}.csv")
     combined.to_csv(output_path, index=False)
 
     logging.info(
         f"[Retrain] Aggregated {len(history_files)} history files "
         f"({len(combined)} rows, mode={simulation_mode or 'all'}, "
-        f"framework={automl_tool or 'all'}) -> {output_path}"
+        f"framework={automl_tool or 'all'}, seed={seed if seed is not None else 'all'}) "
+        f"-> {output_path}"
     )
     return output_path

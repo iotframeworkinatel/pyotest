@@ -52,10 +52,14 @@ SUITES_DIR = os.path.join(PROJECT_ROOT, "suites")
 AUTOML_FRAMEWORKS = ["h2o", "autogluon", "pycaret", "tpot", "autosklearn"]
 
 # Simulation mode definitions: (base_name, simulation_mode, seed, iterations, train_every_n)
+# Two additional seeds for realistic mode provide seed-robustness evidence for the thesis.
+# Each seed is isolated at training time via the simulation_seed column in history.csv.
 SIM_MODES = [
-    ("CTRL-DET-100",   "deterministic", 42, 100, 10),
-    ("TREAT-MED-100",  "medium",        42, 100, 10),
-    ("TREAT-REAL-100", "realistic",     42, 100, 10),
+    ("CTRL-DET-100",      "deterministic", 42,  100, 10),
+    ("TREAT-MED-100",     "medium",        42,  100, 10),
+    ("TREAT-REAL-100",    "realistic",     42,  100, 10),
+    ("TREAT-REAL-S2-100", "realistic",     123, 100, 10),  # robustness seed 2
+    ("TREAT-REAL-S3-100", "realistic",     777, 100, 10),  # robustness seed 3
 ]
 
 # Pretty names for display
@@ -138,6 +142,20 @@ def clear_experiment_data(only_llm=False):
         os.remove(agg_name)
         log(f"  Removed {os.path.basename(agg_name)}")
 
+    # Truncate DuckDB history table — exp_dirs are gone so the DB must also
+    # be cleared, otherwise a subsequent run accumulates duplicate rows on top
+    # of the previous run's data (simulation_iteration 1-100 overlaps).
+    db_path = os.path.join(EXPERIMENTS_DIR, "emergence.db")
+    if os.path.exists(db_path):
+        try:
+            import duckdb
+            con = duckdb.connect(db_path)
+            con.execute("DELETE FROM history")
+            con.close()
+            log("  Truncated DuckDB history table")
+        except Exception as e:
+            log(f"  Warning: could not truncate DuckDB ({e})")
+
     # Clear saved models (all frameworks)
     if os.path.exists(MODELS_DIR):
         shutil.rmtree(MODELS_DIR, ignore_errors=True)
@@ -173,18 +191,21 @@ def clear_experiment_data(only_llm=False):
 # ----------------------------------------------------------------------
 
 def discover_completed_experiments(expected_iters):
-    """Scan existing experiment dirs and return set of completed (tool, mode, phase) tuples.
+    """Scan existing experiment dirs and return set of completed (tool, mode, seed, phase) tuples.
 
-    - Groups experiment dirs by (automl_tool, simulation_mode, phase)
+    - Groups experiment dirs by (automl_tool, simulation_mode, simulation_seed, phase)
     - Counts total iterations per group (each exp dir = 1 iteration)
     - Complete = total iterations >= expected_iters
     - Deletes empty/crashed dirs (0 data rows)
     - Deletes ALL dirs for incomplete combos so they can be re-run from scratch
+
+    Seed is included in the key so that realistic seed=42 and seed=123 are tracked
+    independently and don't interfere with each other's resume logic.
     """
     import csv
     from collections import defaultdict
 
-    # Map (tool, mode, phase) -> list of (dir_path, iteration_count)
+    # Map (tool, mode, seed, phase) -> list of (dir_path, iteration_count)
     combo_dirs = defaultdict(list)
 
     exp_dirs = sorted(glob.glob(os.path.join(EXPERIMENTS_DIR, "exp_*")))
@@ -199,6 +220,8 @@ def discover_completed_experiments(expected_iters):
         # Read first data row to classify
         tool = mode = baseline = ""
         has_llm = False
+        tagged_phase = ""
+        seed_val = 42  # default for backward compat with pre-seed-column dirs
         n_rows = 0
         try:
             with open(history_csv, newline="") as fh:
@@ -209,7 +232,12 @@ def discover_completed_experiments(expected_iters):
                         tool = row.get("automl_tool", "")
                         mode = row.get("simulation_mode", "")
                         baseline = row.get("baseline_strategy", "")
-                    if row.get("test_strategy") == "llm_generated":
+                        tagged_phase = row.get("phase", "")
+                        try:
+                            seed_val = int(row.get("simulation_seed", 42) or 42)
+                        except (ValueError, TypeError):
+                            seed_val = 42
+                    if row.get("test_strategy") == "llm_generated" or row.get("test_origin") == "llm":
                         has_llm = True
         except Exception as e:
             log(f"  Error reading {os.path.basename(exp_dir)}/history.csv: {e}", "WARN")
@@ -220,16 +248,22 @@ def discover_completed_experiments(expected_iters):
             shutil.rmtree(exp_dir, ignore_errors=True)
             continue
 
-        # Classify phase
+        # Classify phase — prefer the tagged phase column written at run time,
+        # fall back to heuristic detection for older dirs that predate the column.
         if baseline and baseline != "ml_guided":
             phase = "baseline"
-            key = (baseline, mode, phase)
-        elif has_llm:
+            key = (baseline, mode, seed_val, phase)
+        elif tagged_phase in ("phase5", "phase6"):
+            # Dynamic feature phases — explicit tag takes priority over all heuristics.
+            # Phase 6 has has_llm=True and would be misclassified without this guard.
+            phase = tagged_phase
+            key = (tool, mode, seed_val, phase)
+        elif tagged_phase == "llm" or has_llm:
             phase = "llm"
-            key = (tool, mode, phase)
+            key = (tool, mode, seed_val, phase)
         else:
             phase = "framework"
-            key = (tool, mode, phase)
+            key = (tool, mode, seed_val, phase)
 
         combo_dirs[key].append((exp_dir, n_rows))
 
@@ -324,7 +358,7 @@ def generate_suite(devices, automl_tool="h2o"):
 
 def run_experiment(suite_id, name, mode, seed, iterations, train_every_n, automl_tool="h2o",
                    temporal_training=False, baseline_strategy=None, llm_enabled=False,
-                   llm_generate_every_n=10):
+                   llm_generate_every_n=10, phase_tag=None, dynamic_features=False):
     """
     Start a train-loop experiment and poll until completion.
     Returns a dict of final metrics.
@@ -337,6 +371,10 @@ def run_experiment(suite_id, name, mode, seed, iterations, train_every_n, automl
         extra_info.append(f"baseline={baseline_strategy}")
     if llm_enabled:
         extra_info.append("LLM")
+    if phase_tag:
+        extra_info.append(phase_tag)
+    if dynamic_features:
+        extra_info.append("dynamic")
     extra_str = f" [{', '.join(extra_info)}]" if extra_info else ""
 
     log(f"{'=' * 70}")
@@ -358,6 +396,8 @@ def run_experiment(suite_id, name, mode, seed, iterations, train_every_n, automl
         "baseline_strategy": baseline_strategy,
         "llm_enabled": llm_enabled,
         "llm_generate_every_n": llm_generate_every_n,
+        "phase_tag": phase_tag,
+        "dynamic_features": dynamic_features,
     }
     resp = api_post(f"/api/suites/{suite_id}/train-loop", body, timeout=60)
 
@@ -377,7 +417,7 @@ def run_experiment(suite_id, name, mode, seed, iterations, train_every_n, automl
     last_iter = 0
     while True:
         time.sleep(POLL_INTERVAL)
-        status = api_get(f"/api/suites/{suite_id}/train-loop/status")
+        status = api_get(f"/api/suites/{suite_id}/train-loop/status", timeout=120)
         if not status:
             continue
 
@@ -508,7 +548,7 @@ def reset_iot_containers():
         result = subprocess.run(
             ["docker", "compose", "up", "-d", "--force-recreate"] + IOT_CONTAINERS,
             cwd=PROJECT_ROOT,
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, timeout=300,
         )
         if result.returncode == 0:
             log(f"  Recreated {len(IOT_CONTAINERS)} IoT containers")
@@ -715,6 +755,67 @@ LLM_EXPERIMENTS = [
     ("LLM-REAL-100", "realistic", 42, 100, 10),
 ]
 
+# Phase 5: Dynamic rolling features, all 5 frameworks — mirrors Phase 1 structure
+PHASE5_FRAMEWORKS = ["h2o", "autogluon", "pycaret", "tpot", "autosklearn"]
+PHASE5_MODES = [
+    ("P5-CTRL-DET-100",   "deterministic", 42, 100, 10),
+    ("P5-TREAT-MED-100",  "medium",        42, 100, 10),
+    ("P5-TREAT-REAL-100", "realistic",     42, 100, 10),
+]
+
+# Phase 6: Dynamic + LLM — framework auto-selected at runtime from Phase 1 archived AUC.
+# PHASE6_FRAMEWORKS is populated dynamically in main() via select_best_phase1_framework().
+PHASE6_FRAMEWORKS = ["h2o"]  # default fallback; overwritten at runtime
+PHASE6_MODES = [
+    ("P6-CTRL-DET-100",   "deterministic", 42, 100, 10),
+    ("P6-TREAT-MED-100",  "medium",        42, 100, 10),
+    ("P6-TREAT-REAL-100", "realistic",     42, 100, 10),
+]
+
+
+def select_best_phase1_framework(sim_mode="realistic"):
+    """Read Phase 1 archived model_metrics.json files and return the best-AUC framework.
+
+    Compares all frameworks archived under models/archive/{fw}_{sim_mode}/model_metrics.json
+    and returns the one with the highest valid AUC (> 0.5).  Falls back to "h2o" when no
+    valid archived models exist (e.g. Phase 1 was skipped or all frameworks failed).
+
+    Args:
+        sim_mode: Simulation mode to compare (default: "realistic", the thesis-critical mode).
+
+    Returns:
+        Framework name string (e.g. "h2o", "autogluon").
+    """
+    best_fw = None
+    best_auc = -1.0
+
+    for fw in AUTOML_FRAMEWORKS:
+        metrics_path = os.path.join(MODELS_ARCHIVE_DIR, f"{fw}_{sim_mode}", "model_metrics.json")
+        if not os.path.exists(metrics_path):
+            log(f"  {FRAMEWORK_LABELS.get(fw, fw)}: no archive found at {metrics_path}", "WARN")
+            continue
+        try:
+            with open(metrics_path) as f:
+                metrics = json.load(f)
+            auc = metrics.get("auc")
+            if auc is None:
+                log(f"  {FRAMEWORK_LABELS.get(fw, fw)}: AUC=null (skipped)")
+                continue
+            auc = float(auc)
+            log(f"  {FRAMEWORK_LABELS.get(fw, fw)}: AUC={auc:.4f}")
+            if auc > best_auc:
+                best_auc = auc
+                best_fw = fw
+        except Exception as e:
+            log(f"  {FRAMEWORK_LABELS.get(fw, fw)}: could not read metrics: {e}", "WARN")
+
+    if best_fw is None or best_auc <= 0.5:
+        log(f"  No valid Phase 1 {sim_mode} models found (threshold > 0.5) — defaulting Phase 6 to h2o")
+        return "h2o"
+
+    log(f"  Phase 6 auto-selected: {FRAMEWORK_LABELS.get(best_fw, best_fw)} (AUC={best_auc:.4f})")
+    return best_fw
+
 
 def run_baseline_experiments(suite_id, devices, all_results, completed=None):
     """Run baseline experiments: 4 baselines × 3 modes × 100 iterations = 1,200 iterations."""
@@ -727,8 +828,8 @@ def run_baseline_experiments(suite_id, devices, all_results, completed=None):
         for base_name, mode, seed, iters, train_n in SIM_MODES:
             experiment_name = f"{baseline_name}-{mode.upper()[:3]}-{iters}"
 
-            if completed and (strategy, mode, "baseline") in completed:
-                log(f"  SKIP (already completed): {experiment_name} [{strategy}/{mode}]")
+            if completed and (strategy, mode, seed, "baseline") in completed:
+                log(f"  SKIP (already completed): {experiment_name} [{strategy}/{mode}/s{seed}]")
                 all_results.append({"name": experiment_name, "status": "skipped_resume",
                                     "mode": mode, "automl_tool": "h2o",
                                     "baseline_strategy": strategy})
@@ -762,7 +863,7 @@ def run_llm_experiments(suite_id, devices, all_results, completed=None):
         for base_name, mode, seed, iters, train_n in LLM_EXPERIMENTS:
             experiment_name = f"{base_name}-{fw_label}"
 
-            if completed and (fw, mode, "llm") in completed:
+            if completed and (fw, mode, 42, "llm") in completed:
                 log(f"  SKIP (already completed): {experiment_name} [{fw}/{mode}/llm]")
                 all_results.append({"name": experiment_name, "status": "skipped_resume",
                                     "mode": mode, "automl_tool": fw})
@@ -783,7 +884,83 @@ def run_llm_experiments(suite_id, devices, all_results, completed=None):
             all_results.append(result)
 
 
-def run_lopo_analysis():
+def run_phase5_experiments(suite_id, devices, all_results, completed=None):
+    """Run Phase 5: dynamic rolling features, all 5 frameworks × 3 modes × 100 iters."""
+    log(f"\n{'#' * 70}")
+    log(f"  PHASE 5: DYNAMIC ROLLING FEATURES")
+    log(f"  {len(PHASE5_FRAMEWORKS)} frameworks × {len(PHASE5_MODES)} modes")
+    log(f"{'#' * 70}")
+
+    for fw in PHASE5_FRAMEWORKS:
+        fw_label = FRAMEWORK_LABELS.get(fw, fw)
+        for base_name, mode, seed, iters, train_n in PHASE5_MODES:
+            experiment_name = f"{base_name}-{fw.upper()}"
+
+            if completed and (fw, mode, 42, "phase5") in completed:
+                log(f"  SKIP (already completed): {experiment_name} [{fw}/{mode}/phase5]")
+                all_results.append({"name": experiment_name, "status": "skipped_resume",
+                                    "mode": mode, "automl_tool": fw})
+                continue
+
+            log(f"\n  Phase5 + {fw_label} | Mode: {mode}")
+            reset_iot_containers()
+            clear_between_experiments(automl_tool=fw)
+            clear_framework_model_on_server(fw)
+
+            result = run_experiment(
+                suite_id, experiment_name, mode, seed, iters, train_n,
+                automl_tool=fw,
+                temporal_training=True,
+                phase_tag="phase5",
+                dynamic_features=True,
+            )
+            all_results.append(result)
+
+            if result.get("status") == "completed":
+                archive_model(fw, f"{mode}_phase5")
+
+
+def run_phase6_experiments(suite_id, devices, all_results, completed=None, frameworks=None):
+    """Run Phase 6: dynamic features + LLM — best Phase 1 framework × 3 modes × 100 iters."""
+    _frameworks = frameworks if frameworks is not None else PHASE6_FRAMEWORKS
+    fw_names = ", ".join(FRAMEWORK_LABELS.get(fw, fw) for fw in _frameworks)
+    log(f"\n{'#' * 70}")
+    log(f"  PHASE 6: DYNAMIC FEATURES + LLM ({fw_names})")
+    log(f"  {len(_frameworks)} framework × {len(PHASE6_MODES)} modes")
+    log(f"{'#' * 70}")
+
+    for fw in _frameworks:
+        fw_label = FRAMEWORK_LABELS.get(fw, fw)
+        for base_name, mode, seed, iters, train_n in PHASE6_MODES:
+            experiment_name = f"{base_name}-{fw.upper()}"
+
+            if completed and (fw, mode, 42, "phase6") in completed:
+                log(f"  SKIP (already completed): {experiment_name} [{fw}/{mode}/phase6]")
+                all_results.append({"name": experiment_name, "status": "skipped_resume",
+                                    "mode": mode, "automl_tool": fw})
+                continue
+
+            log(f"\n  Phase6 + {fw_label} + LLM | Mode: {mode}")
+            reset_iot_containers()
+            clear_between_experiments(automl_tool=fw)
+            clear_framework_model_on_server(fw)
+
+            result = run_experiment(
+                suite_id, experiment_name, mode, seed, iters, train_n,
+                automl_tool=fw,
+                temporal_training=True,
+                llm_enabled=True,
+                llm_generate_every_n=25,
+                phase_tag="phase6",
+                dynamic_features=True,
+            )
+            all_results.append(result)
+
+            if result.get("status") == "completed":
+                archive_model(fw, f"{mode}_phase6")
+
+
+def run_lopo_analysis(phase=None):
     """Run leave-one-protocol-out analysis as post-processing."""
     log(f"\n{'#' * 70}")
     log(f"  LOPO GENERALIZATION ANALYSIS")
@@ -795,7 +972,8 @@ def run_lopo_analysis():
         log(f"\n  LOPO for {fw_label}...")
 
         for _, mode, _, _, _ in SIM_MODES:
-            resp = api_get(f"/api/hypothesis/generalization?automl_tool={fw}&simulation_mode={mode}", timeout=300)
+            phase_param = f"&phase={phase}" if phase else ""
+            resp = api_get(f"/api/hypothesis/generalization?automl_tool={fw}&simulation_mode={mode}{phase_param}", timeout=300)
             if resp and resp.get("status") == "ok":
                 summary = resp.get("summary", {})
                 log(f"    {mode}: LOPO AUC={summary.get('mean_auc', 'N/A')}, "
@@ -838,7 +1016,12 @@ def main():
     skip_lopo = "--skip-lopo" in sys.argv
     only_baselines = "--only-baselines" in sys.argv
     only_llm = "--only-llm" in sys.argv
+    only_phase5 = "--only-phase5" in sys.argv
+    only_phase6 = "--only-phase6" in sys.argv
+    skip_phase5 = "--skip-phase5" in sys.argv
+    skip_phase6 = "--skip-phase6" in sys.argv
     resume_mode = "--resume" in sys.argv
+    rebuild_db = "--rebuild-db" in sys.argv  # rebuild DuckDB from CSVs after run
 
     if quick_mode:
         # Override iteration counts for quick testing
@@ -846,29 +1029,40 @@ def main():
             SIM_MODES[i] = (name, mode, seed, 5, 5)
         for i, (name, mode, seed, _, train_n) in enumerate(LLM_EXPERIMENTS):
             LLM_EXPERIMENTS[i] = (name, mode, seed, 5, 5)
+        for i, (name, mode, seed, _, train_n) in enumerate(PHASE5_MODES):
+            PHASE5_MODES[i] = (name, mode, seed, 5, 5)
+        for i, (name, mode, seed, _, train_n) in enumerate(PHASE6_MODES):
+            PHASE6_MODES[i] = (name, mode, seed, 5, 5)
         log("QUICK MODE: Using 5 iterations instead of 100")
 
     n_framework_exps = len(AUTOML_FRAMEWORKS) * len(SIM_MODES)
     n_baseline_exps = len(BASELINES) * len(SIM_MODES)
-    n_llm_exps = len(LLM_EXPERIMENTS)
-    total_experiments = n_framework_exps + n_baseline_exps + n_llm_exps
+    n_llm_exps = len(LLM_FRAMEWORKS) * len(LLM_EXPERIMENTS)  # all frameworks × all LLM modes
+    n_phase5_exps = len(PHASE5_FRAMEWORKS) * len(PHASE5_MODES)
+    n_phase6_exps = len(PHASE6_FRAMEWORKS) * len(PHASE6_MODES)  # actual count; fw auto-selected later
+    total_experiments = n_framework_exps + n_baseline_exps + n_llm_exps + n_phase5_exps + n_phase6_exps
 
-    est_hours = total_experiments * 100 * 2.5 / 60 / 60  # rough: ~2.5 min per iteration
+    iters_per_exp = 5 if quick_mode else 100
+    est_hours = total_experiments * iters_per_exp * 2.5 / 60 / 60  # rough: ~2.5 min per iteration
+
+    n_realistic_seeds = sum(1 for _, mode, _, _, _ in SIM_MODES if mode == "realistic")
 
     print(f"""
     ==============================================================
       Emergence - Multi-Framework PhD Experiment Runner v2
 
-      ML Frameworks:  {n_framework_exps} experiments ({len(AUTOML_FRAMEWORKS)} fw × {len(SIM_MODES)} modes)
-      Baselines:      {n_baseline_exps} experiments ({len(BASELINES)} baselines × {len(SIM_MODES)} modes)
-      LLM Generation: {n_llm_exps} experiments
-      LOPO Analysis:  {len(AUTOML_FRAMEWORKS)} frameworks × {len(SIM_MODES)} modes (post-processing)
+      Phase 1 (ML):   {n_framework_exps} experiments ({len(AUTOML_FRAMEWORKS)} fw × {len(SIM_MODES)} modes, incl. {n_realistic_seeds} realistic seeds)
+      Phase 2 (Base): {n_baseline_exps} experiments ({len(BASELINES)} baselines × {len(SIM_MODES)} modes)
+      Phase 3 (LLM):  {n_llm_exps} experiments ({len(LLM_FRAMEWORKS)} fw × {len(LLM_EXPERIMENTS)} modes)
+      Phase 5 (Dyn):  {n_phase5_exps} experiments ({len(PHASE5_FRAMEWORKS)} fw × {len(PHASE5_MODES)} modes)
+      Phase 6 (D+L):  {n_phase6_exps} experiments (best fw × {len(PHASE6_MODES)} modes, auto-selected)
+      LOPO Analysis:  post-processing (Phases 1, 5)
 
       Frameworks: {', '.join(FRAMEWORK_LABELS[fw] for fw in AUTOML_FRAMEWORKS)}
       Baselines:  {', '.join(name for _, name in BASELINES)}
-      Modes:      deterministic → medium → realistic
+      Modes:      deterministic → medium → realistic (×{n_realistic_seeds} seeds)
 
-      Total: {total_experiments} experiments
+      Total: {total_experiments} experiments × {iters_per_exp} iterations
       Estimated duration: ~{est_hours:.0f} hours
       {'QUICK MODE: 5 iterations' if quick_mode else 'Full mode: 100 iterations'}
       {'RESUME MODE: Skipping completed experiments' if resume_mode else ''}
@@ -934,9 +1128,9 @@ def main():
     # ── Framework-first loop ──────────────────────────────────────────
     # Keeps each framework container warm while cycling through modes.
     # Model is cleared between mode switches to prevent contamination.
-    if only_llm or only_baselines:
-        log(f"\nSkipping ML framework experiments ({'--only-llm' if only_llm else '--only-baselines'})")
-    for fw in ([] if only_llm or only_baselines else AUTOML_FRAMEWORKS):
+    if only_llm or only_baselines or only_phase5 or only_phase6:
+        log(f"\nSkipping ML framework experiments (mode flag active)")
+    for fw in ([] if only_llm or only_baselines or only_phase5 or only_phase6 else AUTOML_FRAMEWORKS):
         fw_label = FRAMEWORK_LABELS.get(fw, fw)
 
         # Check if framework is available
@@ -965,9 +1159,9 @@ def main():
             experiment_num += 1
             experiment_name = f"{base_name}-{fw.upper()}"
 
-            # Resume: skip already-completed experiments
-            if resume_mode and (fw, mode, "framework") in completed:
-                log(f"  SKIP (already completed): {experiment_name} [{fw}/{mode}]")
+            # Resume: skip already-completed experiments (key includes seed for multi-seed isolation)
+            if resume_mode and (fw, mode, seed, "framework") in completed:
+                log(f"  SKIP (already completed): {experiment_name} [{fw}/{mode}/s{seed}]")
                 all_results.append({"name": experiment_name, "status": "skipped_resume",
                                     "mode": mode, "automl_tool": fw})
                 continue
@@ -1013,23 +1207,66 @@ def main():
             clear_framework_model_on_server(fw)  # Clear the server-side model too
 
     # ── Phase 2: Baseline experiments ────────────────────────────────
-    if not skip_baselines and not only_llm:
+    if not skip_baselines and not only_llm and not only_phase5 and not only_phase6:
         run_baseline_experiments(suite_id, devices, all_results, completed=completed)
     elif skip_baselines:
         log("\nSkipping baseline experiments (--skip-baselines)")
 
     # ── Phase 3: LLM generation experiments ──────────────────────────
-    if not skip_llm and not only_baselines:
+    if not skip_llm and not only_baselines and not only_phase5 and not only_phase6:
         run_llm_experiments(suite_id, devices, all_results, completed=completed)
     elif skip_llm:
         log("\nSkipping LLM experiments (--skip-llm)")
 
     # ── Phase 4: LOPO generalization analysis ────────────────────────
     lopo_results = []
-    if not skip_lopo and not only_baselines and not only_llm:
+    if not skip_lopo and not only_baselines and not only_llm and not only_phase5 and not only_phase6:
         lopo_results = run_lopo_analysis()
     elif skip_lopo:
         log("\nSkipping LOPO analysis (--skip-lopo)")
+
+    # ── Phase 5: Dynamic features (all 5 frameworks × 3 modes) ───────
+    if not skip_phase5 and not only_llm and not only_baselines and not only_phase6:
+        run_phase5_experiments(suite_id, devices, all_results, completed=completed)
+        if not skip_lopo:
+            run_lopo_analysis(phase="phase5")
+    elif only_phase5:
+        run_phase5_experiments(suite_id, devices, all_results, completed=completed)
+        if not skip_lopo:
+            run_lopo_analysis(phase="phase5")
+
+    # ── Phase 6: Dynamic + LLM — auto-select best Phase 1 framework ──
+    # Read archived Phase 1 realistic-mode AUC values and pick the winner.
+    # This runs after Phase 1 completes so the archives are always populated.
+    log(f"\n{'#' * 70}")
+    log(f"  Selecting best Phase 1 framework for Phase 6...")
+    log(f"{'#' * 70}")
+    phase6_best_fw = select_best_phase1_framework(sim_mode="realistic")
+    PHASE6_FRAMEWORKS = [phase6_best_fw]
+
+    if not skip_phase6 and not only_baselines and not only_phase5:
+        if only_phase6 or (not only_llm):
+            run_phase6_experiments(suite_id, devices, all_results, completed=completed,
+                                   frameworks=PHASE6_FRAMEWORKS)
+
+    # -- Rebuild DuckDB from CSVs (optional) -----------------------
+    # Pass --rebuild-db to rebuild from authoritative CSVs after the
+    # run and print a completeness report suitable for sharing the DB.
+    if rebuild_db:
+        log("\nRebuilding DuckDB from experiment CSVs for verification...")
+        try:
+            import importlib.util
+            _spec = importlib.util.spec_from_file_location(
+                "migrate_to_duckdb",
+                os.path.join(PROJECT_ROOT, "migrate_to_duckdb.py"),
+            )
+            _mod = importlib.util.module_from_spec(_spec)
+            _spec.loader.exec_module(_mod)
+            _mod.main()
+            log("DuckDB rebuild complete. See row counts above for completeness verification.")
+        except Exception as _e:
+            log(f"Warning: DuckDB rebuild failed ({_e}). "
+                f"Run 'python migrate_to_duckdb.py' manually before sharing the DB.")
 
     # -- Summary ---------------------------------------------------
     total_duration = time.time() - total_start

@@ -44,6 +44,14 @@ class H2OAdapter(AutoMLAdapter):
 
         self._init_h2o()
 
+        # Remove all previous frames and models from the H2O server before
+        # each training run to prevent K/V store OOM accumulation across
+        # iterations. The leader is re-uploaded from disk when needed.
+        try:
+            h2o.remove_all()
+        except Exception as e:
+            logging.warning(f"[H2O] Could not clear server state before training: {e}")
+
         start = time.time()
 
         hf = h2o.H2OFrame(df)
@@ -63,8 +71,16 @@ class H2OAdapter(AutoMLAdapter):
         self._leader = aml.leader
         self._aml = aml
 
-        # Convert H2O-specific metrics into unified AutoMLResult
-        return self._extract_result(aml, elapsed, len(df))
+        result = self._extract_result(aml, elapsed, len(df))
+
+        # Remove the training frame now that AutoML is done; leader model
+        # stays in the K/V store so predict() can use it directly.
+        try:
+            h2o.remove(hf)
+        except Exception:
+            pass
+
+        return result
 
     def predict(self, df: pd.DataFrame) -> pd.DataFrame:
         if self._leader is None:
@@ -74,8 +90,14 @@ class H2OAdapter(AutoMLAdapter):
 
         self._init_h2o()
         hf = h2o.H2OFrame(df)
-        preds = self._leader.predict(hf)
-        return preds.as_data_frame()
+        try:
+            preds = self._leader.predict(hf)
+            return preds.as_data_frame()
+        finally:
+            try:
+                h2o.remove(hf)
+            except Exception:
+                pass
 
     def save_model(self, directory: str) -> str:
         if self._leader is None:

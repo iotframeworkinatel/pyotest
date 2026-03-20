@@ -71,9 +71,11 @@ def run_suite(suite: TestSuite, simulation_context: dict = None) -> dict:
     _sim_fn_rate = 0.0
     _sim_mode = None
     _sim_iteration = None
+    _sim_seed = None
     if simulation_context:
         _sim_mode = simulation_context.get("mode")
         _sim_iteration = simulation_context.get("iteration")
+        _sim_seed = simulation_context.get("seed")
         _sim_fp_rate = simulation_context.get("false_positive_rate", 0.0)
         _sim_fn_rate = simulation_context.get("false_negative_rate", 0.0)
         seed = simulation_context.get("seed", 42)
@@ -165,7 +167,8 @@ def run_suite(suite: TestSuite, simulation_context: dict = None) -> dict:
                     error="Test execution timed out (120s)",
                 ))
                 _log_test_result(history, metrics, tc, "error", 120000,
-                                 sim_mode=_sim_mode, sim_iteration=_sim_iteration)
+                                 sim_mode=_sim_mode, sim_iteration=_sim_iteration,
+                                 sim_seed=_sim_seed)
             continue
         except Exception as e:
             for tc in test_cases:
@@ -173,7 +176,8 @@ def run_suite(suite: TestSuite, simulation_context: dict = None) -> dict:
                     tc, status="error", error=str(e),
                 ))
                 _log_test_result(history, metrics, tc, "error", 0,
-                                 sim_mode=_sim_mode, sim_iteration=_sim_iteration)
+                                 sim_mode=_sim_mode, sim_iteration=_sim_iteration,
+                                 sim_seed=_sim_seed)
             continue
 
         # Parse pytest output and map results back to test cases
@@ -183,7 +187,7 @@ def run_suite(suite: TestSuite, simulation_context: dict = None) -> dict:
             history, metrics, protocol,
             sim_rng=_sim_rng, sim_fp_rate=_sim_fp_rate,
             sim_fn_rate=_sim_fn_rate, sim_mode=_sim_mode,
-            sim_iteration=_sim_iteration,
+            sim_iteration=_sim_iteration, sim_seed=_sim_seed,
         )
 
     # ── Execute LLM-generated tests (standalone .py files, no template) ──
@@ -216,14 +220,16 @@ def run_suite(suite: TestSuite, simulation_context: dict = None) -> dict:
                 tc, status="error", error="LLM test timed out (120s)",
             ))
             _log_test_result(history, metrics, tc, "error", 120000,
-                             sim_mode=_sim_mode, sim_iteration=_sim_iteration)
+                             sim_mode=_sim_mode, sim_iteration=_sim_iteration,
+                             sim_seed=_sim_seed)
             continue
         except Exception as e:
             results_detail.append(_build_result_entry(
                 tc, status="error", error=str(e),
             ))
             _log_test_result(history, metrics, tc, "error", 0,
-                             sim_mode=_sim_mode, sim_iteration=_sim_iteration)
+                             sim_mode=_sim_mode, sim_iteration=_sim_iteration,
+                             sim_seed=_sim_seed)
             continue
 
         vuln_found = (status == "PASSED")
@@ -247,7 +253,7 @@ def run_suite(suite: TestSuite, simulation_context: dict = None) -> dict:
         ))
         _log_test_result(
             history, metrics, tc, tc_status, 0, vuln_found=vuln_found,
-            sim_mode=_sim_mode, sim_iteration=_sim_iteration,
+            sim_mode=_sim_mode, sim_iteration=_sim_iteration, sim_seed=_sim_seed,
         )
 
     if llm_tests:
@@ -324,7 +330,7 @@ def _map_results_to_test_cases(
     test_cases, test_results, results_detail,
     history, metrics, protocol,
     sim_rng=None, sim_fp_rate=0.0, sim_fn_rate=0.0,
-    sim_mode=None, sim_iteration=None,
+    sim_mode=None, sim_iteration=None, sim_seed=None,
 ):
     """
     Map pytest results back to TestCase objects. Each template may produce
@@ -346,7 +352,8 @@ def _map_results_to_test_cases(
                 tc, status="completed", vulnerability_found=False,
             ))
             _log_test_result(history, metrics, tc, "completed", 0, vuln_found=False,
-                             sim_mode=sim_mode, sim_iteration=sim_iteration)
+                             sim_mode=sim_mode, sim_iteration=sim_iteration,
+                             sim_seed=sim_seed)
         return
 
     # Build lookup: try to match each tc.test_id to a pytest function name
@@ -390,7 +397,7 @@ def _map_results_to_test_cases(
         ))
         _log_test_result(
             history, metrics, tc, tc_status, 0, vuln_found=vuln_found,
-            sim_mode=sim_mode, sim_iteration=sim_iteration,
+            sim_mode=sim_mode, sim_iteration=sim_iteration, sim_seed=sim_seed,
         )
 
 
@@ -464,7 +471,7 @@ _DEVICE_INFO = {
 
 def _log_test_result(
     history, metrics, tc, status, elapsed_ms, vuln_found=False,
-    sim_mode=None, sim_iteration=None,
+    sim_mode=None, sim_iteration=None, sim_seed=None,
 ):
     """Log a single test result to history CSV and update metrics."""
     metrics["tests_executed"] += 1
@@ -494,6 +501,7 @@ def _log_test_result(
         "execution_time_ms": elapsed_ms,
         "simulation_mode": sim_mode or "unknown",
         "simulation_iteration": sim_iteration if sim_iteration is not None else -1,
+        "simulation_seed": sim_seed if sim_seed is not None else 42,
     }
 
     history.log(row)

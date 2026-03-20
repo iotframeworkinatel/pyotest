@@ -127,7 +127,12 @@ def _extract_metrics(model, df, target, elapsed):
         proba = model.predict_proba(X)[:, 1]
         y_pred = (proba >= 0.5).astype(int)
 
-        metrics["auc"] = round(float(roc_auc_score(y_true, proba)), 4)
+        # Guard: roc_auc_score raises ValueError when only one class is present
+        if len(y_true.unique()) < 2:
+            logging.warning("[PyCaret] Only one class in training target — AUC undefined, skipping")
+            metrics["auc"] = None
+        else:
+            metrics["auc"] = round(float(roc_auc_score(y_true, proba)), 4)
         metrics["accuracy"] = round(float(accuracy_score(y_true, y_pred)), 4)
         try:
             metrics["logloss"] = round(float(log_loss(y_true, proba)), 4)
@@ -187,6 +192,11 @@ def _extract_metrics(model, df, target, elapsed):
                 lb_records.append(record)
             metrics["leaderboard"] = lb_records
             metrics["total_models_trained"] = len(lb)
+            # Use leaderboard AUC as fallback when predict_proba failed above
+            if metrics.get("auc") is None:
+                auc_col = next((c for c in lb.columns if c.upper() == "AUC"), None)
+                if auc_col and not lb[auc_col].empty:
+                    metrics["auc"] = round(float(lb[auc_col].iloc[0]), 4)
     except Exception:
         metrics["leaderboard"] = []
         metrics["total_models_trained"] = 0

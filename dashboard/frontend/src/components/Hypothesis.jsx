@@ -325,6 +325,7 @@ export default function Hypothesis({ apiUrl, visible = true }) {
   const [frameworkInteraction, setFrameworkInteraction] = useState(null);
   const [llmEffectiveness, setLlmEffectiveness] = useState(null);
   const [ablation, setAblation] = useState(null);
+  const [dynamicComparison, setDynamicComparison] = useState(null);
   const [iterDebug, setIterDebug] = useState(null);
   const [sectionLoading, setSectionLoading] = useState({
     iterationMetrics: true,
@@ -343,6 +344,7 @@ export default function Hypothesis({ apiUrl, visible = true }) {
     frameworkInteraction: true,
     llmEffectiveness: true,
     ablation: true,
+    dynamicComparison: true,
   });
   const [refreshing, setRefreshing] = useState(false);
   const [fetchErrors, setFetchErrors] = useState([]);
@@ -462,6 +464,10 @@ export default function Hypothesis({ apiUrl, visible = true }) {
       `${apiUrl}/api/hypothesis/ablation?${t}${sq}`,
       setAblation
     );
+    fetchSection("dynamicComparison",
+      `${apiUrl}/api/hypothesis/dynamic-features-comparison?${t}${sq}${aq}`,
+      setDynamicComparison
+    );
     // synthesis is deferred — see useEffect below that triggers it after other sections finish
   }, [apiUrl, fetchSection, fetchStats, automlFilter]);
 
@@ -482,7 +488,7 @@ export default function Hypothesis({ apiUrl, visible = true }) {
       "recEffectiveness", "protocolConvergence", "riskCalibration",
       "execEfficiency", "discoveryCoverage", "crossFramework",
       "temporalValidation", "baselineComparison", "generalization",
-      "frameworkInteraction", "llmEffectiveness", "ablation",
+      "frameworkInteraction", "llmEffectiveness", "ablation", "dynamicComparison",
     ];
     const allOthersDone = otherSections.every((s) => !sectionLoading[s]);
     if (allOthersDone && hasMountedRef.current && !synthesisFetchedRef.current) {
@@ -568,9 +574,11 @@ export default function Hypothesis({ apiUrl, visible = true }) {
   // -----------------------------------------------------------------------
   // Derived data
   // -----------------------------------------------------------------------
+  const ROLLING_WINDOW = 10;
+
   const iterData = useMemo(() => {
     if (!Array.isArray(iterations)) return [];
-    return iterations.map((it, idx) => {
+    const rows = iterations.map((it, idx) => {
       const row = {
         iteration: idx + 1,
         label: it.experiment || `Iter ${idx + 1}`,
@@ -582,7 +590,6 @@ export default function Hypothesis({ apiUrl, visible = true }) {
         new_vulns: it.new_vulns ?? 0,
         cumulative_unique_vulns: it.cumulative_unique_vulns ?? 0,
       };
-      // Add per-protocol detection rates (e.g. rate_http, rate_ssh, ...)
       if (it.by_protocol) {
         for (const [proto, metrics] of Object.entries(it.by_protocol)) {
           row[`rate_${proto}`] =
@@ -593,17 +600,35 @@ export default function Hypothesis({ apiUrl, visible = true }) {
       }
       return row;
     });
+    // Add rolling mean (window = ROLLING_WINDOW) for the global detection rate
+    rows.forEach((row, idx) => {
+      const start = Math.max(0, idx - ROLLING_WINDOW + 1);
+      const window = rows.slice(start, idx + 1);
+      row.rolling_mean = +(window.reduce((s, r) => s + r.detection_rate, 0) / window.length).toFixed(2);
+    });
+    return rows;
   }, [iterations]);
 
-  const latestRate =
-    iterData.length > 0
-      ? N(iterData[iterData.length - 1]?.detection_rate).toFixed(1) + "%"
-      : "--";
+  // Mean ± σ across all iterations
+  const { meanRate, stdRate } = useMemo(() => {
+    if (iterData.length === 0) return { meanRate: null, stdRate: null };
+    const rates = iterData.map(r => r.detection_rate);
+    const mean = rates.reduce((s, v) => s + v, 0) / rates.length;
+    const std = Math.sqrt(rates.reduce((s, v) => s + (v - mean) ** 2, 0) / rates.length);
+    return { meanRate: mean, stdRate: std };
+  }, [iterData]);
 
   const totalIter = iterData.length;
 
-  const spearmanP =
-    stats && stats.spearman_p != null ? N(stats.spearman_p).toExponential(2) : "--";
+  // Trend label derived from spearman_rho + significance
+  const trendLabel = useMemo(() => {
+    if (!stats || stats.spearman_rho == null) return null;
+    const rho = N(stats.spearman_rho);
+    const sig = stats.spearman_p != null && N(stats.spearman_p) < 0.05;
+    if (!sig || Math.abs(rho) < 0.1) return { icon: "→", label: "Stable", color: "text-green-600" };
+    if (rho > 0) return { icon: "↑", label: "Improving", color: "text-blue-600" };
+    return { icon: "↓", label: "Degrading", color: "text-red-500" };
+  }, [stats]);
 
 
   // H2: Recommendation effectiveness bar data
@@ -744,74 +769,79 @@ export default function Hypothesis({ apiUrl, visible = true }) {
       )}
 
       {/* ================================================================= */}
-      {/* Hypothesis Statement                                              */}
+      {/* H1 — Detection Rate Stability (single unified section)           */}
       {/* ================================================================= */}
-      <Card className="mb-6 border-l-4 border-l-amber-400">
-        <CardContent className="py-5">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <h3 className="text-sm font-semibold text-amber-600 uppercase tracking-wider mb-1">
-                H1 — Detection Rate Stability
-              </h3>
-              <p className="text-gray-800 leading-relaxed">
-                The ML-driven pipeline maintains stable vulnerability detection rates
-                over successive iterations, without significant degradation despite
-                environmental dynamics.
-              </p>
-              <p className="text-xs text-gray-500 mt-2">
-                Measured via Spearman rank correlation and Mann-Whitney U test for
-                monotonic trends, with Cohen&apos;s d effect-size to confirm negligible
-                early-vs-late drift. Supported = no significant decline and |d| &lt; 0.5.
-              </p>
+      <Section
+        title="H1 — Detection Rate Stability"
+        icon={Activity}
+        loading={sectionLoading.iterationMetrics || sectionLoading.statisticalTests}
+      >
+        {/* Hypothesis statement */}
+        <Card className="mb-4 border-l-4 border-l-amber-400">
+          <CardContent className="py-3">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-amber-600 uppercase tracking-wider mb-1">
+                  H1 — Detection Rate Stability
+                </p>
+                <p className="text-gray-700 text-sm leading-relaxed">
+                  The ML-driven pipeline maintains stable vulnerability detection rates
+                  over successive iterations, without significant degradation despite environmental dynamics.
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Supported = no significant decline (Spearman p &gt; 0.05) and negligible effect size (|d| &lt; 0.5).
+                </p>
+              </div>
+              <div className="shrink-0">
+                <VerdictBadge verdict={stats?.verdict} />
+              </div>
             </div>
-            <div className="shrink-0">
-              <VerdictBadge verdict={stats?.verdict} />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
 
-      {/* ================================================================= */}
-      {/* KPI Row                                                           */}
-      {/* ================================================================= */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <StatCard
-          icon={Activity}
-          label="Total Iterations"
-          value={totalIter}
-          color="text-amber-500"
-        />
-        <StatCard
-          icon={Target}
-          label="Current Detection Rate"
-          value={latestRate}
-          color="text-green-500"
-        />
-        <StatCard
-          icon={Sigma}
-          label="Spearman p-value"
-          value={spearmanP}
-          color="text-blue-500"
-          sub="< 0.05 = significant"
-        />
-      </div>
+        {/* KPI row */}
+        <div className="grid grid-cols-3 gap-4 mb-5">
+          <StatCard
+            icon={Target}
+            label="Mean Detection Rate"
+            value={meanRate != null ? `${meanRate.toFixed(1)}%` : "--"}
+            color="text-amber-500"
+            sub={stdRate != null ? `σ = ${stdRate.toFixed(1)}% over ${totalIter} iterations` : `${totalIter} iterations`}
+          />
+          <StatCard
+            icon={TrendingUp}
+            label="Trend"
+            value={trendLabel ? `${trendLabel.icon} ${trendLabel.label}` : "--"}
+            color={trendLabel?.color ?? "text-gray-500"}
+            sub={
+              stats?.spearman_rho != null
+                ? `ρ = ${N(stats.spearman_rho).toFixed(3)}, p = ${stats.spearman_p != null ? N(stats.spearman_p).toFixed(2) : "--"}`
+                : "Spearman rank correlation"
+            }
+          />
+          <StatCard
+            icon={Sigma}
+            label="Early vs Late Drift"
+            value={stats?.cohens_d != null ? `d = ${N(stats.cohens_d).toFixed(3)}` : "--"}
+            color={
+              stats?.cohens_d_interpretation === "negligible" ? "text-green-500"
+              : stats?.cohens_d_interpretation === "small" ? "text-yellow-500"
+              : "text-red-500"
+            }
+            sub={stats?.cohens_d_interpretation ? `Effect size: ${stats.cohens_d_interpretation}` : "Cohen's d (early vs late)"}
+          />
+        </div>
 
-      {/* ================================================================= */}
-      {/* Detection Rate Over Iterations (THE key chart)                    */}
-      {/* ================================================================= */}
-      <Section title="Detection Rate Over Iterations" icon={TrendingUp} defaultOpen loading={sectionLoading.iterationMetrics}>
-        {/* Protocol selector */}
+        {/* Chart */}
         {availableProtocols.length > 0 && (
-          <div className="flex items-center gap-3 mb-4">
+          <div className="flex items-center gap-3 mb-3">
             <Filter className="w-4 h-4 text-gray-500" />
             <span className="text-sm font-medium text-gray-700">Protocol:</span>
             <div className="flex flex-wrap gap-1.5">
               <button
                 onClick={() => setSelectedProtocol(null)}
                 className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                  selectedProtocol === null
-                    ? "bg-gray-800 text-white"
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  selectedProtocol === null ? "bg-gray-800 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
                 }`}
               >
                 All Protocols
@@ -821,15 +851,9 @@ export default function Hypothesis({ apiUrl, visible = true }) {
                   key={proto}
                   onClick={() => setSelectedProtocol(proto)}
                   className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                    selectedProtocol === proto
-                      ? "text-white"
-                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    selectedProtocol === proto ? "text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
                   }`}
-                  style={
-                    selectedProtocol === proto
-                      ? { backgroundColor: PROTOCOL_COLORS[proto] || "#6b7280" }
-                      : {}
-                  }
+                  style={selectedProtocol === proto ? { backgroundColor: PROTOCOL_COLORS[proto] || "#6b7280" } : {}}
                 >
                   {proto}
                 </button>
@@ -839,8 +863,8 @@ export default function Hypothesis({ apiUrl, visible = true }) {
         )}
 
         {iterData.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-gray-500">
-            <Info className="w-10 h-10 mb-2 text-gray-500" />
+          <div className="flex flex-col items-center justify-center py-12 text-gray-500">
+            <Info className="w-8 h-8 mb-2" />
             <p className="text-sm">No iteration data yet.</p>
             <p className="text-xs mt-1">Run test suites multiple times to see convergence trends.</p>
             {iterDebug && (
@@ -860,179 +884,60 @@ export default function Hypothesis({ apiUrl, visible = true }) {
             )}
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={360}>
+          <ResponsiveContainer width="100%" height={320}>
             <LineChart data={iterData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis
-                dataKey="iteration"
-                tick={{ fontSize: 12 }}
-                label={{ value: "Iteration", position: "insideBottomRight", offset: -5, fontSize: 12 }}
-              />
-              <YAxis
-                domain={[0, 100]}
-                tick={{ fontSize: 12 }}
-                label={{ value: "Detection Rate (%)", angle: -90, position: "insideLeft", fontSize: 12 }}
-              />
+              <XAxis dataKey="iteration" tick={{ fontSize: 12 }} label={{ value: "Iteration", position: "insideBottomRight", offset: -5, fontSize: 12 }} />
+              <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} label={{ value: "Detection Rate (%)", angle: -90, position: "insideLeft", fontSize: 12 }} />
               <Tooltip content={<ChartTooltip />} />
               <Legend />
-
-              {/* Global detection rate line — always shown */}
-              <Line
-                type="monotone"
-                dataKey="detection_rate"
-                name="Global Detection Rate (%)"
-                stroke={selectedProtocol ? "#9ca3af" : "#3b82f6"}
-                strokeWidth={selectedProtocol ? 1.5 : 2.5}
-                strokeDasharray={selectedProtocol ? "6 3" : undefined}
-                dot={selectedProtocol ? false : { r: 4, fill: "#3b82f6" }}
-                activeDot={selectedProtocol ? false : { r: 6 }}
-              />
-
-              {/* Per-protocol lines */}
-              {selectedProtocol === null
-                ? /* All protocols mode: one line per protocol */
-                  availableProtocols.map((proto) => (
-                    <Line
-                      key={proto}
-                      type="monotone"
-                      dataKey={`rate_${proto}`}
-                      name={proto}
-                      stroke={PROTOCOL_COLORS[proto] || "#6b7280"}
-                      strokeWidth={1.8}
-                      dot={{ r: 3, fill: PROTOCOL_COLORS[proto] || "#6b7280" }}
-                      activeDot={{ r: 5 }}
-                      connectNulls
-                    />
-                  ))
-                : /* Single protocol mode: highlight selected protocol */
-                  [
-                    <Line
-                      key={selectedProtocol}
-                      type="monotone"
-                      dataKey={`rate_${selectedProtocol}`}
-                      name={`${selectedProtocol} Detection Rate (%)`}
-                      stroke={PROTOCOL_COLORS[selectedProtocol] || "#3b82f6"}
-                      strokeWidth={2.5}
-                      dot={{ r: 4, fill: PROTOCOL_COLORS[selectedProtocol] || "#3b82f6" }}
-                      activeDot={{ r: 6 }}
-                      connectNulls
-                    />,
-                  ]}
-
-              {stats && stats.spearman_rho != null && (
-                <ReferenceLine
-                  y={iterData.reduce((s, d) => s + d.detection_rate, 0) / iterData.length}
-                  stroke="#9ca3af"
-                  strokeDasharray="4 4"
-                  label={{ value: "Mean", position: "left", fontSize: 11, fill: "#9ca3af" }}
-                />
+              <Line type="monotone" dataKey="detection_rate" name="Global Detection Rate (%)" stroke={selectedProtocol ? "#d1d5db" : "#93c5fd"} strokeWidth={selectedProtocol ? 1 : 1.5} dot={false} activeDot={selectedProtocol ? false : { r: 5 }} />
+              {!selectedProtocol && (
+                <Line type="monotone" dataKey="rolling_mean" name={`${ROLLING_WINDOW}-iter Rolling Mean (%)`} stroke="#2563eb" strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} />
+              )}
+              {selectedProtocol && (
+                <Line type="monotone" dataKey={`rate_${selectedProtocol}`} name={`${selectedProtocol} Detection Rate (%)`} stroke={PROTOCOL_COLORS[selectedProtocol] || "#3b82f6"} strokeWidth={2.5} dot={{ r: 3, fill: PROTOCOL_COLORS[selectedProtocol] || "#3b82f6" }} activeDot={{ r: 5 }} connectNulls />
+              )}
+              {stats?.spearman_rho != null && (
+                <ReferenceLine y={meanRate ?? 0} stroke="#9ca3af" strokeDasharray="4 4" label={{ value: "Mean", position: "left", fontSize: 11, fill: "#9ca3af" }} />
               )}
             </LineChart>
           </ResponsiveContainer>
         )}
-      </Section>
 
-      {/* ================================================================= */}
-      {/* H1 — Statistical Significance                                     */}
-      {/* ================================================================= */}
-      <Section
-        title={
-          selectedProtocol
-            ? `H1 — Statistical Significance — ${selectedProtocol}`
-            : "H1 — Detection Rate Statistical Significance"
-        }
-        icon={Sigma}
-        loading={sectionLoading.statisticalTests}
-      >
-        {!stats || stats.error ? (
-          <div className="flex flex-col items-center justify-center py-12 text-gray-500">
-            <Info className="w-8 h-8 mb-2 text-gray-500" />
-            <p className="text-sm">
-              {stats?.error || "Not enough iterations for statistical analysis."}
-            </p>
-            <p className="text-xs mt-1">Run at least 3 experiment iterations.</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {/* Spearman */}
+        {/* Stat cards */}
+        {stats && !stats.error && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
             <div className="rounded-xl bg-gray-50 p-4 border border-gray-200">
-              <h5 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
-                Spearman Rank Correlation
-              </h5>
+              <h5 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Trend Test — Spearman ρ</h5>
               <div className="flex items-baseline gap-2">
-                <span className="text-xl font-bold text-gray-800">
-                  ρ = {stats.spearman_rho != null ? N(stats.spearman_rho).toFixed(3) : "--"}
-                </span>
-                <span className="text-xs text-gray-500">
-                  p = {stats.spearman_p != null ? N(stats.spearman_p).toExponential(2) : "--"}
+                <span className="text-xl font-bold text-gray-800">ρ = {stats.spearman_rho != null ? N(stats.spearman_rho).toFixed(3) : "--"}</span>
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${stats.spearman_significant ? "bg-orange-100 text-orange-700" : "bg-green-100 text-green-700"}`}>
+                  {stats.spearman_significant ? "significant" : "not significant"}
                 </span>
               </div>
-              <p className="text-xs text-gray-500 mt-1">
-                Monotonic trend in detection rate across iterations
-              </p>
+              <p className="text-xs text-gray-500 mt-1">p = {stats.spearman_p != null ? N(stats.spearman_p).toFixed(3) : "--"} · ρ ≈ 0 means no trend</p>
             </div>
-
-            {/* Pearson */}
             <div className="rounded-xl bg-gray-50 p-4 border border-gray-200">
-              <h5 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
-                Pearson Correlation
-              </h5>
+              <h5 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Early vs Late Drift — Cohen's d</h5>
               <div className="flex items-baseline gap-2">
-                <span className="text-xl font-bold text-gray-800">
-                  r = {stats.pearson_r != null ? N(stats.pearson_r).toFixed(3) : "--"}
-                </span>
-                <span className="text-xs text-gray-500">
-                  p = {stats.pearson_p != null ? N(stats.pearson_p).toExponential(2) : "--"}
-                </span>
-              </div>
-              <p className="text-xs text-gray-500 mt-1">
-                Linear trend in detection rate
-              </p>
-            </div>
-
-            {/* Mann-Whitney U */}
-            <div className="rounded-xl bg-gray-50 p-4 border border-gray-200">
-              <h5 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
-                Mann-Whitney U Test
-              </h5>
-              <div className="flex items-baseline gap-2">
-                <span className="text-xl font-bold text-gray-800">
-                  U = {stats.mann_whitney_u != null ? N(stats.mann_whitney_u).toFixed(1) : "--"}
-                </span>
-                <span className="text-xs text-gray-500">
-                  p = {stats.mann_whitney_p != null ? N(stats.mann_whitney_p).toExponential(2) : "--"}
-                </span>
-              </div>
-              <p className="text-xs text-gray-500 mt-1">
-                Early vs late iterations (one-sided, greater)
-              </p>
-            </div>
-
-            {/* Cohen's d */}
-            <div className="rounded-xl bg-gray-50 p-4 border border-gray-200">
-              <h5 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
-                Cohen&apos;s d Effect Size
-              </h5>
-              <div className="flex items-baseline gap-2">
-                <span className="text-xl font-bold text-gray-800">
-                  d = {stats.cohens_d != null ? N(stats.cohens_d).toFixed(3) : "--"}
-                </span>
+                <span className="text-xl font-bold text-gray-800">d = {stats.cohens_d != null ? N(stats.cohens_d).toFixed(3) : "--"}</span>
                 {stats.cohens_d_interpretation && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium">
-                    {stats.cohens_d_interpretation}
-                  </span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                    stats.cohens_d_interpretation === "negligible" ? "bg-green-100 text-green-700"
+                    : stats.cohens_d_interpretation === "small" ? "bg-yellow-100 text-yellow-700"
+                    : "bg-red-100 text-red-700"
+                  }`}>{stats.cohens_d_interpretation}</span>
                 )}
               </div>
               <p className="text-xs text-gray-500 mt-1">
-                Practical significance of rate improvement
+                {stats.early_mean != null && stats.late_mean != null
+                  ? `Early ${(N(stats.early_mean) * 100).toFixed(1)}% → Late ${(N(stats.late_mean) * 100).toFixed(1)}%`
+                  : "Practical drift between first and last half"}
               </p>
             </div>
-
-            {/* 95% CI */}
             <div className="rounded-xl bg-gray-50 p-4 border border-gray-200">
-              <h5 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
-                95% Confidence Interval
-              </h5>
+              <h5 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Drift Range — 95% CI</h5>
               <div className="flex items-baseline gap-2">
                 <span className="text-xl font-bold text-gray-800">
                   {stats.ci_95?.[0] != null && stats.ci_95?.[1] != null
@@ -1040,22 +945,7 @@ export default function Hypothesis({ apiUrl, visible = true }) {
                     : "--"}
                 </span>
               </div>
-              <p className="text-xs text-gray-500 mt-1">
-                Detection rate improvement (late - early)
-              </p>
-            </div>
-
-            {/* Overall verdict */}
-            <div className="rounded-xl bg-gray-50 p-4 border border-gray-200 flex flex-col items-center justify-center">
-              <h5 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                Overall Verdict
-              </h5>
-              <VerdictBadge verdict={stats.verdict} />
-              {stats.n_iterations != null && (
-                <p className="text-xs text-gray-500 mt-2">
-                  Based on {stats.n_iterations} iterations
-                </p>
-              )}
+              <p className="text-xs text-gray-500 mt-1">Late − early · straddles zero = stable</p>
             </div>
           </div>
         )}
@@ -2483,41 +2373,82 @@ export default function Hypothesis({ apiUrl, visible = true }) {
             </Card>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              {/* Primary: unique vulnerability type coverage */}
               <div className="rounded-xl bg-blue-50 p-3 border border-blue-200 text-center">
-                <h5 className="text-xs font-semibold text-blue-600 uppercase mb-1">Registry Rate</h5>
-                <span className="text-lg font-bold">{(N(llmEffectiveness.registry?.detection_rate) * 100).toFixed(1)}%</span>
-                <p className="text-xs text-gray-500">{llmEffectiveness.registry?.n_tests} tests</p>
-              </div>
-              <div className="rounded-xl bg-pink-50 p-3 border border-pink-200 text-center">
-                <h5 className="text-xs font-semibold text-pink-600 uppercase mb-1">LLM Rate</h5>
-                <span className="text-lg font-bold">{(N(llmEffectiveness.llm?.detection_rate) * 100).toFixed(1)}%</span>
-                <p className="text-xs text-gray-500">{llmEffectiveness.llm?.n_tests} tests</p>
-              </div>
-              <div className="rounded-xl bg-gray-50 p-3 border border-gray-200 text-center">
-                <h5 className="text-xs font-semibold text-gray-600 uppercase mb-1">Fisher p-value</h5>
-                <span className="text-lg font-bold font-mono">
-                  {llmEffectiveness.fisher_exact?.p_value != null ? N(llmEffectiveness.fisher_exact.p_value).toExponential(2) : "--"}
+                <h5 className="text-xs font-semibold text-blue-600 uppercase mb-1">Registry Coverage</h5>
+                <span className="text-lg font-bold">
+                  {llmEffectiveness.registry?.unique_vuln_types ?? "--"}
+                  <span className="text-sm font-normal text-gray-500 ml-1">types</span>
                 </span>
-                <p className="text-xs text-gray-500">
-                  {llmEffectiveness.fisher_exact?.significant ? "Significant" : "Not significant"}
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {llmEffectiveness.registry?.n_vulns} vulns · {(N(llmEffectiveness.registry?.detection_rate) * 100).toFixed(1)}% hit rate
                 </p>
               </div>
-              <div className="rounded-xl bg-gray-50 p-3 border border-gray-200 text-center">
-                <h5 className="text-xs font-semibold text-gray-600 uppercase mb-1">Odds Ratio</h5>
-                <span className="text-lg font-bold font-mono">
-                  {llmEffectiveness.fisher_exact?.odds_ratio != null ? N(llmEffectiveness.fisher_exact.odds_ratio).toFixed(2) : "--"}
+              <div className="rounded-xl bg-pink-50 p-3 border border-pink-200 text-center">
+                <h5 className="text-xs font-semibold text-pink-600 uppercase mb-1">LLM Coverage</h5>
+                <span className="text-lg font-bold">
+                  {llmEffectiveness.llm?.unique_vuln_types ?? "--"}
+                  <span className="text-sm font-normal text-gray-500 ml-1">types</span>
                 </span>
-                {llmEffectiveness.fisher_exact?.odds_ratio_ci_95 && (
-                  <p className="text-xs text-gray-500">
-                    95% CI: [{N(llmEffectiveness.fisher_exact.odds_ratio_ci_95[0]).toFixed(2)}, {N(llmEffectiveness.fisher_exact.odds_ratio_ci_95[1]).toFixed(2)}]
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {llmEffectiveness.llm?.n_vulns} vulns · {(N(llmEffectiveness.llm?.detection_rate) * 100).toFixed(1)}% hit rate
+                </p>
+              </div>
+              {/* LLM-exclusive attack categories — the key H10 signal */}
+              <div className="rounded-xl bg-teal-50 p-3 border border-teal-300 text-center">
+                <h5 className="text-xs font-semibold text-teal-600 uppercase mb-1">Exclusive to LLM</h5>
+                <span className="text-lg font-bold text-teal-700">
+                  {llmEffectiveness.llm_exclusive_types ?? "--"}
+                  <span className="text-sm font-normal text-gray-500 ml-1">novel types</span>
+                </span>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {llmEffectiveness.llm_exclusive_vulns ?? 0} attack scenarios not in registry
+                </p>
+              </div>
+              {/* Fisher p-value — secondary supporting stat, fixed label bug */}
+              <div className="rounded-xl bg-gray-50 p-3 border border-gray-200 text-center">
+                <h5 className="text-xs font-semibold text-gray-500 uppercase mb-1">Fisher p-value</h5>
+                <span className="text-lg font-bold font-mono">
+                  {llmEffectiveness.fisher_exact?.p_value != null
+                    ? (N(llmEffectiveness.fisher_exact.p_value) < 1e-5
+                        ? "<1e-5"
+                        : N(llmEffectiveness.fisher_exact.p_value).toExponential(2))
+                    : "--"}
+                </span>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {(() => {
+                    const pRaw = llmEffectiveness.fisher_exact?.p_value;
+                    // Guard: p_value may be null (test failed) or 0 (underflow from rounding)
+                    if (pRaw == null) return "Test unavailable";
+                    const p = N(pRaw);
+                    // p=0 from rounding means extremely significant; treat as < 0.05
+                    if (p < 0.05 || pRaw === 0) {
+                      const llmHigher = N(llmEffectiveness.llm?.detection_rate) > N(llmEffectiveness.registry?.detection_rate);
+                      return llmHigher ? "Sig. — LLM higher hit rate" : "Sig. — registry higher hit rate";
+                    }
+                    return "Not significant";
+                  })()}
+                </p>
+                {llmEffectiveness.fisher_exact?.odds_ratio != null && (
+                  <p className="text-xs text-gray-400">
+                    OR: {N(llmEffectiveness.fisher_exact.odds_ratio).toFixed(2)}
+                    {llmEffectiveness.fisher_exact?.odds_ratio_ci_95 &&
+                      ` [${N(llmEffectiveness.fisher_exact.odds_ratio_ci_95[0]).toFixed(2)}, ${N(llmEffectiveness.fisher_exact.odds_ratio_ci_95[1]).toFixed(2)}]`}
                   </p>
                 )}
               </div>
             </div>
 
+            <p className="text-xs text-gray-400 px-1 mb-2">
+              Coverage = unique vulnerability <em>types</em> found, not detection rate.
+              A lower LLM hit rate is expected — LLM probes novel attack surface where vulnerabilities are rarer.
+              The key signal is <span className="text-teal-600 font-medium">Exclusive to LLM</span>: attack categories the static registry never tests for.
+            </p>
+
             {llmEffectiveness.llm_exclusive_vulns > 0 && (
               <p className="text-sm text-green-700 bg-green-50 p-2 rounded border border-green-200">
-                LLM tests discovered {llmEffectiveness.llm_exclusive_vulns} unique vulnerability type(s) not found by registry tests.
+                LLM tests discovered {llmEffectiveness.llm_exclusive_vulns} unique vulnerability instance(s) not found by registry tests
+                {llmEffectiveness.llm_exclusive_types > 0 && `, across ${llmEffectiveness.llm_exclusive_types} novel attack category(s) the registry has no coverage for`}.
               </p>
             )}
           </>
@@ -2542,7 +2473,11 @@ export default function Hypothesis({ apiUrl, visible = true }) {
                   Component Ablation
                 </p>
                 <p className="text-gray-700 text-sm leading-relaxed">
-                  Marginal contribution of each system component, from random baseline to full ML+LLM system.
+                  Marginal contribution of each system component, from random baseline to full ML+LLM system.{" "}
+                  <span className="font-semibold text-teal-700">Coverage Lift</span> (unique vulnerability types) is the
+                  primary metric for LLM contribution — detection rate rewards exploitation efficiency but penalises
+                  coverage-seeking behaviour. ML alone maximises detection rate by repeatedly targeting known patterns;
+                  LLM breaks this loop by discovering novel attack classes.
                 </p>
               </CardContent>
             </Card>
@@ -2552,28 +2487,57 @@ export default function Hypothesis({ apiUrl, visible = true }) {
                 <thead>
                   <tr className="border-b border-gray-200">
                     <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase">Condition</th>
-                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase">Detection Rate</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase">Det. Rate</th>
                     <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase">Tests</th>
                     <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase">Vulns</th>
                     <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase">Unique Types</th>
-                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase">Marginal Lift</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-teal-600 uppercase">Coverage Lift</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-400 uppercase">vs Baseline</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-400 uppercase">Efficiency Lift</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(ablation.conditions || []).map((c, i) => (
-                    <tr key={c.key} className={`border-b border-gray-100 ${i % 2 === 0 ? "bg-gray-50/50" : ""}`}>
+                    <tr key={c.key} className={`border-b border-gray-100 ${
+                      c.key === "phase5" || c.key === "phase6"
+                        ? "bg-blue-50/60 border-l-2 border-l-blue-400"
+                        : c.key === "ml_llm"
+                        ? "bg-teal-50/40 border-l-2 border-l-teal-400"
+                        : i % 2 === 0 ? "bg-gray-50/50" : ""
+                    }`}>
                       <td className="py-2 px-3 font-medium">{c.condition}</td>
-                      <td className="py-2 px-3 text-right font-mono">{(N(c.detection_rate) * 100).toFixed(1)}%</td>
-                      <td className="py-2 px-3 text-right">{c.n_tests}</td>
-                      <td className="py-2 px-3 text-right">{c.n_vulns}</td>
-                      <td className="py-2 px-3 text-right">{c.unique_vuln_types}</td>
+                      <td className="py-2 px-3 text-right font-mono text-gray-500">{(N(c.detection_rate) * 100).toFixed(1)}%</td>
+                      <td className="py-2 px-3 text-right text-gray-500">{c.n_tests}</td>
+                      <td className="py-2 px-3 text-right text-gray-500">{c.n_vulns}</td>
+                      <td className="py-2 px-3 text-right font-semibold">{c.unique_vuln_types}</td>
+                      {/* PRIMARY: sequential coverage lift vs previous condition */}
                       <td className="py-2 px-3 text-right">
-                        {c.marginal_lift_pct != null && c.marginal_lift_pct !== 0 ? (
-                          <span className={c.marginal_lift_pct > 0 ? "text-green-600 font-semibold" : "text-red-600"}>
-                            {c.marginal_lift_pct > 0 ? "+" : ""}{N(c.marginal_lift_pct).toFixed(1)}%
+                        {c.coverage_lift_pct != null && c.coverage_lift_pct !== 0 ? (
+                          <span className={`font-semibold ${c.coverage_lift_pct > 0 ? "text-teal-600" : "text-orange-500"}`}>
+                            {c.coverage_lift_pct > 0 ? "+" : ""}{N(c.coverage_lift_pct).toFixed(1)}%
                           </span>
                         ) : (
                           <span className="text-gray-400">baseline</span>
+                        )}
+                      </td>
+                      {/* SECONDARY: absolute coverage lift vs random baseline */}
+                      <td className="py-2 px-3 text-right text-xs">
+                        {c.coverage_lift_vs_baseline_pct != null && c.coverage_lift_vs_baseline_pct !== 0 ? (
+                          <span className={c.coverage_lift_vs_baseline_pct > 0 ? "text-teal-500" : "text-orange-400"}>
+                            {c.coverage_lift_vs_baseline_pct > 0 ? "+" : ""}{N(c.coverage_lift_vs_baseline_pct).toFixed(1)}%
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
+                      {/* TERTIARY: efficiency lift (detection rate, de-emphasised) */}
+                      <td className="py-2 px-3 text-right text-xs text-gray-400">
+                        {c.marginal_lift_pct != null && c.marginal_lift_pct !== 0 ? (
+                          <span className={c.marginal_lift_pct > 0 ? "text-green-500" : "text-red-400"}>
+                            {c.marginal_lift_pct > 0 ? "+" : ""}{N(c.marginal_lift_pct).toFixed(1)}%
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">—</span>
                         )}
                       </td>
                     </tr>
@@ -2581,6 +2545,127 @@ export default function Hypothesis({ apiUrl, visible = true }) {
                 </tbody>
               </table>
             </div>
+
+            <p className="text-xs text-gray-400 mt-2 px-1">
+              Coverage Lift: sequential % change in unique vulnerability types vs previous condition.
+              vs Baseline: absolute % change vs Random Selection.
+              Efficiency Lift: detection rate change (vulns/tests) — de-emphasised as it penalises coverage-seeking.
+            </p>
+          </>
+        )}
+      </Section>
+
+      {/* ================================================================= */}
+      {/* Phase Comparison — 2×2 Factorial (Dynamic Features)              */}
+      {/* ================================================================= */}
+      <Section title="Phase Comparison: Static vs Dynamic Features" icon={Layers} loading={sectionLoading.dynamicComparison}>
+        {!dynamicComparison || dynamicComparison.verdict === "insufficient_data" ? (
+          <div className="flex flex-col items-center justify-center py-8 text-gray-500">
+            <Info className="w-6 h-6 mb-2" />
+            <p className="text-sm font-medium">Awaiting Phase 5 &amp; 6 data</p>
+            <p className="text-xs mt-1">
+              Run experiments with <code className="bg-gray-100 px-1 rounded">--only-phase5</code> or{" "}
+              <code className="bg-gray-100 px-1 rounded">--only-phase6</code> to populate this comparison.
+            </p>
+            {dynamicComparison?.phases?.framework?.mean_detection != null && (
+              <p className="text-xs mt-2 text-blue-600">
+                Phase 1 (Static/No-LLM) baseline: {(dynamicComparison.phases.framework.mean_detection * 100).toFixed(1)}%
+              </p>
+            )}
+          </div>
+        ) : (
+          <>
+            <Card className="mb-4 border-l-4 border-l-blue-400">
+              <CardContent className="py-3">
+                <p className="text-sm font-semibold text-blue-600 uppercase tracking-wider mb-1">
+                  2×2 Factorial: Feature Type × LLM
+                </p>
+                <p className="text-gray-700 text-sm leading-relaxed">
+                  Interaction term quantifies whether dynamic features amplify LLM value:{" "}
+                  <span className="font-mono">(P6−P5) − (P3−P1)</span>
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* 2×2 table */}
+            <div className="overflow-x-auto mb-4">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="border-b-2 border-gray-200">
+                    <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase">Features</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase">No LLM</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase">With LLM</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase">LLM Effect</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const ft = dynamicComparison.factorial_table || {};
+                    const fmtPct = (v) => v != null ? `${(v * 100).toFixed(1)}%` : "—";
+                    const fmtDiff = (v) => v != null
+                      ? <span className={v > 0 ? "text-green-600 font-semibold" : v < 0 ? "text-red-600" : "text-gray-500"}>
+                          {v > 0 ? "+" : ""}{(v * 100).toFixed(1)}pp
+                        </span>
+                      : <span className="text-gray-400">—</span>;
+                    const llmEffect_static = ft.static_llm != null && ft.static_no_llm != null
+                      ? ft.static_llm - ft.static_no_llm : null;
+                    const llmEffect_dynamic = ft.dynamic_llm != null && ft.dynamic_no_llm != null
+                      ? ft.dynamic_llm - ft.dynamic_no_llm : null;
+                    return (
+                      <>
+                        <tr className="border-b border-gray-100 bg-gray-50/50">
+                          <td className="py-2 px-3 font-medium">Static (P1 / P3)</td>
+                          <td className="py-2 px-3 text-right font-mono">{fmtPct(ft.static_no_llm)}</td>
+                          <td className="py-2 px-3 text-right font-mono">{fmtPct(ft.static_llm)}</td>
+                          <td className="py-2 px-3 text-right">{fmtDiff(llmEffect_static)}</td>
+                        </tr>
+                        <tr className="border-b border-gray-100 bg-blue-50/40">
+                          <td className="py-2 px-3 font-medium text-blue-700">Dynamic (P5 / P6)</td>
+                          <td className="py-2 px-3 text-right font-mono">{fmtPct(ft.dynamic_no_llm)}</td>
+                          <td className="py-2 px-3 text-right font-mono">{fmtPct(ft.dynamic_llm)}</td>
+                          <td className="py-2 px-3 text-right">{fmtDiff(llmEffect_dynamic)}</td>
+                        </tr>
+                        <tr className="border-t-2 border-gray-200 bg-gray-100/70">
+                          <td className="py-2 px-3 font-semibold text-gray-600">Dynamic Main Effect</td>
+                          <td className="py-2 px-3 text-right">{fmtDiff(ft.dynamic_main_effect)}</td>
+                          <td className="py-2 px-3 text-right"></td>
+                          <td className="py-2 px-3 text-right font-semibold">
+                            Interaction: {ft.interaction != null
+                              ? <span className={Math.abs(ft.interaction) > 0.01 ? "text-purple-700" : "text-gray-500"}>
+                                  {ft.interaction > 0 ? "+" : ""}{(ft.interaction * 100).toFixed(1)}pp
+                                </span>
+                              : <span className="text-gray-400">—</span>
+                            }
+                          </td>
+                        </tr>
+                      </>
+                    );
+                  })()}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Statistical tests */}
+            {dynamicComparison.statistical_tests && (
+              <div className="flex gap-4 flex-wrap text-xs text-gray-600">
+                {dynamicComparison.statistical_tests.p1_vs_p5 && (
+                  <span>
+                    P1 vs P5 (Mann-Whitney): p={dynamicComparison.statistical_tests.p1_vs_p5.p_value}
+                    {dynamicComparison.statistical_tests.p1_vs_p5.p_value < 0.05
+                      ? <span className="text-green-600 ml-1">✓ sig.</span>
+                      : <span className="text-gray-400 ml-1">n.s.</span>}
+                  </span>
+                )}
+                {dynamicComparison.statistical_tests.p3_vs_p6 && (
+                  <span>
+                    P3 vs P6 (Mann-Whitney): p={dynamicComparison.statistical_tests.p3_vs_p6.p_value}
+                    {dynamicComparison.statistical_tests.p3_vs_p6.p_value < 0.05
+                      ? <span className="text-green-600 ml-1">✓ sig.</span>
+                      : <span className="text-gray-400 ml-1">n.s.</span>}
+                  </span>
+                )}
+              </div>
+            )}
           </>
         )}
       </Section>

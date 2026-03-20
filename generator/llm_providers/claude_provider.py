@@ -17,7 +17,7 @@ class ClaudeProvider(LLMProvider):
 
     def __init__(self):
         self.api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        self.model = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-20250514")
+        self.model = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
         self._client = None
 
     def is_available(self) -> bool:
