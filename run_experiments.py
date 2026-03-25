@@ -1007,6 +1007,7 @@ def run_lopo_analysis(phase=None):
 # ----------------------------------------------------------------------
 
 def main():
+    global PHASE6_FRAMEWORKS
     total_start = time.time()
 
     # Parse CLI arguments
