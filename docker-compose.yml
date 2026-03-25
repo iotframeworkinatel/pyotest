@@ -164,6 +164,8 @@ services:
       dockerfile: docker/pycaret/Dockerfile
     container_name: pycaret_server
     restart: unless-stopped
+    ports:
+      - "8083:8083"
     volumes:
       - ./models:/app/models
     networks:
@@ -176,6 +178,8 @@ services:
       dockerfile: docker/tpot/Dockerfile
     container_name: tpot_server
     restart: unless-stopped
+    ports:
+      - "8084:8084"
     volumes:
       - ./models:/app/models
     networks:
@@ -188,6 +192,8 @@ services:
       dockerfile: docker/autosklearn/Dockerfile
     container_name: autosklearn_server
     restart: unless-stopped
+    ports:
+      - "8085:8085"
     volumes:
       - ./models:/app/models
     networks:
