@@ -17,10 +17,7 @@ export default function LogsViewer({ apiUrl }) {
   const [activeContainer, setActiveContainer] = useState(null);
   const [filter, setFilter] = useState("");
   const [loading, setLoading] = useState(false);
-  const safeApiUrl =
-    apiUrl || (window.location.hostname !== "localhost"
-      ? "http://dashboard_api:8000"
-      : "http://localhost:8000");
+  const safeApiUrl = apiUrl || `http://${window.location.hostname}:8080`;
 
   async function fetchLogs() {
     try {

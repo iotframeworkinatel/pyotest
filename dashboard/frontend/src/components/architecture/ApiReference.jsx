@@ -11,10 +11,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 
-const API_URL =
-  window.location.hostname !== "localhost"
-    ? "http://dashboard_api:8000"
-    : "http://localhost:8000";
+const API_URL = `http://${window.location.hostname}:8080`;
 
 /* ------------------------------------------------------------------ */
 /*  Category pills                                                     */

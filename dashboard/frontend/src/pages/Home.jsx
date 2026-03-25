@@ -7,10 +7,7 @@ import { useState, useEffect } from "react";
 import { Wand2, ListChecks, BarChart3, FlaskConical, Network } from "lucide-react";
 import emergenceLogo from "../../resources/emergence_logo.png"
 
-const isDocker = window.location.hostname !== "localhost";
-const API_URL = isDocker
-  ? "http://dashboard_api:8000"
-  : "http://localhost:8000";
+const API_URL = `http://${window.location.hostname}:8080`;
 
 const TABS = [
   { id: "generator", label: "Generator", icon: Wand2, color: "blue" },
