@@ -1,7 +1,4 @@
-const isDocker = window.location.hostname !== "localhost";
-export const API_URL = isDocker
-  ? "http://dashboard_api:8000"
-  : "http://localhost:8000";
+export const API_URL = `http://${window.location.hostname}:8080`;
 
 // --- Scanning ---
 

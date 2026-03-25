@@ -35,7 +35,7 @@ from datetime import datetime, timedelta
 # Configuration
 # ----------------------------------------------------------------------
 
-API = "http://localhost:8000"
+API = "http://localhost:8080"
 POLL_INTERVAL = 15  # seconds between status polls
 SCAN_POLL_INTERVAL = 5  # seconds between scan status polls
 NETWORK = "172.20.0.0/27"
