@@ -48,6 +48,10 @@ MODELS_ARCHIVE_DIR = os.path.join(PROJECT_ROOT, "models", "archive")
 RESULTS_DIR = os.path.join(PROJECT_ROOT, "results")
 SUITES_DIR = os.path.join(PROJECT_ROOT, "suites")
 
+# Sentinel file written as the last step of archive_model().
+# If this file is absent from an archive directory the archive is incomplete.
+ARCHIVE_SENTINEL = ".archive_complete"
+
 # AutoML frameworks to evaluate
 AUTOML_FRAMEWORKS = ["h2o", "autogluon", "pycaret", "tpot", "autosklearn"]
 
@@ -285,6 +289,239 @@ def discover_completed_experiments(expected_iters):
         os.remove(agg)
 
     return completed
+
+
+# ----------------------------------------------------------------------
+# Step 1c: Validate model archives (for --resume)
+# ----------------------------------------------------------------------
+
+def validate_archives() -> tuple:
+    """Scan models/archive/ and delete any incomplete archives.
+
+    An archive is considered complete only when ARCHIVE_SENTINEL exists inside
+    it.  If the server crashed mid-copytree the sentinel will be absent, the
+    directory will be in an unknown state, and select_best_phase1_framework()
+    could read a corrupt model_metrics.json.  We delete such directories so
+    the combo re-archives cleanly when the experiment re-runs.
+
+    Returns:
+        (valid_count, deleted_count)
+    """
+    if not os.path.exists(MODELS_ARCHIVE_DIR):
+        log("  models/archive/ does not exist — nothing to validate")
+        return 0, 0
+
+    valid = 0
+    deleted = 0
+
+    for entry in os.scandir(MODELS_ARCHIVE_DIR):
+        if not entry.is_dir():
+            continue
+        sentinel_path = os.path.join(entry.path, ARCHIVE_SENTINEL)
+        metrics_path  = os.path.join(entry.path, "model_metrics.json")
+
+        sentinel_ok = os.path.exists(sentinel_path)
+        metrics_ok  = os.path.exists(metrics_path)
+
+        if sentinel_ok and metrics_ok:
+            valid += 1
+        else:
+            reasons = []
+            if not sentinel_ok:
+                reasons.append("missing sentinel (mid-copy crash?)")
+            if not metrics_ok:
+                reasons.append("missing model_metrics.json")
+            log(f"  Archive CORRUPT ({', '.join(reasons)}): {entry.name} — deleting", "WARN")
+            shutil.rmtree(entry.path, ignore_errors=True)
+            deleted += 1
+
+    log(f"  Archives validated: {valid} intact, {deleted} corrupt/deleted")
+    return valid, deleted
+
+
+# ----------------------------------------------------------------------
+# Step 1d: Purge orphaned DuckDB rows (for --resume)
+# ----------------------------------------------------------------------
+
+def purge_orphaned_db_rows() -> int:
+    """Remove DuckDB history rows whose experiment directory no longer exists.
+
+    After discover_completed_experiments() deletes incomplete combo dirs the
+    DB still contains rows those dirs wrote.  This function cross-references
+    the exp_dir_name column against directories actually present on disk and
+    deletes any orphaned rows.
+
+    Two-pass strategy:
+      1. Targeted pass: dirs that were just deleted (fastest).
+      2. Consistency pass: any other exp_dir_name not present on disk
+         (handles rows left by manual deletions or previous bad resumes).
+
+    Returns total rows deleted.
+    """
+    db_path = os.path.join(EXPERIMENTS_DIR, "emergence.db")
+    if not os.path.exists(db_path):
+        log("  DuckDB not found — skipping orphan purge")
+        return 0
+
+    # Build the set of directories currently on disk
+    surviving_dirs = {
+        os.path.basename(d)
+        for d in glob.glob(os.path.join(EXPERIMENTS_DIR, "exp_*"))
+    }
+
+    total_deleted = 0
+    try:
+        import duckdb
+        con = duckdb.connect(db_path)
+        try:
+            # Guard: table or column might not exist (very first run)
+            tables = {r[0] for r in con.execute("SHOW TABLES").fetchall()}
+            if "history" not in tables:
+                log("  DuckDB: history table not found — skipping purge")
+                return 0
+
+            cols = {r[1] for r in con.execute("DESCRIBE history").fetchall()}
+            if "exp_dir_name" not in cols:
+                log("  DuckDB: exp_dir_name column missing — skipping orphan purge", "WARN")
+                return 0
+
+            # Find all exp_dir_names present in the DB
+            db_dir_names = {
+                r[0]
+                for r in con.execute(
+                    "SELECT DISTINCT exp_dir_name FROM history "
+                    "WHERE exp_dir_name IS NOT NULL"
+                ).fetchall()
+            }
+
+            orphans = db_dir_names - surviving_dirs
+            if not orphans:
+                log("  DuckDB: no orphaned rows found — DB is consistent")
+                return 0
+
+            before = con.execute("SELECT COUNT(*) FROM history").fetchone()[0]
+
+            # Build a safe IN clause using parameterised literals
+            placeholders = ", ".join(f"'{n.replace(chr(39), chr(39)*2)}'" for n in orphans)
+            con.execute(f"DELETE FROM history WHERE exp_dir_name IN ({placeholders})")
+
+            after = con.execute("SELECT COUNT(*) FROM history").fetchone()[0]
+            total_deleted = before - after
+
+            sample = sorted(orphans)[:5]
+            ellipsis = "..." if len(orphans) > 5 else ""
+            log(
+                f"  DuckDB: purged {total_deleted} orphaned rows from "
+                f"{len(orphans)} missing dirs "
+                f"({', '.join(sample)}{ellipsis})"
+            )
+        finally:
+            con.close()
+    except Exception as e:
+        log(f"  Warning: DuckDB orphan purge failed: {e}", "WARN")
+
+    return total_deleted
+
+
+# ----------------------------------------------------------------------
+# Step 1e: Pre-resume state audit
+# ----------------------------------------------------------------------
+
+def audit_state_on_resume():
+    """Print a human-readable state audit before resume cleanup proceeds.
+
+    Shows counts for experiment dirs, aggregated CSVs, DuckDB rows,
+    saved models, and archives — including how many archives are missing
+    their sentinel (i.e. potentially corrupt).  This gives visibility
+    into what a server crash actually corrupted before any cleanup runs.
+    """
+    log("=" * 70)
+    log("RESUME STATE AUDIT — snapshot before cleanup")
+    log("=" * 70)
+
+    # ── Experiment directories ────────────────────────────────────────
+    exp_dirs = glob.glob(os.path.join(EXPERIMENTS_DIR, "exp_*"))
+    log(f"  Experiment dirs   : {len(exp_dirs)}")
+
+    # ── Aggregated CSVs ───────────────────────────────────────────────
+    agg_csvs = glob.glob(os.path.join(EXPERIMENTS_DIR, "aggregated_history*.csv"))
+    log(f"  Aggregated CSVs   : {len(agg_csvs)} (will be removed during cleanup)")
+
+    # ── DuckDB ───────────────────────────────────────────────────────
+    db_path = os.path.join(EXPERIMENTS_DIR, "emergence.db")
+    if os.path.exists(db_path):
+        try:
+            import duckdb
+            con = duckdb.connect(db_path, read_only=True)
+            try:
+                tables = {r[0] for r in con.execute("SHOW TABLES").fetchall()}
+                if "history" in tables:
+                    row_count = con.execute("SELECT COUNT(*) FROM history").fetchone()[0]
+                    # Count rows whose directory no longer exists
+                    surviving = {os.path.basename(d) for d in exp_dirs}
+                    cols = {r[1] for r in con.execute("DESCRIBE history").fetchall()}
+                    if "exp_dir_name" in cols:
+                        db_dirs = {
+                            r[0]
+                            for r in con.execute(
+                                "SELECT DISTINCT exp_dir_name FROM history "
+                                "WHERE exp_dir_name IS NOT NULL"
+                            ).fetchall()
+                        }
+                        orphan_dirs = db_dirs - surviving
+                        log(f"  DuckDB rows       : {row_count} total, "
+                            f"{len(orphan_dirs)} dir(s) already missing from disk")
+                    else:
+                        log(f"  DuckDB rows       : {row_count} (exp_dir_name col absent — "
+                            f"orphan check skipped)")
+                else:
+                    log("  DuckDB            : history table not yet created")
+            finally:
+                con.close()
+        except Exception as e:
+            log(f"  DuckDB            : could not read ({e})", "WARN")
+    else:
+        log("  DuckDB            : file not found")
+
+    # ── models/saved ─────────────────────────────────────────────────
+    if os.path.exists(MODELS_DIR):
+        fw_dirs = [
+            d for d in os.listdir(MODELS_DIR)
+            if os.path.isdir(os.path.join(MODELS_DIR, d))
+        ]
+        if fw_dirs:
+            log(f"  models/saved      : {len(fw_dirs)} framework dir(s): {fw_dirs} "
+                f"(will be cleared)")
+        else:
+            log("  models/saved      : empty")
+    else:
+        log("  models/saved      : directory absent")
+
+    # ── models/archive ───────────────────────────────────────────────
+    if os.path.exists(MODELS_ARCHIVE_DIR):
+        archive_dirs = [
+            d for d in os.listdir(MODELS_ARCHIVE_DIR)
+            if os.path.isdir(os.path.join(MODELS_ARCHIVE_DIR, d))
+        ]
+        sentinel_ok  = sum(
+            1 for d in archive_dirs
+            if os.path.exists(os.path.join(MODELS_ARCHIVE_DIR, d, ARCHIVE_SENTINEL))
+        )
+        corrupt = len(archive_dirs) - sentinel_ok
+        log(f"  models/archive    : {len(archive_dirs)} archive(s), "
+            f"{sentinel_ok} intact, {corrupt} missing sentinel")
+        if corrupt:
+            bad = [
+                d for d in archive_dirs
+                if not os.path.exists(
+                    os.path.join(MODELS_ARCHIVE_DIR, d, ARCHIVE_SENTINEL)
+                )
+            ]
+            log(f"    Corrupt archives : {', '.join(bad)}", "WARN")
+    else:
+        log("  models/archive    : directory absent")
+
+    log("=" * 70)
 
 
 # ----------------------------------------------------------------------
@@ -632,6 +869,9 @@ def archive_model(automl_tool, sim_mode):
     so every experiment's final model is preserved for later comparison
     or reload.  The active path (models/saved/) is NOT touched — the
     caller is expected to clear it afterwards.
+
+    Writes ARCHIVE_SENTINEL as the very last step so that validate_archives()
+    can detect incomplete copies caused by a mid-archive crash.
     """
     src = os.path.join(MODELS_DIR, automl_tool)
     if not os.path.exists(src):
@@ -641,11 +881,23 @@ def archive_model(automl_tool, sim_mode):
     dest = os.path.join(MODELS_ARCHIVE_DIR, f"{automl_tool}_{sim_mode}")
     os.makedirs(MODELS_ARCHIVE_DIR, exist_ok=True)
 
-    # Remove previous archive for this combo (re-run safety)
+    # Remove previous archive for this combo (re-run safety).
+    # Also removes any leftover sentinel so the directory is never
+    # seen as "valid" while the copy is in progress.
     if os.path.exists(dest):
         shutil.rmtree(dest, ignore_errors=True)
 
     shutil.copytree(src, dest)
+
+    # Write sentinel LAST — absence means the archive is incomplete.
+    sentinel_path = os.path.join(dest, ARCHIVE_SENTINEL)
+    with open(sentinel_path, "w") as f:
+        json.dump({
+            "automl_tool": automl_tool,
+            "sim_mode": sim_mode,
+            "archived_at": datetime.utcnow().isoformat() + "Z",
+        }, f, indent=2)
+
     log(f"  Archived model: {automl_tool}/{sim_mode} -> models/archive/{automl_tool}_{sim_mode}/")
 
 
@@ -1104,11 +1356,50 @@ def main():
     completed = set()
     if resume_mode:
         expected_iters = 5 if quick_mode else 100
+
+        # ── Pre-cleanup audit ─────────────────────────────────────────
+        # Print a snapshot of what exists before we touch anything so the
+        # operator can see what the crash actually corrupted.
+        audit_state_on_resume()
+
         log("RESUME MODE: Preserving completed experiment data")
+
+        # ── Discover & delete incomplete combos ───────────────────────
+        # discover_completed_experiments() deletes exp_* dirs for any
+        # combo that didn't reach expected_iters AND removes all
+        # aggregated_history*.csv files (they're cheap to regenerate).
         completed = discover_completed_experiments(expected_iters)
+
+        # ── DuckDB consistency ────────────────────────────────────────
+        # Remove rows whose experiment directory was just deleted (or was
+        # already gone from a previous bad resume).  Must run AFTER
+        # discover_completed_experiments() so the disk state is final.
+        purge_orphaned_db_rows()
+
+        # ── Archive integrity ─────────────────────────────────────────
+        # Delete any archive directory missing its sentinel file; those
+        # archives were written by a crash mid-copytree and may contain
+        # a partial model binary or stale model_metrics.json.
+        validate_archives()
+
+        # ── Clear models/saved ────────────────────────────────────────
+        # models/saved/ is transient working state.  On a clean run it is
+        # populated by training and then copied to models/archive/ after
+        # each mode.  A crash may leave it holding a model that is:
+        #   - mid-training (partially fitted),
+        #   - trained on the wrong seed / mode, or
+        #   - trained on more iterations than the experiment will replay.
+        # Always wipe it so the resumed run starts each combo from a blank
+        # slate; models/archive/ (now sentinel-validated) is untouched.
+        if os.path.exists(MODELS_DIR):
+            shutil.rmtree(MODELS_DIR, ignore_errors=True)
+            os.makedirs(MODELS_DIR, exist_ok=True)
+            log("  Cleared models/saved/ — will retrain from scratch per combo")
+
         log(f"  {len(completed)} fully completed experiment combos found")
         for key in sorted(completed):
             log(f"    {key}")
+
         # Reset IoT containers to a known-good state before resuming
         reset_iot_containers()
     else:
