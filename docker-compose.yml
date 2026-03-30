@@ -93,6 +93,7 @@ services:
   h2o-automl:
     image: h2oai/h2o-open-source-k8s-minimal:latest
     container_name: h2o-automl
+    cpus: 16
     ports:
       - "54321:54321"
     environment:
