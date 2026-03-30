@@ -94,7 +94,9 @@ services:
     image: h2oai/h2o-open-source-k8s-minimal:latest
     container_name: h2o-automl
     ports:
-      - "54322:54322"
+      - "54321:54321"
+    environment:
+      - JAVA_OPTS=-Xmx6g -Xms2g
     restart: unless-stopped
     networks:
       iot_bridge:
