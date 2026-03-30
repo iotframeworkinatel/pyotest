@@ -1783,6 +1783,22 @@ def loop_active():
 # ═══════════════════════════════════════════════════════════════════════
 
 _loop_lock = threading.Lock()
+
+
+def _experiment_active() -> bool:
+    """Return True if an experiment loop or model training is currently active.
+
+    Used to prevent hypothesis endpoints from making concurrent ML calls
+    (frame uploads, predictions, LOPO training) that collide with the active
+    experiment. Applies to all AutoML frameworks, not just H2O.
+    """
+    with _loop_lock:
+        loop_running = _loop_state.get("status") == "running"
+    with _train_lock:
+        train_running = _train_state.get("status") == "training"
+    return loop_running or train_running
+
+
 _loop_state = {
     "status": "idle",           # idle | running | completed | error | cancelled
     "suite_id": None,
@@ -4989,6 +5005,9 @@ def hypothesis_generalization(
     Leave-one-protocol-out (LOPO) evaluation: train on all protocols
     except one, predict on the held-out protocol. Tests OOD generalization.
     """
+    if _experiment_active():
+        return {"status": "training_in_progress", "message": "LOPO evaluation deferred — experiment is active.", "protocols": [], "summary": None, "verdict": "deferred"}
+
     from utils.lopo_eval import run_all_lopo, lopo_summary
     from generator.retrain import aggregate_history
 
@@ -5849,12 +5868,12 @@ def _predict_risk_scores_on_history(df: pd.DataFrame) -> Optional[pd.DataFrame]:
     Returns the augmented DataFrame, or None only if the data itself is
     insufficient (should not normally happen).
     """
-    # ── Attempt 1: trained ML model ──────────────────────────────────
+    # ── Attempt 1: trained ML model (skip if experiment or training is active) ──
     try:
         from automl.pipeline import get_model
         import h2o
 
-        model = get_model()
+        model = None if _experiment_active() else get_model()
         if model is not None:
             scored = df.copy()
             scored["open_port"] = pd.to_numeric(scored["open_port"], errors="coerce").fillna(0).astype(int)
