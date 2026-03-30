@@ -96,7 +96,7 @@ services:
     ports:
       - "54321:54321"
     environment:
-      - JAVA_OPTS=-Xmx6g -Xms2g
+      - JAVA_OPTS=-Xmx16g -Xms4g
     restart: unless-stopped
     networks:
       iot_bridge:
