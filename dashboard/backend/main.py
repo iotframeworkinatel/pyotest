@@ -4718,6 +4718,12 @@ def hypothesis_baseline_comparison(
 
     all_df["baseline_strategy"] = all_df["baseline_strategy"].fillna("ml_guided")
 
+    # Restrict to seed 42 — baselines only run with seed 42.
+    # Without this, ML rows from seeds 123/777 inflate ml_guided counts
+    # while all baseline rows are seed 42, making the comparison unfair.
+    if "simulation_seed" in all_df.columns:
+        all_df = all_df[all_df["simulation_seed"] == 42]
+
     # Grouping column for per-iteration rates
     exp_group_col = None
     for col in ("simulation_iteration", "experiment_id"):
@@ -5221,6 +5227,12 @@ def hypothesis_ablation(simulation_mode: Optional[str] = None):
         _ml_mask = all_df["baseline_strategy"] == "ml_guided"
         _non_h2o = all_df["automl_tool"] != "h2o"
         all_df = all_df[~(_ml_mask & _non_h2o)]
+
+    # Restrict to seed 42 — baselines only run with seed 42.
+    # Ensures every condition in the ablation table draws from identical
+    # environmental conditions (same vulnerability states, outage patterns).
+    if "simulation_seed" in all_df.columns:
+        all_df = all_df[all_df["simulation_seed"] == 42]
 
     # Determine if LLM tests exist
     has_llm = (

@@ -22,6 +22,7 @@ Usage:
 All data is saved in experiments/exp_* directories, accessible via dashboard.
 """
 
+import csv
 import requests
 import time
 import shutil
@@ -593,6 +594,43 @@ def generate_suite(devices, automl_tool="h2o"):
 # Step 4: Run a single experiment
 # ----------------------------------------------------------------------
 
+def _write_temporal_metrics(name, iter_metrics, automl_tool, mode, seed):
+    """Write per-iteration temporal AUC to a temporal_metrics.csv file.
+
+    Creates an exp_TEMPORAL_* directory so _load_aggregated_history / H8
+    picks it up automatically via the exp_* directory scan.
+    Only writes rows where temporal_auc is not None (i.e. trained iterations).
+    """
+    records = [
+        {
+            "iteration": m.get("iteration"),
+            "auc_roc": m.get("temporal_auc"),
+            "brier_score": m.get("temporal_brier"),
+            "ece": m.get("temporal_ece"),
+            "train_window_size": m.get("train_window_size"),
+            "score_method": m.get("score_method", "unknown"),
+            "automl_tool": automl_tool,
+            "simulation_mode": mode,
+            "simulation_seed": seed,
+        }
+        for m in iter_metrics
+        if m.get("temporal_auc") is not None
+    ]
+    if not records:
+        return
+
+    ts = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%S")
+    safe_name = name.replace(" ", "_").replace("/", "-")
+    out_dir = os.path.join(EXPERIMENTS_DIR, f"exp_TEMPORAL_{safe_name}_{ts}")
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, "temporal_metrics.csv")
+    with open(out_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(records[0].keys()))
+        writer.writeheader()
+        writer.writerows(records)
+    log(f"  Temporal metrics saved: {len(records)} trained iterations → {out_path}")
+
+
 def run_experiment(suite_id, name, mode, seed, iterations, train_every_n, automl_tool="h2o",
                    temporal_training=False, baseline_strategy=None, llm_enabled=False,
                    llm_generate_every_n=10, phase_tag=None, dynamic_features=False):
@@ -719,6 +757,7 @@ def run_experiment(suite_id, name, mode, seed, iterations, train_every_n, automl
             log(f"  Final AUC: {final_auc:.4f}" if final_auc else "  Final AUC: N/A")
             log(f"  Avg detection rate: {avg_detection * 100:.1f}%")
             log(f"  Total vulnerabilities: {total_vulns}")
+            _write_temporal_metrics(name, iter_metrics, automl_tool, mode, seed)
             return result
 
         elif loop_status in ("error", "cancelled"):
@@ -1070,7 +1109,7 @@ def select_best_phase1_framework(sim_mode="realistic"):
 
 
 def run_baseline_experiments(suite_id, devices, all_results, completed=None):
-    """Run baseline experiments: 4 baselines × 3 modes × 100 iterations = 1,200 iterations."""
+    """Run baseline experiments: 4 baselines × 3 modes × 100 iterations = 1,200 iterations (seed 42 only)."""
     log(f"\n{'#' * 70}")
     log(f"  BASELINE EXPERIMENTS")
     log(f"  {len(BASELINES)} baselines × {len(SIM_MODES)} modes")
@@ -1078,6 +1117,8 @@ def run_baseline_experiments(suite_id, devices, all_results, completed=None):
 
     for baseline_name, strategy in BASELINES:
         for base_name, mode, seed, iters, train_n in SIM_MODES:
+            if seed != 42:
+                continue  # baselines don't adapt to environment; extra seeds add no information
             experiment_name = f"{baseline_name}-{mode.upper()[:3]}-{iters}"
 
             if completed and (strategy, mode, seed, "baseline") in completed:
