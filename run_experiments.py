@@ -30,7 +30,7 @@ import os
 import glob
 import json
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # ----------------------------------------------------------------------
 # Configuration
@@ -619,7 +619,7 @@ def _write_temporal_metrics(name, iter_metrics, automl_tool, mode, seed):
     if not records:
         return
 
-    ts = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%S")
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
     safe_name = name.replace(" ", "_").replace("/", "-")
     out_dir = os.path.join(EXPERIMENTS_DIR, f"exp_TEMPORAL_{safe_name}_{ts}")
     os.makedirs(out_dir, exist_ok=True)
@@ -934,7 +934,7 @@ def archive_model(automl_tool, sim_mode):
         json.dump({
             "automl_tool": automl_tool,
             "sim_mode": sim_mode,
-            "archived_at": datetime.utcnow().isoformat() + "Z",
+            "archived_at": datetime.now(timezone.utc).isoformat(),
         }, f, indent=2)
 
     log(f"  Archived model: {automl_tool}/{sim_mode} -> models/archive/{automl_tool}_{sim_mode}/")
@@ -1251,6 +1251,27 @@ def run_phase6_experiments(suite_id, devices, all_results, completed=None, frame
 
             if result.get("status") == "completed":
                 archive_model(fw, f"{mode}_phase6")
+                # Sanity-check: warn if the archive captured an early checkpoint
+                # rather than the final 100-iteration model.
+                _arc_metrics = os.path.join(
+                    MODELS_ARCHIVE_DIR, f"{fw}_{mode}_phase6", "model_metrics.json"
+                )
+                if os.path.exists(_arc_metrics):
+                    try:
+                        import json as _j
+                        with open(_arc_metrics) as _mf:
+                            _m = _j.load(_mf)
+                        _tr = int(_m.get("training_rows") or 0)
+                        _expected_floor = iters * 50  # rough floor: ≥50 rows/iter
+                        if _tr < _expected_floor:
+                            log(
+                                f"  WARNING: Phase 6 archive for {fw}/{mode} has only "
+                                f"{_tr} training rows (expected ≥{_expected_floor}). "
+                                f"Archive may be from an early training checkpoint.",
+                                "WARN",
+                            )
+                    except Exception:
+                        pass
 
 
 def run_lopo_analysis(phase=None):
@@ -1266,7 +1287,7 @@ def run_lopo_analysis(phase=None):
 
         for _, mode, _, _, _ in SIM_MODES:
             phase_param = f"&phase={phase}" if phase else ""
-            resp = api_get(f"/api/hypothesis/generalization?automl_tool={fw}&simulation_mode={mode}{phase_param}", timeout=300)
+            resp = api_get(f"/api/hypothesis/generalization?automl_tool={fw}&simulation_mode={mode}{phase_param}", timeout=900)
             if resp and resp.get("status") == "ok":
                 summary = resp.get("summary", {})
                 log(f"    {mode}: LOPO AUC={summary.get('mean_auc', 'N/A')}, "
@@ -1559,12 +1580,20 @@ def main():
         log("\nSkipping LOPO analysis (--skip-lopo)")
 
     # ── Phase 5: Dynamic features (all 5 frameworks × 3 modes) ───────
+    # Generate a FRESH suite so Phase 5 does not inherit LLM-generated tests
+    # that were appended to the suite during Phase 3.  Without this, frameworks
+    # whose Phase 5 runs after Phase 3 would have ~46 extra LLM tests per
+    # iteration — making the Phase 1 vs Phase 5 comparison unfair.
     if not skip_phase5 and not only_llm and not only_baselines and not only_phase6:
-        run_phase5_experiments(suite_id, devices, all_results, completed=completed)
+        log("\nGenerating fresh suite for Phase 5 (registry-only, no Phase 3 LLM carry-over)...")
+        suite_id_phase5 = generate_suite(devices, automl_tool="h2o")
+        run_phase5_experiments(suite_id_phase5, devices, all_results, completed=completed)
         if not skip_lopo:
             run_lopo_analysis(phase="phase5")
     elif only_phase5:
-        run_phase5_experiments(suite_id, devices, all_results, completed=completed)
+        log("\nGenerating fresh suite for Phase 5 (registry-only, no Phase 3 LLM carry-over)...")
+        suite_id_phase5 = generate_suite(devices, automl_tool="h2o")
+        run_phase5_experiments(suite_id_phase5, devices, all_results, completed=completed)
         if not skip_lopo:
             run_lopo_analysis(phase="phase5")
 
@@ -1579,7 +1608,11 @@ def main():
 
     if not skip_phase6 and not only_baselines and not only_phase5:
         if only_phase6 or (not only_llm):
-            run_phase6_experiments(suite_id, devices, all_results, completed=completed,
+            # Fresh suite for Phase 6 as well — Phase 6 adds its own LLM tests
+            # incrementally and must not inherit Phase 3 or Phase 5 accumulation.
+            log("\nGenerating fresh suite for Phase 6 (registry-only baseline)...")
+            suite_id_phase6 = generate_suite(devices, automl_tool="h2o")
+            run_phase6_experiments(suite_id_phase6, devices, all_results, completed=completed,
                                    frameworks=PHASE6_FRAMEWORKS)
 
     # -- Rebuild DuckDB from CSVs (optional) -----------------------

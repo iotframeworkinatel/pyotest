@@ -26,6 +26,8 @@ MODELS_DIR = "/app/models/autosklearn"
 
 def train_fn(df, target, config):
     """Train auto-sklearn classifier."""
+    import shutil
+
     max_runtime = config.get("max_runtime_secs", 300)
     seed = config.get("seed", 42)
 
@@ -41,18 +43,43 @@ def train_fn(df, target, config):
 
     start = time.time()
 
+    # Use a unique tmp folder per run to prevent stale Bayesian optimization state
+    # from prior runs causing auto-sklearn to skip fitting new models entirely.
+    tmp_folder = os.path.join(MODELS_DIR, f"tmp_{seed}_{int(start)}")
+    if os.path.exists(tmp_folder):
+        shutil.rmtree(tmp_folder, ignore_errors=True)
+
     automl = autosklearn.classification.AutoSklearnClassifier(
         time_left_for_this_task=max_runtime,
-        per_run_time_limit=max(60, max_runtime // 5),  # was max_runtime//10 — too tight
+        per_run_time_limit=max(120, max_runtime // 3),  # was max_runtime//5 — too tight
         seed=seed,
-        n_jobs=-1,
-        memory_limit=4096,
-        resampling_strategy="holdout",               # was "cv" — 5-fold CV exhausts budget
+        n_jobs=1,                                        # avoid memory contention with n_jobs=-1
+        memory_limit=8192,                               # was 4096 — too low for meta-learning
+        resampling_strategy="holdout",
         resampling_strategy_arguments={"train_size": 0.8},
         metric=autosklearn.metrics.roc_auc,
-        tmp_folder=os.path.join(MODELS_DIR, "tmp"),
+        tmp_folder=tmp_folder,
+        delete_tmp_folder_after_terminate=True,
+        initial_configurations_via_metalearning=10,      # cap meta-learning to save budget
     )
     automl.fit(X, y)
+
+    # Guard: if no models were trained the ensemble is empty and refit produces
+    # a trivial classifier (AUC ≈ 0.5). Return failure metrics immediately.
+    if not automl.show_models():
+        elapsed = time.time() - start
+        logging.error("[auto-sklearn] No models completed within time/memory budget")
+        return None, {
+            "framework": "autosklearn",
+            "auc": None,
+            "logloss": None,
+            "status": "training_failed",
+            "error": "No models completed — budget exhausted before any run finished",
+            "training_time_secs": round(elapsed, 2),
+            "training_rows": len(df),
+            "leaderboard": [],
+            "total_models_trained": 0,
+        }
 
     # Refit on full dataset
     automl.refit(X, y)

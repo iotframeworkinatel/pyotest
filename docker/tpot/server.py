@@ -41,7 +41,6 @@ def train_fn(df, target, config):
 
     tpot = TPOTClassifier(
         max_time_mins=max(1, max_runtime // 60),
-        scoring="roc_auc",
         random_state=seed,
         verbosity=1,
         n_jobs=-1,

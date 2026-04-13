@@ -89,9 +89,10 @@ class _TTLCache:
             self._store.clear()
 
 
-_history_cache = _TTLCache(default_ttl=60)
-_iteration_cache = _TTLCache(default_ttl=60)
-_prediction_cache = _TTLCache(default_ttl=120)
+_history_cache = _TTLCache(default_ttl=300)
+_iteration_cache = _TTLCache(default_ttl=300)
+_prediction_cache = _TTLCache(default_ttl=300)
+_hyp_cache = _TTLCache(default_ttl=300)   # per-endpoint result cache for expensive hypotheses
 
 
 # ─── DuckDB integration ──────────────────────────────────────────────
@@ -1545,6 +1546,8 @@ def _execute_suite_and_retrain(
                     # Invalidate caches so dashboard reflects new data immediately
                     _history_cache.clear()
                     _iteration_cache.clear()
+                    _hyp_cache.clear()
+                    _synthesis_cache.clear()
             except Exception as e:
                 logging.warning(f"[API] Could not tag history with automl_tool: {e}")
 
@@ -2592,6 +2595,7 @@ def invalidate_hypothesis_cache():
     _iteration_cache.clear()
     _prediction_cache.clear()
     _synthesis_cache.clear()
+    _hyp_cache.clear()
     return {"status": "ok", "message": "All hypothesis caches cleared"}
 
 
@@ -3240,6 +3244,11 @@ def hypothesis_protocol_convergence(simulation_mode: Optional[str] = None, autom
     import numpy as np
     from scipy import stats as scipy_stats
 
+    _ck = f"h3_{simulation_mode or 'all'}_{automl_tool or 'all'}"
+    _cached = _hyp_cache.get(_ck)
+    if _cached is not None:
+        return _cached
+
     # Reuse the iteration metrics logic
     iter_result = hypothesis_iteration_metrics(simulation_mode=simulation_mode, automl_tool=automl_tool, phase="framework")
     iterations = iter_result.get("iterations", [])
@@ -3390,13 +3399,15 @@ def hypothesis_protocol_convergence(simulation_mode: Optional[str] = None, autom
     except Exception as e:
         logging.warning(f"[Hypothesis] Convergence stats failed: {e}")
 
-    return {
+    _result = {
         "protocols": protocols,
         "fastest_converging": fastest["protocol"] if fastest else None,
         "most_stable": most_stable_proto["protocol"] if most_stable_proto else None,
         "stats": stats_result,
         "verdict": verdict,
     }
+    _hyp_cache.set(_ck, _result)
+    return _result
 
 
 # ── H4 — Risk Score Calibration ──────────────────────────────────────
@@ -3543,6 +3554,11 @@ def hypothesis_risk_calibration(simulation_mode: Optional[str] = None, automl_to
 @app.get("/api/hypothesis/execution-efficiency")
 def hypothesis_execution_efficiency(simulation_mode: Optional[str] = None, automl_tool: Optional[str] = None):
     """Compare ML-recommended subset vs full suite for detection efficiency."""
+    _ck = f"h5_{simulation_mode or 'all'}_{automl_tool or 'all'}"
+    _cached = _hyp_cache.get(_ck)
+    if _cached is not None:
+        return _cached
+
     iterations = []
     if not os.path.exists(RESULTS_PATH):
         return {"iterations": [], "summary": None, "verdict": "not_efficient"}
@@ -3727,7 +3743,7 @@ def hypothesis_execution_efficiency(simulation_mode: Optional[str] = None, autom
     else:
         verdict = "not_efficient"
 
-    return {
+    _result = {
         "iterations": iterations,
         "summary": {
             "avg_test_reduction_pct": _safe_float(avg_reduction, 2),
@@ -3741,6 +3757,8 @@ def hypothesis_execution_efficiency(simulation_mode: Optional[str] = None, autom
         "stats": stats_result,
         "verdict": verdict,
     }
+    _hyp_cache.set(_ck, _result)
+    return _result
 
 
 # ── H6 — Discovery Coverage ──────────────────────────────────────────
@@ -3753,6 +3771,11 @@ def hypothesis_discovery_coverage(automl_tool: Optional[str] = None):
     simulation modes using Kruskal-Wallis and pairwise Mann-Whitney U tests.
     Returns discovery metrics and statistical results for each mode.
     """
+    _ck = f"h6_{automl_tool or 'all'}"
+    _cached = _hyp_cache.get(_ck)
+    if _cached is not None:
+        return _cached
+
     import numpy as np
     from scipy import stats as scipy_stats
 
@@ -3887,7 +3910,7 @@ def hypothesis_discovery_coverage(automl_tool: Optional[str] = None):
             "lift_pct": data["lift_pct"],
         }
 
-    return {
+    _result = {
         "status": "ok",
         "baseline_mode": baseline_mode,
         "modes": modes_summary,
@@ -3897,6 +3920,8 @@ def hypothesis_discovery_coverage(automl_tool: Optional[str] = None):
         "pairwise_tests": pairwise,
         "verdict": verdict,
     }
+    _hyp_cache.set(_ck, _result)
+    return _result
 
 
 # ── Experiment Timing ───────────────────────────────────────────────
@@ -4091,6 +4116,11 @@ def hypothesis_cross_framework(simulation_mode: Optional[str] = None):
     that have experiment data. Uses Kruskal-Wallis for omnibus test and
     pairwise Mann-Whitney U for post-hoc comparisons.
     """
+    _ck = f"h7_{simulation_mode or 'all'}"
+    _cached = _hyp_cache.get(_ck)
+    if _cached is not None:
+        return _cached
+
     import numpy as np
     from scipy import stats as scipy_stats
 
@@ -4333,7 +4363,7 @@ def hypothesis_cross_framework(simulation_mode: Optional[str] = None):
             f"for a cross-mode variance decomposition."
         )
 
-    return {
+    _result = {
         "status": "ok",
         "frameworks": fw_summary,
         "ranking": ranking,
@@ -4345,6 +4375,8 @@ def hypothesis_cross_framework(simulation_mode: Optional[str] = None):
         "timing": timing,
         "noise_dominance_note": noise_dominance_note,
     }
+    _hyp_cache.set(_ck, _result)
+    return _result
 
 
 # ── H7+ — Framework × Mode Interaction Analysis ───────────────────
@@ -4360,6 +4392,11 @@ def hypothesis_framework_interaction():
     Kruskal-Wallis tests to separate framework, mode, and interaction
     variance contributions.
     """
+    _ck = "h7plus"
+    _cached = _hyp_cache.get(_ck)
+    if _cached is not None:
+        return _cached
+
     import numpy as np
     from scipy import stats as scipy_stats
 
@@ -4537,7 +4574,7 @@ def hypothesis_framework_interaction():
             f"Environment noise dominates (mode η²={eta_mode:.3f} >> framework η²={eta_fw:.3f})."
         )
 
-    return {
+    _result = {
         "status": "ok",
         "variance_decomposition": variance_decomposition,
         "per_mode_framework_significance": per_mode_significance,
@@ -4546,6 +4583,8 @@ def hypothesis_framework_interaction():
         "grand_mean_detection_rate": _safe_float(grand_mean, 4),
         "conclusion": conclusion,
     }
+    _hyp_cache.set(_ck, _result)
+    return _result
 
 
 # ── H8 — Temporal Predictive Validity ──────────────────────────────
@@ -4563,9 +4602,6 @@ def hypothesis_temporal_validation(
     """
     from utils.temporal_eval import load_temporal_metrics
     import numpy as np
-
-    sim = simulation_mode or "deterministic"
-    aml = automl_tool or "h2o"
 
     # Collect temporal metrics from experiment dirs
     all_metrics = []
@@ -4612,6 +4648,12 @@ def hypothesis_temporal_validation(
             "score_method": it.get("score_method", "unknown"),
         } for it in temporal_from_loop])
         combined = pd.concat([combined, loop_df], ignore_index=True) if not combined.empty else loop_df
+
+    # Apply simulation_mode and automl_tool filters now that all sources are merged
+    if simulation_mode and simulation_mode != "all" and "simulation_mode" in combined.columns:
+        combined = combined[combined["simulation_mode"] == simulation_mode]
+    if automl_tool and automl_tool != "all" and "automl_tool" in combined.columns:
+        combined = combined[combined["automl_tool"] == automl_tool]
 
     if combined.empty:
         return {
@@ -4693,6 +4735,11 @@ def hypothesis_baseline_comparison(
     experiments (random, CVSS-priority, round-robin, no-ML).
     Data comes from history.csv files tagged with baseline_strategy column.
     """
+    _ck = f"h9_{simulation_mode or 'all'}"
+    _cached = _hyp_cache.get(_ck)
+    if _cached is not None:
+        return _cached
+
     import numpy as np
     from scipy import stats as scipy_stats
 
@@ -4722,7 +4769,7 @@ def hypothesis_baseline_comparison(
     # Without this, ML rows from seeds 123/777 inflate ml_guided counts
     # while all baseline rows are seed 42, making the comparison unfair.
     if "simulation_seed" in all_df.columns:
-        all_df = all_df[all_df["simulation_seed"] == 42]
+        all_df = all_df[all_df["simulation_seed"].astype(str) == "42"]
 
     # Grouping column for per-iteration rates
     exp_group_col = None
@@ -4810,12 +4857,14 @@ def hypothesis_baseline_comparison(
     else:
         verdict = "insufficient_data"
 
-    return {
+    _result = {
         "status": "ok" if len(strategies) >= 2 else "insufficient_data",
         "strategies": strategy_summary,
         "simulation_mode": sim,
         "verdict": verdict,
     }
+    _hyp_cache.set(_ck, _result)
+    return _result
 
 
 # ── H10 — LLM Generation Effectiveness ─────────────────────────────
@@ -4831,6 +4880,11 @@ def hypothesis_llm_effectiveness(
     and registry-generated (test_strategy='generated') tests using Fisher's exact
     test, odds ratio, and per-iteration Mann-Whitney U.
     """
+    _ck = f"h10_{simulation_mode or 'all'}_{automl_tool or 'all'}"
+    _cached = _hyp_cache.get(_ck)
+    if _cached is not None:
+        return _cached
+
     import numpy as np
     from scipy import stats as scipy_stats
 
@@ -4965,7 +5019,7 @@ def hypothesis_llm_effectiveness(
     else:
         verdict = "not_supported"
 
-    return {
+    _result = {
         "status": "ok",
         "llm": {
             "n_tests": llm_total,
@@ -4996,6 +5050,8 @@ def hypothesis_llm_effectiveness(
         "simulation_mode": sim,
         "verdict": verdict,
     }
+    _hyp_cache.set(_ck, _result)
+    return _result
 
 
 # ── H11 — Cross-Protocol Generalization ────────────────────────────
@@ -5011,19 +5067,105 @@ def hypothesis_generalization(
     Leave-one-protocol-out (LOPO) evaluation: train on all protocols
     except one, predict on the held-out protocol. Tests OOD generalization.
     """
+    _ck = f"h11_{simulation_mode or 'all'}_{automl_tool or 'all'}_{phase or 'none'}"
+    _cached = _hyp_cache.get(_ck)
+    if _cached is not None:
+        return _cached
+
     if _experiment_active():
         return {"status": "training_in_progress", "message": "LOPO evaluation deferred — experiment is active.", "protocols": [], "summary": None, "verdict": "deferred"}
 
     from utils.lopo_eval import run_all_lopo, lopo_summary
-    from generator.retrain import aggregate_history
 
     sim = simulation_mode or "deterministic"
     aml = automl_tool or "h2o"
 
-    # Aggregate history for the specified mode and optional phase
-    agg_path = aggregate_history(EXPERIMENTS_PATH, simulation_mode=sim,
-                                 automl_tool=aml if phase else None,
-                                 phase_tag=phase)
+    # Build the deterministic output path (consistent with aggregate_history naming)
+    suffix = f"_{sim}"
+    if phase:
+        suffix += f"_{aml}_{phase}"
+    agg_path = os.path.join(EXPERIMENTS_PATH, f"aggregated_history_lopo{suffix}.csv")
+
+    # Fast path: query DuckDB directly with in-SQL stratified sampling to avoid OOM.
+    # Loading all rows (~400K for realistic) into pandas hits >2 GB; we cap at 50K
+    # here (matching run_all_lopo's own cap) so the DataFrame never exceeds ~150 MB.
+    # If a pre-built sampled CSV already exists, use it directly — no DuckDB query needed.
+    _LOPO_MAX_ROWS = 50_000
+    if os.path.exists(agg_path):
+        logging.info(f"[LOPO] Using cached aggregated CSV: {agg_path}")
+    elif _db_available():
+        try:
+            with _db_lock:
+                con = _duckdb.connect(DB_PATH, read_only=True)
+                try:
+                    # Build WHERE clause
+                    conditions = [f"simulation_mode = '{sim}'"]
+                    if phase and automl_tool:
+                        conditions.append(f"automl_tool = '{aml}'")
+                    where = " AND ".join(conditions)
+
+                    # Count total to decide whether to sample
+                    total_rows = con.execute(
+                        f"SELECT COUNT(*) FROM history WHERE {where}"
+                    ).fetchone()[0]
+
+                    if total_rows <= _LOPO_MAX_ROWS:
+                        df = con.execute(
+                            f"SELECT * FROM history WHERE {where}"
+                        ).df()
+                    else:
+                        # Stratified sample per protocol in SQL — tiny memory footprint
+                        sample_pct = (_LOPO_MAX_ROWS / total_rows) * 100
+                        df = con.execute(f"""
+                            SELECT * FROM (
+                                SELECT *,
+                                    ROW_NUMBER() OVER (
+                                        PARTITION BY protocol
+                                        ORDER BY RANDOM()
+                                    ) AS _rn,
+                                    COUNT(*) OVER (PARTITION BY protocol) AS _proto_n
+                                FROM history WHERE {where}
+                            ) t
+                            WHERE _rn <= GREATEST(10, CAST(ROUND(_proto_n * {sample_pct} / 100.0) AS INTEGER))
+                        """).df()
+                        df = df.drop(columns=["_rn", "_proto_n"], errors="ignore")
+                        logging.info(f"[LOPO] SQL-sampled {len(df)} rows from {total_rows}")
+                finally:
+                    con.close()
+
+            if df is not None and not df.empty:
+                # Apply phase filter post-query when needed
+                if phase and "phase" in df.columns:
+                    df = df[df["phase"] == phase]
+                if not df.empty:
+                    # Backfill derived columns (same logic as _db_load_all)
+                    _NON_ML_BF = {"random", "cvss_priority", "round_robin", "no_ml"}
+                    if "automl_tool" not in df.columns:
+                        df["automl_tool"] = "h2o"
+                    else:
+                        df["automl_tool"] = df["automl_tool"].fillna("h2o")
+                    if "vulnerability_found" in df.columns:
+                        df["vulnerability_found"] = pd.to_numeric(
+                            df["vulnerability_found"], errors="coerce"
+                        ).fillna(0).astype(int)
+                    df.to_csv(agg_path, index=False)
+                    logging.info(
+                        f"[LOPO] Built aggregated CSV from DuckDB: "
+                        f"{len(df)} rows → {agg_path}"
+                    )
+        except Exception as e:
+            logging.warning(f"[LOPO] DuckDB fast-path failed, falling back: {e}")
+
+    # Fallback: full CSV scan if DuckDB produced nothing
+    if not os.path.exists(agg_path):
+        from generator.retrain import aggregate_history
+        agg_path = aggregate_history(
+            EXPERIMENTS_PATH,
+            simulation_mode=sim,
+            automl_tool=aml if phase else None,
+            phase_tag=phase,
+        )
+
     if not agg_path:
         return {
             "status": "insufficient_data",
@@ -5033,8 +5175,8 @@ def hypothesis_generalization(
             "verdict": "insufficient_data",
         }
 
-    # Run LOPO for all protocols
-    results = run_all_lopo(agg_path, automl_tool=aml, max_runtime_secs=120)
+    # Run LOPO for all protocols (CSV loaded once internally, sampled if >50 K rows)
+    results = run_all_lopo(agg_path, automl_tool=aml, max_runtime_secs=60)
     summary = lopo_summary(results)
 
     # Clean results for API response (remove detailed error messages)
@@ -5050,7 +5192,7 @@ def hypothesis_generalization(
             "status": r.get("status"),
         })
 
-    return {
+    _result = {
         "status": "ok" if summary.get("n_evaluated", 0) > 0 else "insufficient_data",
         "protocols": protocol_results,
         "summary": summary,
@@ -5058,6 +5200,8 @@ def hypothesis_generalization(
         "simulation_mode": sim,
         "verdict": summary.get("verdict", "insufficient_data"),
     }
+    _hyp_cache.set(_ck, _result)
+    return _result
 
 
 # ── Dynamic Features Comparison (Phase 5/6) ────────────────────────
@@ -5077,6 +5221,11 @@ def hypothesis_dynamic_features_comparison(
 
     Returns per-phase detection rate, learning curve, and factorial interaction term.
     """
+    _ck = f"dynamic_{simulation_mode or 'all'}_{automl_tool or 'all'}"
+    _cached = _hyp_cache.get(_ck)
+    if _cached is not None:
+        return _cached
+
     import numpy as np
     from scipy import stats as scipy_stats
 
@@ -5168,7 +5317,7 @@ def hypothesis_dynamic_features_comparison(
     else:
         verdict = "no_improvement"
 
-    return {
+    _result = {
         "phases": phases_out,
         "factorial_table": {
             "static_no_llm": p1,
@@ -5184,6 +5333,8 @@ def hypothesis_dynamic_features_comparison(
         "automl_tool": aml,
         "verdict": verdict,
     }
+    _hyp_cache.set(_ck, _result)
+    return _result
 
 
 # ── Ablation Analysis ──────────────────────────────────────────────
@@ -5202,6 +5353,11 @@ def hypothesis_ablation(simulation_mode: Optional[str] = None):
 
     Reports per-condition detection rate, efficiency, and marginal lift.
     """
+    _ck = f"ablation_{simulation_mode or 'all'}"
+    _cached = _hyp_cache.get(_ck)
+    if _cached is not None:
+        return _cached
+
     import numpy as np
 
     sim = simulation_mode or "deterministic"
@@ -5232,7 +5388,7 @@ def hypothesis_ablation(simulation_mode: Optional[str] = None):
     # Ensures every condition in the ablation table draws from identical
     # environmental conditions (same vulnerability states, outage patterns).
     if "simulation_seed" in all_df.columns:
-        all_df = all_df[all_df["simulation_seed"] == 42]
+        all_df = all_df[all_df["simulation_seed"].astype(str) == "42"]
 
     # Determine if LLM tests exist
     has_llm = (
@@ -5398,17 +5554,19 @@ def hypothesis_ablation(simulation_mode: Optional[str] = None):
         else:
             row["coverage_lift_vs_baseline_pct"] = 0.0
 
-    return {
+    _result = {
         "status": "ok",
         "conditions": ablation_table,
         "simulation_mode": sim,
         "n_conditions": len(ablation_table),
     }
+    _hyp_cache.set(_ck, _result)
+    return _result
 
 
 # ── Hypothesis Synthesis Summary ────────────────────────────────────
 
-_synthesis_cache = _TTLCache(default_ttl=120)
+_synthesis_cache = _TTLCache(default_ttl=600)
 
 
 @app.get("/api/hypothesis/synthesis")

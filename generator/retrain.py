@@ -198,6 +198,24 @@ def aggregate_history(base_dir: str = "experiments", simulation_mode: str = None
     """
     import pandas as pd
 
+    # Build the output path up front so we can check the cache before scanning files.
+    _suffix = ""
+    if simulation_mode:
+        _suffix += f"_{simulation_mode}"
+    if automl_tool:
+        _suffix += f"_{automl_tool}"
+    if phase_tag:
+        _suffix += f"_{phase_tag}"
+    if seed is not None:
+        _suffix += f"_s{seed}"
+    _output_path = os.path.join(base_dir, f"aggregated_history{_suffix}.csv")
+
+    # Return cached file if it already exists — avoids re-scanning thousands of
+    # experiment directories when called repeatedly (e.g. during LOPO analysis).
+    if os.path.exists(_output_path) and os.path.getsize(_output_path) > 0:
+        logging.debug(f"[Retrain] Returning cached aggregated history: {_output_path}")
+        return _output_path
+
     history_files = find_all_history_files(base_dir)
     if not history_files:
         return ""
@@ -255,7 +273,7 @@ def aggregate_history(base_dir: str = "experiments", simulation_mode: str = None
             return ""
         suffix += f"_s{seed}"
 
-    output_path = os.path.join(base_dir, f"aggregated_history{suffix}.csv")
+    output_path = _output_path  # reuse the pre-computed path (consistent with cache key)
     combined.to_csv(output_path, index=False)
 
     logging.info(
