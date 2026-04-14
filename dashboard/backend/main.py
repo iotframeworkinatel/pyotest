@@ -3850,9 +3850,10 @@ def hypothesis_discovery_coverage(automl_tool: Optional[str] = None):
     except Exception:
         pass
 
-    # ─── Pairwise Mann-Whitney U tests ───
+    # ─── Pairwise Mann-Whitney U tests (with Bonferroni correction) ───
     pairwise = []
     sorted_modes = sorted(mode_data.keys())
+    n_pairs = len(sorted_modes) * (len(sorted_modes) - 1) // 2
     for i in range(len(sorted_modes)):
         for j in range(i + 1, len(sorted_modes)):
             m1, m2 = sorted_modes[i], sorted_modes[j]
@@ -3860,14 +3861,19 @@ def hypothesis_discovery_coverage(automl_tool: Optional[str] = None):
             g2 = mode_data[m2]["new_vulns_per_iter"]
             try:
                 u_stat, mw_p = scipy_stats.mannwhitneyu(g2, g1, alternative="greater")
+                p_corrected = float(min(mw_p * n_pairs, 1.0)) if n_pairs > 1 else float(mw_p)
                 is_sig = bool(mw_p < 0.05)
+                is_sig_corrected = bool(p_corrected < 0.05)
                 pairwise.append({
                     "mode_a": m1,
                     "mode_b": m2,
                     "mann_whitney_u": _safe_float(u_stat, 4),
                     "p_value": _safe_float(mw_p, 6),
+                    "p_value_corrected": _safe_float(p_corrected, 6),
+                    "n_comparisons": n_pairs,
                     "significant": is_sig,
-                    "direction": f"{m2} > {m1}" if is_sig else "no difference",
+                    "significant_corrected": is_sig_corrected,
+                    "direction": f"{m2} > {m1}" if is_sig_corrected else "no difference",
                 })
             except Exception:
                 pairwise.append({
@@ -3875,15 +3881,19 @@ def hypothesis_discovery_coverage(automl_tool: Optional[str] = None):
                     "mode_b": m2,
                     "mann_whitney_u": None,
                     "p_value": None,
+                    "p_value_corrected": None,
+                    "n_comparisons": n_pairs,
                     "significant": False,
+                    "significant_corrected": False,
                     "direction": "error",
                 })
 
     # ─── Verdict ───
     # H6 supported if at least one dynamic mode has significantly more
     # new vulns than deterministic AND discovers >20% more unique vulns
+    # Use Bonferroni-corrected significance for the verdict.
     any_significant = any(
-        p["significant"] and p["mode_a"] == baseline_mode
+        p["significant_corrected"] and p["mode_a"] == baseline_mode
         for p in pairwise
     )
     any_large_lift = any(
@@ -5607,17 +5617,18 @@ def hypothesis_synthesis(simulation_mode: Optional[str] = None, automl_tool: Opt
     # H2 — Recommendation Effectiveness
     try:
         h2 = hypothesis_recommendation_effectiveness(simulation_mode=sim, automl_tool=aml)
+        _h2_overall = h2.get("overall") or {}
         hypotheses.append({
             "id": "H2",
             "name": "Recommendation Effectiveness",
             "description": "ML-recommended tests have higher detection rates than non-recommended",
             "verdict": h2.get("verdict", "insufficient_data"),
-            "key_metric": f"lift={_safe_num(h2.get('summary', {}).get('detection_rate_lift', '--')):.1f}×" if h2.get("summary", {}).get("detection_rate_lift") is not None else None,
-            "p_value": None,
-            "effect_size": h2.get("summary", {}).get("detection_rate_lift"),
+            "key_metric": f"lift={_safe_num(_h2_overall.get('lift', '--')):.1f}×" if _h2_overall.get("lift") is not None else None,
+            "p_value": _h2_overall.get("fisher_p"),
+            "effect_size": _h2_overall.get("lift"),
             "effect_interpretation": "lift ratio (recommended/non-recommended)",
-            "n": h2.get("summary", {}).get("total_scored_iterations"),
-            "test_used": "Detection rate lift comparison",
+            "n": h2.get("total_predictions"),
+            "test_used": "Fisher's exact test + detection rate lift",
         })
     except Exception as e:
         hypotheses.append({"id": "H2", "name": "Recommendation Effectiveness", "verdict": "error", "error": str(e)})
@@ -5741,17 +5752,28 @@ def hypothesis_synthesis(simulation_mode: Optional[str] = None, automl_tool: Opt
         h9 = hypothesis_baseline_comparison(simulation_mode=sim)
         if h9.get("status") == "ok":
             ml_strat = h9.get("strategies", {}).get("ml_guided", {})
+            # Collect Mann-Whitney p-values from each baseline comparison and apply
+            # within-H9 Bonferroni correction. Surface the minimum corrected p-value
+            # so this hypothesis participates in the synthesis Holm-Bonferroni pass.
+            _h9_baseline_tests = [
+                d.get("vs_ml_test") or {}
+                for name, d in h9.get("strategies", {}).items()
+                if name != "ml_guided"
+            ]
+            _h9_raw_ps = [t.get("p_value") for t in _h9_baseline_tests if t.get("p_value") is not None]
+            _h9_n = len(_h9_raw_ps)
+            _h9_p = float(min(min(p * _h9_n, 1.0) for p in _h9_raw_ps)) if _h9_raw_ps else None
             hypotheses.append({
                 "id": "H9",
                 "name": "ML Value Over Baselines",
                 "description": "ML-guided testing beats non-ML baseline strategies",
                 "verdict": h9.get("verdict", "insufficient_data"),
                 "key_metric": f"ML rate={ml_strat.get('mean_rate', '--'):.3f}" if ml_strat.get("mean_rate") is not None else None,
-                "p_value": None,
+                "p_value": _h9_p,
                 "effect_size": ml_strat.get("mean_rate"),
                 "effect_interpretation": "ML detection rate",
                 "n": ml_strat.get("n_iterations"),
-                "test_used": "Mann-Whitney U (ML vs each baseline)",
+                "test_used": "Mann-Whitney U (ML vs each baseline, Bonferroni corrected)",
             })
     except Exception as e:
         hypotheses.append({"id": "H9", "name": "ML Value Over Baselines", "verdict": "error", "error": str(e)})
