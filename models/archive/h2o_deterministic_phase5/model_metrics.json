@@ -1,0 +1,120 @@
+{
+  "framework": "h2o",
+  "leader_model_id": "StackedEnsemble_AllModels_5_AutoML_10_20260412_162243",
+  "leader_algo": "stackedensemble",
+  "auc": 0.9009,
+  "logloss": 0.4232,
+  "accuracy": null,
+  "feature_importance": [],
+  "leaderboard": [
+    {
+      "model_id": "StackedEnsemble_AllModels_5_AutoML_10_20260412_162243",
+      "auc": 0.985389,
+      "logloss": 0.166043,
+      "aucpr": 0.988991,
+      "mean_per_class_error": 0.068719,
+      "rmse": 0.224362,
+      "mse": 0.050338
+    },
+    {
+      "model_id": "StackedEnsemble_BestOfFamily_6_AutoML_10_20260412_162243",
+      "auc": 0.974643,
+      "logloss": 0.211914,
+      "aucpr": 0.982359,
+      "mean_per_class_error": 0.083079,
+      "rmse": 0.254002,
+      "mse": 0.064517
+    },
+    {
+      "model_id": "GLM_1_AutoML_10_20260412_162243",
+      "auc": 0.888801,
+      "logloss": 0.413032,
+      "aucpr": 0.922062,
+      "mean_per_class_error": 0.231711,
+      "rmse": 0.368342,
+      "mse": 0.135676
+    },
+    {
+      "model_id": "StackedEnsemble_BestOfFamily_7_AutoML_10_20260412_162243",
+      "auc": 0.887185,
+      "logloss": 0.412747,
+      "aucpr": 0.921163,
+      "mean_per_class_error": 0.231755,
+      "rmse": 0.36963,
+      "mse": 0.136626
+    },
+    {
+      "model_id": "StackedEnsemble_BestOfFamily_1_AutoML_10_20260412_162243",
+      "auc": 0.887026,
+      "logloss": 0.415829,
+      "aucpr": 0.919687,
+      "mean_per_class_error": 0.230648,
+      "rmse": 0.369153,
+      "mse": 0.136274
+    },
+    {
+      "model_id": "StackedEnsemble_BestOfFamily_3_AutoML_10_20260412_162243",
+      "auc": 0.886922,
+      "logloss": 0.413173,
+      "aucpr": 0.921732,
+      "mean_per_class_error": 0.233794,
+      "rmse": 0.369697,
+      "mse": 0.136676
+    },
+    {
+      "model_id": "StackedEnsemble_BestOfFamily_4_AutoML_10_20260412_162243",
+      "auc": 0.886836,
+      "logloss": 0.413312,
+      "aucpr": 0.92173,
+      "mean_per_class_error": 0.231757,
+      "rmse": 0.369937,
+      "mse": 0.136853
+    },
+    {
+      "model_id": "StackedEnsemble_AllModels_1_AutoML_10_20260412_162243",
+      "auc": 0.886732,
+      "logloss": 0.413379,
+      "aucpr": 0.921445,
+      "mean_per_class_error": 0.240837,
+      "rmse": 0.36974,
+      "mse": 0.136707
+    },
+    {
+      "model_id": "StackedEnsemble_BestOfFamily_2_AutoML_10_20260412_162243",
+      "auc": 0.886582,
+      "logloss": 0.413906,
+      "aucpr": 0.921328,
+      "mean_per_class_error": 0.24128,
+      "rmse": 0.369944,
+      "mse": 0.136858
+    },
+    {
+      "model_id": "StackedEnsemble_AllModels_6_AutoML_10_20260412_162243",
+      "auc": 0.886495,
+      "logloss": 0.413426,
+      "aucpr": 0.92122,
+      "mean_per_class_error": 0.229852,
+      "rmse": 0.36988,
+      "mse": 0.136811
+    }
+  ],
+  "total_models_trained": 102,
+  "roc_curve": null,
+  "cv_auc": 0.9854,
+  "cv_logloss": 0.166,
+  "cv_accuracy": null,
+  "cv_precision": null,
+  "cv_recall": null,
+  "cv_f1": null,
+  "cv_threshold": null,
+  "cv_summary": null,
+  "cross_validation": {
+    "available": false
+  },
+  "confusion_matrix": null,
+  "cv_confusion_matrix": null,
+  "training_time_secs": 301.12,
+  "training_rows": 1400,
+  "status": "trained",
+  "automl_tool": "h2o"
+}

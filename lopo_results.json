@@ -1,0 +1,268 @@
+{
+  "deterministic": {
+    "results": [
+      {
+        "held_out": "coap",
+        "train_protocols": [
+          "ftp",
+          "http",
+          "modbus",
+          "mqtt",
+          "ssh",
+          "telnet"
+        ],
+        "auc_roc": 0.5,
+        "brier_score": 0.985682695025637,
+        "ece": 0.9893121803452305,
+        "n_train": 46705,
+        "n_test": 3289,
+        "status": "ok"
+      },
+      {
+        "held_out": "ftp",
+        "train_protocols": [
+          "coap",
+          "http",
+          "modbus",
+          "mqtt",
+          "ssh",
+          "telnet"
+        ],
+        "auc_roc": 0.5,
+        "brier_score": 0.3983668683279965,
+        "ece": 0.45282454553693513,
+        "n_train": 46302,
+        "n_test": 3692,
+        "status": "ok"
+      },
+      {
+        "held_out": "http",
+        "train_protocols": [
+          "coap",
+          "ftp",
+          "modbus",
+          "mqtt",
+          "ssh",
+          "telnet"
+        ],
+        "auc_roc": 0.5,
+        "brier_score": 0.49523149419489215,
+        "ece": 0.4952085859253975,
+        "n_train": 20743,
+        "n_test": 29251,
+        "status": "ok"
+      },
+      {
+        "held_out": "modbus",
+        "train_protocols": [
+          "coap",
+          "ftp",
+          "http",
+          "mqtt",
+          "ssh",
+          "telnet"
+        ],
+        "auc_roc": 0.5,
+        "brier_score": 0.2492435806529609,
+        "ece": 0.3421598621264639,
+        "n_train": 45177,
+        "n_test": 4817,
+        "status": "ok"
+      },
+      {
+        "held_out": "mqtt",
+        "train_protocols": [
+          "coap",
+          "ftp",
+          "http",
+          "modbus",
+          "ssh",
+          "telnet"
+        ],
+        "auc_roc": 0.5,
+        "brier_score": 0.02701700838985407,
+        "ece": 0.15596639575886473,
+        "n_train": 45177,
+        "n_test": 4817,
+        "status": "ok"
+      },
+      {
+        "held_out": "ssh",
+        "train_protocols": [
+          "coap",
+          "ftp",
+          "http",
+          "modbus",
+          "mqtt",
+          "telnet"
+        ],
+        "auc_roc": 0.5,
+        "brier_score": 0.4072275655588449,
+        "ece": 0.45163344755297136,
+        "n_train": 47242,
+        "n_test": 2752,
+        "status": "ok"
+      },
+      {
+        "held_out": "telnet",
+        "train_protocols": [
+          "coap",
+          "ftp",
+          "http",
+          "modbus",
+          "mqtt",
+          "ssh"
+        ],
+        "auc_roc": 0.5,
+        "brier_score": 0.08099998642609672,
+        "ece": 0.2781716546013684,
+        "n_train": 48618,
+        "n_test": 1376,
+        "status": "ok"
+      }
+    ],
+    "summary": {
+      "n_evaluated": 7,
+      "n_protocols": 7,
+      "mean_auc": 0.5,
+      "std_auc": 0.0,
+      "min_auc": 0.5,
+      "max_auc": 0.5,
+      "mean_brier": 0.37768131408232597,
+      "verdict": "does_not_generalize"
+    }
+  },
+  "realistic": {
+    "results": [
+      {
+        "held_out": "coap",
+        "train_protocols": [
+          "ftp",
+          "http",
+          "modbus",
+          "mqtt",
+          "ssh",
+          "telnet"
+        ],
+        "auc_roc": 0.5,
+        "brier_score": 0.5719674827012488,
+        "ece": 0.7468131950315704,
+        "n_train": 46884,
+        "n_test": 3115,
+        "status": "ok"
+      },
+      {
+        "held_out": "ftp",
+        "train_protocols": [
+          "coap",
+          "http",
+          "modbus",
+          "mqtt",
+          "ssh",
+          "telnet"
+        ],
+        "auc_roc": 0.5,
+        "brier_score": 0.28928071229095315,
+        "ece": 0.2916752831981301,
+        "n_train": 46562,
+        "n_test": 3437,
+        "status": "ok"
+      },
+      {
+        "held_out": "http",
+        "train_protocols": [
+          "coap",
+          "ftp",
+          "modbus",
+          "mqtt",
+          "ssh",
+          "telnet"
+        ],
+        "auc_roc": 0.5,
+        "brier_score": 0.4502264793733358,
+        "ece": 0.4514416462208039,
+        "n_train": 20455,
+        "n_test": 29544,
+        "status": "ok"
+      },
+      {
+        "held_out": "modbus",
+        "train_protocols": [
+          "coap",
+          "ftp",
+          "http",
+          "mqtt",
+          "ssh",
+          "telnet"
+        ],
+        "auc_roc": 0.5,
+        "brier_score": 0.2654376545284413,
+        "ece": 0.2911030335630582,
+        "n_train": 45133,
+        "n_test": 4866,
+        "status": "ok"
+      },
+      {
+        "held_out": "mqtt",
+        "train_protocols": [
+          "coap",
+          "ftp",
+          "http",
+          "modbus",
+          "ssh",
+          "telnet"
+        ],
+        "auc_roc": 0.5,
+        "brier_score": 0.18112989272380103,
+        "ece": 0.001040408480398325,
+        "n_train": 45133,
+        "n_test": 4866,
+        "status": "ok"
+      },
+      {
+        "held_out": "ssh",
+        "train_protocols": [
+          "coap",
+          "ftp",
+          "http",
+          "modbus",
+          "mqtt",
+          "telnet"
+        ],
+        "auc_roc": 0.5,
+        "brier_score": 0.32700791738948887,
+        "ece": 0.2871729137561697,
+        "n_train": 47218,
+        "n_test": 2781,
+        "status": "ok"
+      },
+      {
+        "held_out": "telnet",
+        "train_protocols": [
+          "coap",
+          "ftp",
+          "http",
+          "modbus",
+          "mqtt",
+          "ssh"
+        ],
+        "auc_roc": 0.5,
+        "brier_score": 0.19821770050616733,
+        "ece": 0.3201781722387407,
+        "n_train": 48609,
+        "n_test": 1390,
+        "status": "ok"
+      }
+    ],
+    "summary": {
+      "n_evaluated": 7,
+      "n_protocols": 7,
+      "mean_auc": 0.5,
+      "std_auc": 0.0,
+      "min_auc": 0.5,
+      "max_auc": 0.5,
+      "mean_brier": 0.32618111993049087,
+      "verdict": "does_not_generalize"
+    }
+  }
+}

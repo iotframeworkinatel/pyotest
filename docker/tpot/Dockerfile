@@ -9,6 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
+# TODO(reproducibility): pin the TPOT version used in the experiments
+# (no saved TPOT model records it), e.g. tpot==0.12.x
 RUN pip install --no-cache-dir \
     flask \
     pandas \

@@ -9,12 +9,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
+# PyCaret and scikit-learn are pinned to the versions recorded in
+# models/archive/pycaret_*/model_binary/pycaret_model.pkl
 RUN pip install --no-cache-dir \
     flask \
     pandas \
     numpy \
-    scikit-learn \
-    pycaret
+    scikit-learn==1.4.2 \
+    pycaret==3.3.2
 
 # Copy shared REST base and framework server
 COPY docker/automl_rest_base.py /app/automl_rest_base.py

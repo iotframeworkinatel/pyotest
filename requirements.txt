@@ -1,7 +1,7 @@
 python-nmap==0.7.1
 requests==2.31.0
 paramiko
-h2o
+h2o==3.46.0.9
 pandas
 numpy
 jinja2

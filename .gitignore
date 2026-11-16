@@ -2,6 +2,7 @@ report/
 __pycache__/
 .pytest_cache/
 .idea/
+.venv/
 experiments/exp_*
 experiments/backup_*
 experiments/aggregated_history.csv
@@ -17,9 +18,34 @@ dashboard/frontend/node_modules/
 dashboard/frontend/package-lock.json
 paper/
 experiments_backup_full/
-models/
 experiments/aggregated_history_realistic.csv
 experiments/experiment_summary.json
 experiments/aggregated_history_*.csv
 .env
 *.env.local
+
+# --- Data published for reproducing the paper results (see README) ---
+# Aggregated histories read by analysis/*.py
+!experiments/aggregated_history_lopo_deterministic.csv
+!experiments/aggregated_history_lopo_realistic.csv
+!experiments/aggregated_history_medium_autogluon_s42.csv
+!experiments/aggregated_history_medium_autogluon_phase6_s42.csv
+
+# Trained models: publish only the per-run metrics, not the model binaries
+models/*
+!models/__init__.py
+!models/test_case.py
+!models/archive/
+models/archive/*/model_binary/
+models/archive/*/.archive_complete
+
+# --- Local working files (manuscripts, notes, generated documents) ---
+papers/
+/compute_hypotheses.py
+CLAUDE.md
+plan.md
+presentation_new.html
+build_doc*.js
+extracted_content.txt
+figures.html
+*.docx

@@ -8,12 +8,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
+# AutoGluon is pinned to the version recorded in models/autogluon/ag_model/version.txt
 RUN pip install --no-cache-dir \
     flask \
     pandas \
     numpy \
     scikit-learn \
-    autogluon.tabular[all]
+    "autogluon.tabular[all]==1.5.0"
 
 # Copy shared REST base and framework server
 COPY docker/automl_rest_base.py /app/automl_rest_base.py

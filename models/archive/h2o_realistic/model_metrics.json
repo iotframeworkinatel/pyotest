@@ -1,0 +1,120 @@
+{
+  "framework": "h2o",
+  "leader_model_id": "StackedEnsemble_BestOfFamily_5_AutoML_72_20260331_63840",
+  "leader_algo": "stackedensemble",
+  "auc": 0.7875,
+  "logloss": 0.545,
+  "accuracy": null,
+  "feature_importance": [],
+  "leaderboard": [
+    {
+      "model_id": "StackedEnsemble_BestOfFamily_5_AutoML_72_20260331_63840",
+      "auc": 0.809509,
+      "logloss": 0.523491,
+      "aucpr": 0.794552,
+      "mean_per_class_error": 0.29466,
+      "rmse": 0.419658,
+      "mse": 0.176113
+    },
+    {
+      "model_id": "StackedEnsemble_AllModels_5_AutoML_72_20260331_63840",
+      "auc": 0.809129,
+      "logloss": 0.524638,
+      "aucpr": 0.79131,
+      "mean_per_class_error": 0.299448,
+      "rmse": 0.420015,
+      "mse": 0.176413
+    },
+    {
+      "model_id": "DeepLearning_grid_1_AutoML_72_20260331_63840_model_2",
+      "auc": 0.781606,
+      "logloss": 0.564645,
+      "aucpr": 0.766913,
+      "mean_per_class_error": 0.291235,
+      "rmse": 0.435522,
+      "mse": 0.189679
+    },
+    {
+      "model_id": "DeepLearning_grid_1_AutoML_72_20260331_63840_model_1",
+      "auc": 0.781149,
+      "logloss": 0.562007,
+      "aucpr": 0.768706,
+      "mean_per_class_error": 0.355915,
+      "rmse": 0.43759,
+      "mse": 0.191485
+    },
+    {
+      "model_id": "StackedEnsemble_AllModels_3_AutoML_72_20260331_63840",
+      "auc": 0.779505,
+      "logloss": 0.550749,
+      "aucpr": 0.770771,
+      "mean_per_class_error": 0.356001,
+      "rmse": 0.43364,
+      "mse": 0.188044
+    },
+    {
+      "model_id": "StackedEnsemble_AllModels_4_AutoML_72_20260331_63840",
+      "auc": 0.779326,
+      "logloss": 0.550906,
+      "aucpr": 0.769583,
+      "mean_per_class_error": 0.356001,
+      "rmse": 0.433649,
+      "mse": 0.188051
+    },
+    {
+      "model_id": "StackedEnsemble_BestOfFamily_4_AutoML_72_20260331_63840",
+      "auc": 0.778514,
+      "logloss": 0.551326,
+      "aucpr": 0.768457,
+      "mean_per_class_error": 0.291235,
+      "rmse": 0.433958,
+      "mse": 0.188319
+    },
+    {
+      "model_id": "DeepLearning_grid_2_AutoML_72_20260331_63840_model_1",
+      "auc": 0.778289,
+      "logloss": 0.578592,
+      "aucpr": 0.758604,
+      "mean_per_class_error": 0.294486,
+      "rmse": 0.440027,
+      "mse": 0.193624
+    },
+    {
+      "model_id": "XGBoost_lr_search_selection_AutoML_72_20260331_63840_select_grid_model_1",
+      "auc": 0.77822,
+      "logloss": 0.552485,
+      "aucpr": 0.768882,
+      "mean_per_class_error": 0.293299,
+      "rmse": 0.43455,
+      "mse": 0.188834
+    },
+    {
+      "model_id": "GBM_grid_1_AutoML_72_20260331_63840_model_1",
+      "auc": 0.778162,
+      "logloss": 0.551753,
+      "aucpr": 0.767841,
+      "mean_per_class_error": 0.293299,
+      "rmse": 0.434136,
+      "mse": 0.188474
+    }
+  ],
+  "total_models_trained": 61,
+  "roc_curve": null,
+  "cv_auc": 0.8095,
+  "cv_logloss": 0.5235,
+  "cv_accuracy": null,
+  "cv_precision": null,
+  "cv_recall": null,
+  "cv_f1": null,
+  "cv_threshold": null,
+  "cv_summary": null,
+  "cross_validation": {
+    "available": false
+  },
+  "confusion_matrix": null,
+  "cv_confusion_matrix": null,
+  "training_time_secs": 302.21,
+  "training_rows": 13860,
+  "status": "trained",
+  "automl_tool": "h2o"
+}

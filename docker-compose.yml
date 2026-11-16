@@ -1,6 +1,7 @@
 services:
   ftp_anonymous:
-    image: fauria/vsftpd
+    # pinned: tag unchanged on Docker Hub since 2023-01-27 (same image used in the experiments)
+    image: fauria/vsftpd:latest@sha256:6d71d7c7f1b0ab2844ec7dc7999a30aef6d758b6d8179cf5967513f87c79c177
     container_name: ftp_anonymous
     environment:
       - FTP_USER=admin
@@ -11,6 +12,8 @@ services:
         ipv4_address: 172.20.0.10
 
   ftp_credentials_vuln:
+    # TODO(reproducibility): 'latest' was rebuilt on 2026-11-15, after the experiments.
+    # Replace with the version tag used in the campaign (e.g. stilliard/pure-ftpd:<distro>-1.0.xx).
     image: stilliard/pure-ftpd
     container_name: ftp_credentials_vuln
     ports:
@@ -42,7 +45,8 @@ services:
         ipv4_address: 172.20.0.12
 
   ftp_banner:
-    image: stilliard/pure-ftpd:hardened
+    # pinned: tag unchanged on Docker Hub since 2021-06-26
+    image: stilliard/pure-ftpd:hardened@sha256:1d15f8091b18d399178acc47559b9328c3deecca732d52df96e65303d6a8a966
     container_name: ftp_banner
     environment:
       - PUBLICHOST=172.20.0.13
@@ -83,7 +87,8 @@ services:
         ipv4_address: 172.20.0.16
 
   ssh_old_banner:
-    image: rastasheep/ubuntu-sshd
+    # pinned: tag unchanged on Docker Hub since 2018-05-20
+    image: rastasheep/ubuntu-sshd:latest@sha256:1a4010f95f6b3292f95fb26e442f85885d523f9a0bb82027b718df62fdd0d9e9
     container_name: ssh_old_banner
     restart: unless-stopped
     networks:
@@ -91,7 +96,9 @@ services:
         ipv4_address: 172.20.0.17
 
   h2o-automl:
-    image: h2oai/h2o-open-source-k8s-minimal:latest
+    # pinned to the H2O version recorded in models/archive/h2o_*/model_binary (3.46.0.9);
+    # the Python h2o client must match this server version
+    image: h2oai/h2o-open-source-k8s-minimal:3.46.0.9
     container_name: h2o-automl
     cpus: 16
     ports:

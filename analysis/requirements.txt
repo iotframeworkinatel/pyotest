@@ -1,0 +1,8 @@
+# Exact versions used to produce the published results with analysis/*.py
+# (verified to regenerate hypothesis_results.json identically).
+# Requires Python >= 3.11; tested with Python 3.14.0.
+duckdb==1.5.0
+numpy==2.3.5
+pandas==2.3.3
+scipy==1.16.3
+scikit-learn==1.8.0

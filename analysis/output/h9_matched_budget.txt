@@ -1,0 +1,18 @@
+
+=== deterministic (ml_full n=76160, rate=0.5662) ===
+  random          base n=14000 r=0.5768  ML-base CI95=[-0.0188,-0.0024]  P(ML>base)=0.004  Fisher-greater p=0.99
+  round_robin     base n=14000 r=0.5766  ML-base CI95=[-0.0184,-0.0023]  P(ML>base)=0.006  Fisher-greater p=0.989
+  cvss_priority   base n=14000 r=0.5693  ML-base CI95=[-0.0109,+0.0049]  P(ML>base)=0.223  Fisher-greater p=0.753
+  no_ml           base n=14000 r=0.5694  ML-base CI95=[-0.0114,+0.0049]  P(ML>base)=0.190  Fisher-greater p=0.762
+
+=== medium (ml_full n=70000, rate=0.4906) ===
+  random          base n=14000 r=0.4881  ML-base CI95=[-0.0056,+0.0105]  P(ML>base)=0.716  Fisher-greater p=0.299
+  round_robin     base n=14000 r=0.4909  ML-base CI95=[-0.0085,+0.0080]  P(ML>base)=0.491  Fisher-greater p=0.53
+  cvss_priority   base n=14000 r=0.4921  ML-base CI95=[-0.0100,+0.0069]  P(ML>base)=0.360  Fisher-greater p=0.638
+  no_ml           base n=14000 r=0.4937  ML-base CI95=[-0.0116,+0.0050]  P(ML>base)=0.224  Fisher-greater p=0.755
+
+=== realistic (ml_full n=210000, rate=0.4999) ===
+  random          base n=14000 r=0.4936  ML-base CI95=[-0.0024,+0.0144]  P(ML>base)=0.926  Fisher-greater p=0.0757
+  round_robin     base n=14000 r=0.4946  ML-base CI95=[-0.0031,+0.0132]  P(ML>base)=0.891  Fisher-greater p=0.114
+  cvss_priority   base n=14000 r=0.4971  ML-base CI95=[-0.0050,+0.0111]  P(ML>base)=0.754  Fisher-greater p=0.263
+  no_ml           base n=14000 r=0.4978  ML-base CI95=[-0.0064,+0.0102]  P(ML>base)=0.682  Fisher-greater p=0.314

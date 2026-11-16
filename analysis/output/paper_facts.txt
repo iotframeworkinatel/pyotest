@@ -1,0 +1,202 @@
+========================================================================
+1. OVERALL DETECTION RATE + ROW COUNTS PER STRATEGY
+========================================================================
+    phase simulation_mode         strat test_origin  n_tests   n_vuln  det_rate
+ baseline   deterministic cvss_priority        None    14000   7970.0  0.569286
+ baseline   deterministic         no_ml        None    14000   7972.0  0.569429
+ baseline   deterministic        random        None    14000   8075.0  0.576786
+ baseline   deterministic   round_robin        None    14000   8073.0  0.576643
+ baseline          medium cvss_priority        None    14000   6890.0  0.492143
+ baseline          medium         no_ml    registry    14000   6912.0  0.493714
+ baseline          medium        random        None    14000   6833.0  0.488071
+ baseline          medium   round_robin        None    14000   6872.0  0.490857
+ baseline       realistic cvss_priority        None    14000   6960.0  0.497143
+ baseline       realistic         no_ml    registry    14000   6969.0  0.497786
+ baseline       realistic        random        None    14000   6911.0  0.493643
+ baseline       realistic   round_robin        None    14000   6925.0  0.494643
+framework   deterministic     ml_guided    registry    76160  43123.0  0.566216
+framework          medium     ml_guided    registry    70000  34339.0  0.490557
+framework       realistic     ml_guided    registry   210000 104988.0  0.499943
+framework       realistic          None    registry      140     66.0  0.471429
+      llm   deterministic     ml_guided         llm     9800   1075.0  0.109694
+      llm   deterministic     ml_guided    registry    73500  42363.0  0.576367
+      llm          medium     ml_guided         llm     9000   1224.0  0.136000
+      llm          medium     ml_guided    registry    70000  34366.0  0.490943
+      llm       realistic     ml_guided         llm    10600   1268.0  0.119623
+      llm       realistic     ml_guided    registry    70000  34569.0  0.493843
+   phase5   deterministic     ml_guided    registry    71400  41056.0  0.575014
+   phase5          medium     ml_guided    registry    70000  34364.0  0.490914
+   phase5       realistic     ml_guided    registry    75180  37268.0  0.495717
+   phase6   deterministic     ml_guided         llm     1200    550.0  0.458333
+   phase6   deterministic     ml_guided    registry    14000   8075.0  0.576786
+   phase6          medium     ml_guided         llm     3500   1244.0  0.355429
+   phase6          medium     ml_guided    registry    14000   6880.0  0.491429
+   phase6       realistic     ml_guided         llm     1100     13.0  0.011818
+   phase6       realistic     ml_guided    registry    14000   6900.0  0.492857
+
+========================================================================
+2. H1 STABILITY: per-iteration detection rate SD in realistic ML-guided
+========================================================================
+iterations: 100, mean=0.4999, sd=0.0361
+min=0.3629, max=0.5571
+
+========================================================================
+3. H6 UNIQUE DEDUP COMBOS PER MODE
+========================================================================
+simulation_mode  unique_combos
+  deterministic             86
+         medium            130
+      realistic            144
+
+========================================================================
+3b. PER-PROTOCOL UNIQUE COMBOS
+========================================================================
+simulation_mode protocol  unique_combos
+  deterministic     coap              0
+  deterministic      ftp              2
+  deterministic     http             48
+  deterministic   modbus             12
+  deterministic     mqtt             14
+  deterministic      ssh              6
+  deterministic   telnet              4
+         medium     coap              6
+         medium      ftp              9
+         medium     http             75
+         medium   modbus             14
+         medium     mqtt             14
+         medium      ssh              8
+         medium   telnet              4
+      realistic     coap              6
+      realistic      ftp              9
+      realistic     http             89
+      realistic   modbus             14
+      realistic     mqtt             14
+      realistic      ssh              8
+      realistic   telnet              4
+
+========================================================================
+4. H10a LLM EFFECTIVENESS: Fisher exact
+========================================================================
+MODE=deterministic
+test_origin    vuln    safe     n
+        llm  1075.0  8725.0  9800
+   registry 42363.0 31137.0 73500
+  Fisher p=0, OR=0.0906 [95% CI 0.0849-0.0966]
+
+MODE=medium
+test_origin    vuln    safe     n
+        llm  1224.0  7776.0  9000
+   registry 34366.0 35634.0 70000
+  Fisher p=0, OR=0.1632 [95% CI 0.1534-0.1737]
+
+MODE=realistic
+test_origin    vuln    safe     n
+        llm  1268.0  9332.0 10600
+   registry 34569.0 35431.0 70000
+  Fisher p=0, OR=0.1393 [95% CI 0.1311-0.1480]
+
+========================================================================
+5. H9: ML vs baselines detection rates — deterministic
+========================================================================
+baseline_strategy     n    vuln     rate
+    cvss_priority 14000  7970.0 0.569286
+        ml_guided 76160 43123.0 0.566216
+            no_ml 14000  7972.0 0.569429
+           random 14000  8075.0 0.576786
+      round_robin 14000  8073.0 0.576643
+
+--- pairwise per-iteration Mann-Whitney (deterministic) ---
+  ml_guided: n_iters=100, mean=0.5539
+  random: n_iters=100, mean=0.5768
+  round_robin: n_iters=100, mean=0.5766
+  no_ml: n_iters=100, mean=0.5694
+  cvss_priority: n_iters=100, mean=0.5693
+
+  ML > random: U=0, p=1.0000
+  ML > round_robin: U=0, p=1.0000
+  ML > no_ml: U=0, p=1.0000
+  ML > cvss_priority: U=0, p=1.0000
+
+========================================================================
+6. H7: AUCs per framework per mode (from temporal_metrics / archives)
+========================================================================
+autogluon_deterministic_phase6                AUC=0.9586  brier=?  ece=?  train_s=?  models=?
+autogluon_medium_phase6                       AUC=0.924  brier=?  ece=?  train_s=?  models=?
+autogluon_realistic                           AUC=0.7916  brier=?  ece=?  train_s=?  models=?
+autogluon_realistic_phase6                    AUC=0.9115  brier=?  ece=?  train_s=?  models=?
+autosklearn_deterministic_phase5              AUC=0.5  brier=?  ece=?  train_s=?  models=?
+autosklearn_medium_phase5                     AUC=0.5  brier=?  ece=?  train_s=?  models=?
+autosklearn_realistic                         AUC=0.5  brier=?  ece=?  train_s=?  models=?
+autosklearn_realistic_phase5                  AUC=0.5  brier=?  ece=?  train_s=?  models=?
+h2o_deterministic_phase5                      AUC=0.9009  brier=?  ece=?  train_s=?  models=?
+h2o_medium_phase5                             AUC=0.884  brier=?  ece=?  train_s=?  models=?
+h2o_realistic                                 AUC=0.7875  brier=?  ece=?  train_s=?  models=?
+h2o_realistic_phase5                          AUC=0.8896  brier=?  ece=?  train_s=?  models=?
+pycaret_deterministic_phase5                  AUC=0.9466  brier=?  ece=?  train_s=?  models=?
+pycaret_medium_phase5                         AUC=0.9023  brier=?  ece=?  train_s=?  models=?
+pycaret_realistic                             AUC=0.7737  brier=?  ece=?  train_s=?  models=?
+pycaret_realistic_phase5                      AUC=0.8925  brier=?  ece=?  train_s=?  models=?
+
+========================================================================
+7. H8 temporal metrics: Wilcoxon signed-rank AUC vs 0.5
+========================================================================
+exp_TEMPORAL_P5-CTRL-DET-100-PYCARET_2026-04-13T20-56-58      mean AUC=0.7464  min=0.7464  max=0.7464  Wilcoxon W=55.0 p=0.000976562
+exp_TEMPORAL_P5-TREAT-MED-100-PYCARET_2026-04-14T01-30-12     mean AUC=0.7378  min=0.6750  max=0.7711  Wilcoxon W=55.0 p=0.000976562
+exp_TEMPORAL_P5-TREAT-REAL-100-PYCARET_2026-04-14T06-00-23    mean AUC=0.7366  min=0.6753  max=0.7823  Wilcoxon W=55.0 p=0.000976562
+exp_TEMPORAL_P6-CTRL-DET-100-AUTOGLUON_2026-04-14T08-58-13    mean AUC=0.7516  min=0.7445  max=0.7570  Wilcoxon W=55.0 p=0.000976562
+exp_TEMPORAL_P6-TREAT-MED-100-AUTOGLUON_2026-04-14T19-29-46   mean AUC=0.7572  min=0.7055  max=0.8021  Wilcoxon W=55.0 p=0.000976562
+
+========================================================================
+8. PER-PROTOCOL DETECTION RATES (deterministic framework)
+========================================================================
+protocol     n    vuln     rate
+    mqtt  7616  7476.0 0.981618
+  telnet  2176  2136.0 0.981618
+  modbus  7616  6408.0 0.841387
+     ssh  4352  3052.0 0.701287
+    http 46240 22983.0 0.497037
+     ftp  4896  1068.0 0.218137
+    coap  3264     0.0 0.000000
+
+========================================================================
+9. H10b LLM GENERATION: protocols where LLM tests were produced
+========================================================================
+protocol  n_llm_tests   vuln     rate
+    coap        23800  613.0 0.025756
+     ftp        11400 4761.0 0.417632
+
+========================================================================
+10. LLM vs REGISTRY per protocol (realistic)
+========================================================================
+protocol test_origin     n    vuln     rate
+    coap         llm  9000   239.0 0.026556
+    coap    registry  3600    29.0 0.008056
+     ftp         llm  2700  1042.0 0.385926
+     ftp    registry  5400  1411.0 0.261296
+    http    registry 51000 22158.0 0.434471
+  modbus    registry  8400  6518.0 0.775952
+    mqtt    registry  8400  6338.0 0.754524
+     ssh    registry  4800  2805.0 0.584375
+  telnet    registry  2400  2210.0 0.920833
+
+========================================================================
+11. FRAMEWORK × MODE per-experiment AUCs from archives  (H7 Kruskal)
+========================================================================
+archived metrics:
+  autogluon_deterministic_phase6           AUC=0.9586
+  autogluon_medium_phase6                  AUC=0.924
+  autogluon_realistic                      AUC=0.7916
+  autogluon_realistic_phase6               AUC=0.9115
+  autosklearn_deterministic_phase5         AUC=0.5
+  autosklearn_medium_phase5                AUC=0.5
+  autosklearn_realistic                    AUC=0.5
+  autosklearn_realistic_phase5             AUC=0.5
+  h2o_deterministic_phase5                 AUC=0.9009
+  h2o_medium_phase5                        AUC=0.884
+  h2o_realistic                            AUC=0.7875
+  h2o_realistic_phase5                     AUC=0.8896
+  pycaret_deterministic_phase5             AUC=0.9466
+  pycaret_medium_phase5                    AUC=0.9023
+  pycaret_realistic                        AUC=0.7737
+  pycaret_realistic_phase5                 AUC=0.8925
+

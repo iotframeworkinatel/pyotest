@@ -1,0 +1,39 @@
+{
+  "framework": "autosklearn",
+  "leader_model_id": "unknown",
+  "leader_algo": "unknown",
+  "auc": 0.5,
+  "logloss": 0.6931,
+  "accuracy": 0.4949,
+  "feature_importance": [],
+  "leaderboard": [],
+  "total_models_trained": 0,
+  "roc_curve": {
+    "auc": 0.5,
+    "fpr": [
+      0.0,
+      1.0
+    ],
+    "tpr": [
+      0.0,
+      1.0
+    ]
+  },
+  "cv_auc": 0.0,
+  "cv_logloss": null,
+  "cv_accuracy": null,
+  "cv_precision": null,
+  "cv_recall": null,
+  "cv_f1": null,
+  "cv_threshold": null,
+  "cv_summary": null,
+  "cross_validation": {
+    "available": true
+  },
+  "confusion_matrix": null,
+  "cv_confusion_matrix": null,
+  "training_time_secs": 306.78,
+  "training_rows": 12460,
+  "status": "trained",
+  "automl_tool": "autosklearn"
+}

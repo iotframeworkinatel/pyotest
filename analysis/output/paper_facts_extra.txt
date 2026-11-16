@@ -1,0 +1,125 @@
+========================================================================
+A. Article 1: per-protocol counts for Table 5 (deterministic vs realistic, LOPO CSVs)
+========================================================================
+
+--- deterministic ---
+              n   vuln      rate  unique
+protocol                                
+mqtt       4818   4805  0.997302      14
+telnet     1377   1372  0.996369       4
+modbus     4818   4063  0.843296      12
+ssh        2753   1972  0.716309       6
+http      29252  14633  0.500239      48
+ftp        3693    967  0.261847       7
+coap       3290     23  0.006991       1
+TOTAL unique (container, port, protocol, test) = 92; unique (protocol, test) pairs = 44
+
+--- realistic ---
+              n   vuln      rate  unique
+protocol                                
+telnet     1390   1241  0.892806       4
+modbus     4866   3714  0.763255      14
+mqtt       4866   3710  0.762433      14
+ssh        2781   1596  0.573894       8
+http      29544  13006  0.440225      92
+ftp        3437    983  0.286005      12
+coap       3115     45  0.014446      10
+TOTAL unique (container, port, protocol, test) = 154; unique (protocol, test) pairs = 59
+
+========================================================================
+B. Article 1: per-iteration unique-new discovery velocity (realistic, LOPO)
+========================================================================
+iterations with new combos: 41
+mean new/iter: 3.756, sd: 13.061
+median new/iter: 1.000
+
+========================================================================
+C. Article 1/5: Kruskal-Wallis of per-iteration unique-combo deltas across modes
+========================================================================
+                 count      mean       std  ...       50%       75%       max
+simulation_mode                             ...                              
+deterministic    100.0  0.568995  0.018623  ...  0.575000  0.575714  0.577143
+medium           100.0  0.490557  0.049320  ...  0.498571  0.530000  0.562857
+realistic        100.0  0.499943  0.036131  ...  0.503333  0.525238  0.557143
+
+[3 rows x 8 columns]
+
+Kruskal-Wallis across modes (per-iter detection rate): H=168.866, p=2.14444e-37
+  deterministic vs medium: U=9600, raw p=1.92328e-29, Holm p=5.76985e-29, rb r=0.920
+  deterministic vs realistic: U=9586, raw p=2.84163e-29, Holm p=5.68327e-29, rb r=0.917
+  medium vs realistic: U=4602, raw p=0.331404, Holm p=0.331404, rb r=-0.080
+
+========================================================================
+D. Article 2: H1 in-phase detection-rate stability — Spearman rank over iter
+========================================================================
+Spearman over 100 iters: rho=0.1062, p=0.2929
+early-vs-late Mann-Whitney: U=1166, p=0.5648, Cohen's d=-0.236
+early mean=0.4957 sd=0.0416; late mean=0.5042 sd=0.0295
+
+========================================================================
+E. Article 2: per-protocol Spearman slope + variance ratio (H3)
+========================================================================
+  coap     rho=-0.0293 p=0.7726   early/late var ratio=0.562  mean rate=0.0119
+  ftp      rho=+0.7170 p=0.0000   early/late var ratio=0.961  mean rate=0.3067
+  http     rho=+0.0619 p=0.5405   early/late var ratio=1.007  mean rate=0.4447
+  modbus   rho=+0.0474 p=0.6398   early/late var ratio=1.246  mean rate=0.7631
+  mqtt     rho=-0.0108 p=0.9150   early/late var ratio=2.157  mean rate=0.7647
+  ssh      rho=-0.0324 p=0.7489   early/late var ratio=1.643  mean rate=0.5663
+  telnet   rho=-0.1499 p=0.1366   early/late var ratio=0.662  mean rate=0.8605
+
+========================================================================
+F. Article 2: H5 efficiency — compare ML (ml_guided) vs baselines on coverage per test
+========================================================================
+  ml_guided       n= 100  mean uniq/test = 0.1099  sd=0.0117
+  random          n= 100  mean uniq/test = 0.5768  sd=0.0031
+  round_robin     n= 100  mean uniq/test = 0.5766  sd=0.0032
+  no_ml           n= 100  mean uniq/test = 0.5694  sd=0.0032
+  cvss_priority   n= 100  mean uniq/test = 0.5693  sd=0.0033
+
+  Wilcoxon ML vs round_robin uniq-per-iter: W=0.0, p=0.0000
+
+========================================================================
+G. Article 4b / 5: phase6 LLM contribution — rows and detection per mode
+========================================================================
+simulation_mode test_origin     n   vuln     rate
+  deterministic         llm  1200  550.0 0.458333
+  deterministic    registry 14000 8075.0 0.576786
+         medium         llm  3500 1244.0 0.355429
+         medium    registry 14000 6880.0 0.491429
+      realistic         llm  1100   13.0 0.011818
+      realistic    registry 14000 6900.0 0.492857
+
+========================================================================
+H. H7 cross-framework: use the 16 archived AUCs grouped by framework
+========================================================================
+Framework -> AUC list:
+  autogluon       [0.7916, 0.9115, 0.924, 0.9586]  mean=0.8964
+  autosklearn     [0.5, 0.5, 0.5, 0.5]  mean=0.5000
+  h2o             [0.7875, 0.884, 0.8896, 0.9009]  mean=0.8655
+  pycaret         [0.7737, 0.8925, 0.9023, 0.9466]  mean=0.8788
+
+Kruskal-Wallis 4 frameworks: H=10.030, p=0.0183141
+  autogluon vs h2o: U=13, p=0.2000
+  autogluon vs pycaret: U=11, p=0.4857
+  autogluon vs autosklearn: U=16, p=0.0211
+  h2o vs pycaret: U=5, p=0.4857
+  h2o vs autosklearn: U=16, p=0.0211
+  pycaret vs autosklearn: U=16, p=0.0211
+
+========================================================================
+I. Framework × mode interaction Kruskal (mode factor only)
+========================================================================
+  deterministic   [0.5, 0.9009, 0.9466, 0.9586]  mean=0.8265
+  medium          [0.5, 0.884, 0.9023, 0.924]  mean=0.8026
+  realistic       [0.5, 0.5, 0.7737, 0.7875, 0.7916, 0.8896, 0.8925, 0.9115]  mean=0.7558
+Kruskal-Wallis mode factor: H=2.250, p=0.324652
+
+========================================================================
+J. ECE from temporal_metrics (cross-framework/mode means)
+========================================================================
+  pycaret det: ECE mean=0.0754 sd=0.0000  Brier mean=0.2013
+  pycaret med: ECE mean=0.0746 sd=0.0094  Brier mean=0.2028
+  pycaret real: ECE mean=0.0727 sd=0.0115  Brier mean=0.2032
+  autogluon det: ECE mean=0.0765 sd=0.0032  Brier mean=0.2028
+  autogluon med: ECE mean=0.0752 sd=0.0083  Brier mean=0.1990
+

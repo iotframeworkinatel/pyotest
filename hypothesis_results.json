@@ -1,0 +1,1846 @@
+{
+  "deterministic": {
+    "H1": {
+      "mode": "deterministic",
+      "tool": "h2o",
+      "n_iterations": 100,
+      "spearman_rho": -0.3328,
+      "spearman_p": 0.000715,
+      "pearson_r": -0.305,
+      "pearson_p": 0.002031,
+      "mann_whitney_u": 899.0,
+      "mann_whitney_p": 0.998377,
+      "early_mean": 0.5712,
+      "late_mean": 0.5694,
+      "cohens_d": -0.5846,
+      "improvement": -0.0018,
+      "ci_95": [
+        -0.003,
+        -0.0006
+      ]
+    },
+    "H2": {
+      "mode": "deterministic",
+      "tool": "h2o",
+      "total": 17500,
+      "overall_rate": 0.5707,
+      "rec_n": 8875,
+      "rec_v": 7488,
+      "rec_rate": 0.8437,
+      "non_rec_n": 8625,
+      "non_rec_v": 2500,
+      "non_rec_rate": 0.2899,
+      "lift": 1.4783,
+      "fisher_p": 0.0
+    },
+    "H3": {
+      "mode": "deterministic",
+      "tool": "h2o",
+      "protocols": [
+        {
+          "protocol": "coap",
+          "slope": null,
+          "p": null,
+          "first": 0.0,
+          "last": 0.0,
+          "mean": 0.0,
+          "status": "stable"
+        },
+        {
+          "protocol": "ftp",
+          "slope": 0.0,
+          "p": 1.0,
+          "spearman_rho": NaN,
+          "spearman_p": NaN,
+          "first": 0.2222,
+          "last": 0.2222,
+          "mean": 0.2222,
+          "status": "stable"
+        },
+        {
+          "protocol": "http",
+          "slope": -6.6e-05,
+          "p": 0.0,
+          "spearman_rho": -0.75,
+          "spearman_p": 0.0,
+          "first": 0.5,
+          "last": 0.4941,
+          "mean": 0.4956,
+          "status": "stable"
+        },
+        {
+          "protocol": "modbus",
+          "slope": 0.0,
+          "p": 1.0,
+          "spearman_rho": NaN,
+          "spearman_p": NaN,
+          "first": 0.8571,
+          "last": 0.8571,
+          "mean": 0.8571,
+          "status": "stable"
+        },
+        {
+          "protocol": "mqtt",
+          "slope": null,
+          "p": null,
+          "first": 1.0,
+          "last": 1.0,
+          "mean": 1.0,
+          "status": "stable"
+        },
+        {
+          "protocol": "ssh",
+          "slope": 0.000115,
+          "p": 0.52715,
+          "spearman_rho": 0.1304,
+          "spearman_p": 0.196018,
+          "first": 0.625,
+          "last": 0.625,
+          "mean": 0.715,
+          "status": "stable"
+        },
+        {
+          "protocol": "telnet",
+          "slope": null,
+          "p": null,
+          "first": 1.0,
+          "last": 1.0,
+          "mean": 1.0,
+          "status": "stable"
+        }
+      ],
+      "n_converging": 0,
+      "n_stable": 7,
+      "n_diverging": 0,
+      "variance_u": 1517.0,
+      "variance_p": 0.979468,
+      "early_var": 0.15223,
+      "late_var": 0.152476,
+      "var_reduction_pct": -0.16
+    },
+    "H4": {
+      "mode": "deterministic",
+      "tool": "h2o",
+      "n": 17500,
+      "ece": 0.0488,
+      "mce": 0.5007,
+      "brier": 0.1211,
+      "curve": [
+        {
+          "bin": [
+            0.0,
+            0.1
+          ],
+          "n": 1125,
+          "pred": 0.0212,
+          "obs": 0.0
+        },
+        {
+          "bin": [
+            0.1,
+            0.2
+          ],
+          "n": 1250,
+          "pred": 0.1032,
+          "obs": 0.1
+        },
+        {
+          "bin": [
+            0.2,
+            0.3
+          ],
+          "n": 1750,
+          "pred": 0.2176,
+          "obs": 0.2143
+        },
+        {
+          "bin": [
+            0.3,
+            0.4
+          ],
+          "n": 3750,
+          "pred": 0.3343,
+          "obs": 0.3333
+        },
+        {
+          "bin": [
+            0.4,
+            0.5
+          ],
+          "n": 750,
+          "pred": 0.4993,
+          "obs": 1.0
+        },
+        {
+          "bin": [
+            0.5,
+            0.6
+          ],
+          "n": 750,
+          "pred": 0.5007,
+          "obs": 0.0
+        },
+        {
+          "bin": [
+            0.6,
+            0.7
+          ],
+          "n": 0,
+          "pred": 0.65,
+          "obs": 0
+        },
+        {
+          "bin": [
+            0.7,
+            0.8
+          ],
+          "n": 1250,
+          "pred": 0.7183,
+          "obs": 0.72
+        },
+        {
+          "bin": [
+            0.8,
+            0.9
+          ],
+          "n": 2125,
+          "pred": 0.8616,
+          "obs": 0.8649
+        },
+        {
+          "bin": [
+            0.9,
+            1.0
+          ],
+          "n": 4750,
+          "pred": 0.9879,
+          "obs": 1.0
+        }
+      ],
+      "score_method": "heuristic"
+    },
+    "H5": {
+      "mode": "deterministic",
+      "tool": "h2o",
+      "n": 100,
+      "avg_reduction_pct": 49.29,
+      "avg_coverage_pct": 74.95,
+      "avg_efficiency_ratio": 1.478,
+      "wilcoxon_w": 5050.0,
+      "wilcoxon_p": 0.0,
+      "coverage_t": -357.5084,
+      "coverage_p": 1.0,
+      "rank_biserial_r": 1.0
+    },
+    "H7": {
+      "mode": "deterministic",
+      "frameworks": {
+        "h2o": {
+          "n_iters": 100,
+          "mean_rate": 0.5703214285714285,
+          "std_rate": 0.0031821809361197565,
+          "auc": 0.8824377191927437
+        },
+        "autogluon": {
+          "n_iters": 100,
+          "mean_rate": 0.5593571428571428,
+          "std_rate": 0.05183728138605072,
+          "auc": 0.8470235570850859
+        },
+        "pycaret": {
+          "n_iters": 100,
+          "mean_rate": 0.5764285714285713,
+          "std_rate": 0.0032732683535399254,
+          "auc": 0.8858407985773721
+        },
+        "tpot": {
+          "n_iters": 100,
+          "mean_rate": 0.5764285714285714,
+          "std_rate": 0.0032732683535399254,
+          "auc": 0.8858407985773721
+        },
+        "autosklearn": {
+          "n_iters": 100,
+          "mean_rate": 0.5767857142857142,
+          "std_rate": 0.0030929478706587465,
+          "auc": 0.8861020757403562
+        }
+      },
+      "kruskal_h": 157.1614,
+      "kruskal_p": 0.0,
+      "pairwise": [
+        {
+          "a": "h2o",
+          "b": "autogluon",
+          "u": 2188.0,
+          "p": 0.0,
+          "bonf_p": 0.0,
+          "sig_corr": true,
+          "rank_biserial": 0.5624
+        },
+        {
+          "a": "h2o",
+          "b": "pycaret",
+          "u": 1320.0,
+          "p": 0.0,
+          "bonf_p": 0.0,
+          "sig_corr": true,
+          "rank_biserial": 0.736
+        },
+        {
+          "a": "h2o",
+          "b": "tpot",
+          "u": 1320.0,
+          "p": 0.0,
+          "bonf_p": 0.0,
+          "sig_corr": true,
+          "rank_biserial": 0.736
+        },
+        {
+          "a": "h2o",
+          "b": "autosklearn",
+          "u": 1100.0,
+          "p": 0.0,
+          "bonf_p": 0.0,
+          "sig_corr": true,
+          "rank_biserial": 0.78
+        },
+        {
+          "a": "autogluon",
+          "b": "pycaret",
+          "u": 4500.0,
+          "p": 0.139663,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": 0.1
+        },
+        {
+          "a": "autogluon",
+          "b": "tpot",
+          "u": 4500.0,
+          "p": 0.139663,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": 0.1
+        },
+        {
+          "a": "autogluon",
+          "b": "autosklearn",
+          "u": 4275.0,
+          "p": 0.028586,
+          "bonf_p": 0.285861,
+          "sig_corr": false,
+          "rank_biserial": 0.145
+        },
+        {
+          "a": "pycaret",
+          "b": "tpot",
+          "u": 5000.0,
+          "p": 1.0,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": 0.0
+        },
+        {
+          "a": "pycaret",
+          "b": "autosklearn",
+          "u": 4750.0,
+          "p": 0.430553,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": 0.05
+        },
+        {
+          "a": "tpot",
+          "b": "autosklearn",
+          "u": 4750.0,
+          "p": 0.430553,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": 0.05
+        }
+      ]
+    },
+    "H9": {
+      "mode": "deterministic",
+      "strategies": {
+        "ml_guided": {
+          "n_iters": 100,
+          "mean": 0.5703214285714285,
+          "std": 0.0031821809361197565,
+          "total_tests": 17500,
+          "total_vulns": 9988
+        },
+        "random": {
+          "n_iters": 100,
+          "mean": 0.5767857142857141,
+          "std": 0.0030929478706587465,
+          "total_tests": 14000,
+          "total_vulns": 8075
+        },
+        "cvss_priority": {
+          "n_iters": 100,
+          "mean": 0.5692857142857141,
+          "std": 0.003273268353539874,
+          "total_tests": 14000,
+          "total_vulns": 7970
+        },
+        "round_robin": {
+          "n_iters": 100,
+          "mean": 0.576642857142857,
+          "std": 0.003171138982917625,
+          "total_tests": 14000,
+          "total_vulns": 8073
+        },
+        "no_ml": {
+          "n_iters": 100,
+          "mean": 0.5694285714285712,
+          "std": 0.0032071349029490818,
+          "total_tests": 14000,
+          "total_vulns": 7972
+        }
+      },
+      "comparisons": {
+        "random": {
+          "u": 1100.0,
+          "p": 1.0,
+          "sig": false,
+          "rank_biserial": 0.78,
+          "lift_pct": -1.12
+        },
+        "cvss_priority": {
+          "u": 5795.0,
+          "p": 0.008297,
+          "sig": true,
+          "rank_biserial": -0.159,
+          "lift_pct": 0.18
+        },
+        "round_robin": {
+          "u": 1188.0,
+          "p": 1.0,
+          "sig": false,
+          "rank_biserial": 0.7624,
+          "lift_pct": -1.1
+        },
+        "no_ml": {
+          "u": 5702.0,
+          "p": 0.016338,
+          "sig": true,
+          "rank_biserial": -0.1404,
+          "lift_pct": 0.16
+        }
+      }
+    },
+    "H10": {
+      "mode": "deterministic",
+      "tool": "h2o",
+      "llm": {
+        "n": 750,
+        "v": 150,
+        "rate": 0.2,
+        "n_unique_scen": 1
+      },
+      "reg": {
+        "n": 17500,
+        "v": 10095,
+        "rate": 0.5769,
+        "n_unique_scen": 38
+      },
+      "odds_ratio": 0.1834,
+      "fisher_p": 0.0,
+      "or_ci_95": [
+        0.153,
+        0.2199
+      ],
+      "exclusive_scenarios": 1,
+      "mann_whitney": {
+        "u": 0.0,
+        "p": 0.0,
+        "sig": true,
+        "rank_biserial": 1.0
+      }
+    },
+    "DYNAMIC": {
+      "mode": "deterministic",
+      "tool": "h2o",
+      "phases": {
+        "framework": {
+          "n": 17500,
+          "v": 9988,
+          "mean": 0.5707
+        },
+        "llm": {
+          "n": 18250,
+          "v": 10245,
+          "mean": 0.5614
+        },
+        "phase5": {
+          "n": 14000,
+          "v": 8067,
+          "mean": 0.5762
+        },
+        "phase6": null
+      },
+      "p1_static_noLLM": 0.5707,
+      "p3_static_LLM": 0.5614,
+      "p5_dyn_noLLM": 0.5762,
+      "p6_dyn_LLM": null,
+      "dynamic_main": null,
+      "llm_main": null,
+      "interaction": null
+    },
+    "ABLATION": {
+      "mode": "deterministic",
+      "conditions": [
+        {
+          "label": "Random",
+          "key": "random",
+          "n_tests_per_iter": 140,
+          "n_vulns_per_iter": 80.8,
+          "detection_rate": 0.5768,
+          "std_rate": 0.0031,
+          "n_iterations": 100,
+          "unique_vuln_types": 38,
+          "marginal_lift_pct": 0
+        },
+        {
+          "label": "Round-Robin",
+          "key": "round_robin",
+          "n_tests_per_iter": 140,
+          "n_vulns_per_iter": 80.7,
+          "detection_rate": 0.5766,
+          "std_rate": 0.0032,
+          "n_iterations": 100,
+          "unique_vuln_types": 38,
+          "marginal_lift_pct": -0.03
+        },
+        {
+          "label": "CVSS Priority",
+          "key": "cvss_priority",
+          "n_tests_per_iter": 140,
+          "n_vulns_per_iter": 79.7,
+          "detection_rate": 0.5693,
+          "std_rate": 0.0033,
+          "n_iterations": 100,
+          "unique_vuln_types": 38,
+          "marginal_lift_pct": -1.27
+        },
+        {
+          "label": "ML-Guided",
+          "key": "ml_guided",
+          "n_tests_per_iter": 140,
+          "n_vulns_per_iter": 79.9,
+          "detection_rate": 0.5707,
+          "std_rate": 0.0041,
+          "n_iterations": 125,
+          "unique_vuln_types": 38,
+          "marginal_lift_pct": 0.25
+        },
+        {
+          "label": "ML + LLM",
+          "key": "ml_llm",
+          "n_tests_per_iter": 146,
+          "n_vulns_per_iter": 82.0,
+          "detection_rate": 0.5614,
+          "std_rate": 0.0134,
+          "n_iterations": 125,
+          "unique_vuln_types": 39,
+          "marginal_lift_pct": -1.63
+        },
+        {
+          "label": "No Prioritisation (All)",
+          "key": "no_ml",
+          "n_tests_per_iter": 140,
+          "n_vulns_per_iter": 79.7,
+          "detection_rate": 0.5694,
+          "std_rate": 0.0032,
+          "n_iterations": 100,
+          "unique_vuln_types": 38,
+          "marginal_lift_pct": 1.43
+        },
+        {
+          "label": "ML-Dynamic (Phase 5)",
+          "key": "phase5",
+          "n_tests_per_iter": 140,
+          "n_vulns_per_iter": 80.7,
+          "detection_rate": 0.5762,
+          "std_rate": 0.0034,
+          "n_iterations": 100,
+          "unique_vuln_types": 38,
+          "marginal_lift_pct": 1.19
+        },
+        {
+          "label": "ML-Dynamic + LLM (Phase 6)",
+          "key": "phase6",
+          "n_tests_per_iter": 152,
+          "n_vulns_per_iter": 86.2,
+          "detection_rate": 0.5674,
+          "std_rate": 0.0078,
+          "n_iterations": 100,
+          "unique_vuln_types": 43,
+          "marginal_lift_pct": -1.53
+        }
+      ]
+    }
+  },
+  "medium": {
+    "H1": {
+      "mode": "medium",
+      "tool": "h2o",
+      "n_iterations": 100,
+      "spearman_rho": -0.1204,
+      "spearman_p": 0.232854,
+      "pearson_r": -0.0965,
+      "pearson_p": 0.33942,
+      "mann_whitney_u": 1030.0,
+      "mann_whitney_p": 0.936068,
+      "early_mean": 0.496,
+      "late_mean": 0.485,
+      "cohens_d": -0.214,
+      "improvement": -0.011,
+      "ci_95": [
+        -0.0311,
+        0.0091
+      ]
+    },
+    "H2": {
+      "mode": "medium",
+      "tool": "h2o",
+      "total": 14000,
+      "overall_rate": 0.4905,
+      "rec_n": 6500,
+      "rec_v": 5095,
+      "rec_rate": 0.7838,
+      "non_rec_n": 7500,
+      "non_rec_v": 1772,
+      "non_rec_rate": 0.2363,
+      "lift": 1.5981,
+      "fisher_p": 0.0
+    },
+    "H3": {
+      "mode": "medium",
+      "tool": "h2o",
+      "protocols": [
+        {
+          "protocol": "coap",
+          "slope": -8e-05,
+          "p": 0.564179,
+          "spearman_rho": -0.0583,
+          "spearman_p": 0.564179,
+          "first": 0.0,
+          "last": 0.0,
+          "mean": 0.01,
+          "status": "stable"
+        },
+        {
+          "protocol": "ftp",
+          "slope": 0.001591,
+          "p": 7e-06,
+          "spearman_rho": 0.3383,
+          "spearman_p": 0.000576,
+          "first": 0.2222,
+          "last": 0.4444,
+          "mean": 0.2333,
+          "status": "converging"
+        },
+        {
+          "protocol": "http",
+          "slope": -0.000298,
+          "p": 0.183847,
+          "spearman_rho": -0.1465,
+          "spearman_p": 0.1457,
+          "first": 0.5059,
+          "last": 0.4941,
+          "mean": 0.4351,
+          "status": "stable"
+        },
+        {
+          "protocol": "modbus",
+          "slope": 0.000646,
+          "p": 0.309467,
+          "spearman_rho": -0.0162,
+          "spearman_p": 0.873045,
+          "first": 0.8571,
+          "last": 0.8571,
+          "mean": 0.7743,
+          "status": "stable"
+        },
+        {
+          "protocol": "mqtt",
+          "slope": -0.002872,
+          "p": 0.01562,
+          "spearman_rho": -0.2281,
+          "spearman_p": 0.02243,
+          "first": 1.0,
+          "last": 0.9286,
+          "mean": 0.7721,
+          "status": "diverging"
+        },
+        {
+          "protocol": "ssh",
+          "slope": 0.002204,
+          "p": 0.002399,
+          "spearman_rho": 0.3645,
+          "spearman_p": 0.000193,
+          "first": 0.75,
+          "last": 0.25,
+          "mean": 0.5275,
+          "status": "converging"
+        },
+        {
+          "protocol": "telnet",
+          "slope": 0.00021,
+          "p": 0.761813,
+          "spearman_rho": -0.0182,
+          "spearman_p": 0.857302,
+          "first": 0.75,
+          "last": 0.75,
+          "mean": 0.915,
+          "status": "stable"
+        }
+      ],
+      "n_converging": 2,
+      "n_stable": 4,
+      "n_diverging": 1,
+      "variance_u": 1111.0,
+      "variance_p": 0.169841,
+      "early_var": 0.144682,
+      "late_var": 0.141129,
+      "var_reduction_pct": 2.46
+    },
+    "H4": {
+      "mode": "medium",
+      "tool": "h2o",
+      "n": 14000,
+      "ece": 0.015,
+      "mce": 0.0666,
+      "brier": 0.1623,
+      "curve": [
+        {
+          "bin": [
+            0.0,
+            0.1
+          ],
+          "n": 996,
+          "pred": 0.0428,
+          "obs": 0.1064
+        },
+        {
+          "bin": [
+            0.1,
+            0.2
+          ],
+          "n": 1404,
+          "pred": 0.1336,
+          "obs": 0.067
+        },
+        {
+          "bin": [
+            0.2,
+            0.3
+          ],
+          "n": 2100,
+          "pred": 0.2553,
+          "obs": 0.2519
+        },
+        {
+          "bin": [
+            0.3,
+            0.4
+          ],
+          "n": 2000,
+          "pred": 0.3005,
+          "obs": 0.2995
+        },
+        {
+          "bin": [
+            0.4,
+            0.5
+          ],
+          "n": 1000,
+          "pred": 0.4446,
+          "obs": 0.444
+        },
+        {
+          "bin": [
+            0.5,
+            0.6
+          ],
+          "n": 1100,
+          "pred": 0.5966,
+          "obs": 0.5982
+        },
+        {
+          "bin": [
+            0.6,
+            0.7
+          ],
+          "n": 100,
+          "pred": 0.6726,
+          "obs": 0.69
+        },
+        {
+          "bin": [
+            0.7,
+            0.8
+          ],
+          "n": 2700,
+          "pred": 0.7574,
+          "obs": 0.7611
+        },
+        {
+          "bin": [
+            0.8,
+            0.9
+          ],
+          "n": 2500,
+          "pred": 0.8769,
+          "obs": 0.8872
+        },
+        {
+          "bin": [
+            0.9,
+            1.0
+          ],
+          "n": 100,
+          "pred": 0.9087,
+          "obs": 0.95
+        }
+      ],
+      "score_method": "heuristic"
+    },
+    "H5": {
+      "mode": "medium",
+      "tool": "h2o",
+      "n": 100,
+      "avg_reduction_pct": 53.57,
+      "avg_coverage_pct": 74.2,
+      "avg_efficiency_ratio": 1.598,
+      "wilcoxon_w": 5050.0,
+      "wilcoxon_p": 0.0,
+      "coverage_t": -17.2049,
+      "coverage_p": 1.0,
+      "rank_biserial_r": 1.0
+    },
+    "H7": {
+      "mode": "medium",
+      "frameworks": {
+        "h2o": {
+          "n_iters": 100,
+          "mean_rate": 0.4905,
+          "std_rate": 0.05169627744858246,
+          "auc": 0.8114238627899772
+        },
+        "autogluon": {
+          "n_iters": 100,
+          "mean_rate": 0.49064285714285716,
+          "std_rate": 0.05022088962873956,
+          "auc": 0.8119469963756082
+        },
+        "pycaret": {
+          "n_iters": 100,
+          "mean_rate": 0.4903571428571428,
+          "std_rate": 0.048333186722742685,
+          "auc": 0.8123525739930821
+        },
+        "tpot": {
+          "n_iters": 100,
+          "mean_rate": 0.4912142857142856,
+          "std_rate": 0.04860140881471966,
+          "auc": 0.8114643600878318
+        },
+        "autosklearn": {
+          "n_iters": 100,
+          "mean_rate": 0.4900714285714286,
+          "std_rate": 0.04942418436352794,
+          "auc": 0.8119269232670293
+        }
+      },
+      "kruskal_h": 0.0816,
+      "kruskal_p": 0.99919,
+      "pairwise": [
+        {
+          "a": "h2o",
+          "b": "autogluon",
+          "u": 5031.0,
+          "p": 0.940511,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": -0.0062
+        },
+        {
+          "a": "h2o",
+          "b": "pycaret",
+          "u": 5089.0,
+          "p": 0.828562,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": -0.0178
+        },
+        {
+          "a": "h2o",
+          "b": "tpot",
+          "u": 5015.5,
+          "p": 0.970723,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": -0.0031
+        },
+        {
+          "a": "h2o",
+          "b": "autosklearn",
+          "u": 5086.5,
+          "p": 0.833352,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": -0.0173
+        },
+        {
+          "a": "autogluon",
+          "b": "pycaret",
+          "u": 5047.0,
+          "p": 0.909388,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": -0.0094
+        },
+        {
+          "a": "autogluon",
+          "b": "tpot",
+          "u": 4999.5,
+          "p": 1.0,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": 0.0001
+        },
+        {
+          "a": "autogluon",
+          "b": "autosklearn",
+          "u": 5066.0,
+          "p": 0.872648,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": -0.0132
+        },
+        {
+          "a": "pycaret",
+          "b": "tpot",
+          "u": 4924.5,
+          "p": 0.854392,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": 0.0151
+        },
+        {
+          "a": "pycaret",
+          "b": "autosklearn",
+          "u": 5005.0,
+          "p": 0.991215,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": -0.001
+        },
+        {
+          "a": "tpot",
+          "b": "autosklearn",
+          "u": 5073.5,
+          "p": 0.858216,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": -0.0147
+        }
+      ]
+    },
+    "H9": {
+      "mode": "medium",
+      "strategies": {
+        "ml_guided": {
+          "n_iters": 100,
+          "mean": 0.4905,
+          "std": 0.05169627744858246,
+          "total_tests": 14000,
+          "total_vulns": 6867
+        },
+        "random": {
+          "n_iters": 100,
+          "mean": 0.48807142857142854,
+          "std": 0.05014321326694864,
+          "total_tests": 14000,
+          "total_vulns": 6833
+        },
+        "cvss_priority": {
+          "n_iters": 100,
+          "mean": 0.49214285714285716,
+          "std": 0.05013756585838688,
+          "total_tests": 14000,
+          "total_vulns": 6890
+        },
+        "round_robin": {
+          "n_iters": 100,
+          "mean": 0.4908571428571429,
+          "std": 0.05143928459844674,
+          "total_tests": 14000,
+          "total_vulns": 6872
+        },
+        "no_ml": {
+          "n_iters": 100,
+          "mean": 0.4937142857142859,
+          "std": 0.050852728540364475,
+          "total_tests": 14000,
+          "total_vulns": 6912
+        }
+      },
+      "comparisons": {
+        "random": {
+          "u": 5187.0,
+          "p": 0.324093,
+          "sig": false,
+          "rank_biserial": -0.0374,
+          "lift_pct": 0.5
+        },
+        "cvss_priority": {
+          "u": 4939.5,
+          "p": 0.559314,
+          "sig": false,
+          "rank_biserial": 0.0121,
+          "lift_pct": -0.33
+        },
+        "round_robin": {
+          "u": 5004.0,
+          "p": 0.496584,
+          "sig": false,
+          "rank_biserial": -0.0008,
+          "lift_pct": -0.07
+        },
+        "no_ml": {
+          "u": 4844.0,
+          "p": 0.64911,
+          "sig": false,
+          "rank_biserial": 0.0312,
+          "lift_pct": -0.65
+        }
+      }
+    },
+    "H10": {
+      "mode": "medium",
+      "tool": "h2o",
+      "llm": {
+        "n": 750,
+        "v": 276,
+        "rate": 0.368,
+        "n_unique_scen": 8
+      },
+      "reg": {
+        "n": 14000,
+        "v": 6887,
+        "rate": 0.4919,
+        "n_unique_scen": 49
+      },
+      "odds_ratio": 0.6014,
+      "fisher_p": 0.0,
+      "or_ci_95": [
+        0.5166,
+        0.7001
+      ],
+      "exclusive_scenarios": 8,
+      "mann_whitney": {
+        "u": 1200.5,
+        "p": 0.0,
+        "sig": true,
+        "rank_biserial": 0.6799
+      }
+    },
+    "DYNAMIC": {
+      "mode": "medium",
+      "tool": "h2o",
+      "phases": {
+        "framework": {
+          "n": 14000,
+          "v": 6867,
+          "mean": 0.4905
+        },
+        "llm": {
+          "n": 14750,
+          "v": 7163,
+          "mean": 0.4856
+        },
+        "phase5": {
+          "n": 14000,
+          "v": 6883,
+          "mean": 0.4916
+        },
+        "phase6": null
+      },
+      "p1_static_noLLM": 0.4905,
+      "p3_static_LLM": 0.4856,
+      "p5_dyn_noLLM": 0.4916,
+      "p6_dyn_LLM": null,
+      "dynamic_main": null,
+      "llm_main": null,
+      "interaction": null
+    },
+    "ABLATION": {
+      "mode": "medium",
+      "conditions": [
+        {
+          "label": "Random",
+          "key": "random",
+          "n_tests_per_iter": 140,
+          "n_vulns_per_iter": 68.3,
+          "detection_rate": 0.4881,
+          "std_rate": 0.0501,
+          "n_iterations": 100,
+          "unique_vuln_types": 50,
+          "marginal_lift_pct": 0
+        },
+        {
+          "label": "Round-Robin",
+          "key": "round_robin",
+          "n_tests_per_iter": 140,
+          "n_vulns_per_iter": 68.7,
+          "detection_rate": 0.4909,
+          "std_rate": 0.0514,
+          "n_iterations": 100,
+          "unique_vuln_types": 49,
+          "marginal_lift_pct": 0.57
+        },
+        {
+          "label": "CVSS Priority",
+          "key": "cvss_priority",
+          "n_tests_per_iter": 140,
+          "n_vulns_per_iter": 68.9,
+          "detection_rate": 0.4921,
+          "std_rate": 0.0501,
+          "n_iterations": 100,
+          "unique_vuln_types": 48,
+          "marginal_lift_pct": 0.24
+        },
+        {
+          "label": "ML-Guided",
+          "key": "ml_guided",
+          "n_tests_per_iter": 140,
+          "n_vulns_per_iter": 68.7,
+          "detection_rate": 0.4905,
+          "std_rate": 0.0517,
+          "n_iterations": 100,
+          "unique_vuln_types": 47,
+          "marginal_lift_pct": -0.33
+        },
+        {
+          "label": "ML + LLM",
+          "key": "ml_llm",
+          "n_tests_per_iter": 148,
+          "n_vulns_per_iter": 71.6,
+          "detection_rate": 0.4856,
+          "std_rate": 0.0466,
+          "n_iterations": 100,
+          "unique_vuln_types": 57,
+          "marginal_lift_pct": -1.0
+        },
+        {
+          "label": "No Prioritisation (All)",
+          "key": "no_ml",
+          "n_tests_per_iter": 140,
+          "n_vulns_per_iter": 69.1,
+          "detection_rate": 0.4937,
+          "std_rate": 0.0509,
+          "n_iterations": 100,
+          "unique_vuln_types": 49,
+          "marginal_lift_pct": 1.67
+        },
+        {
+          "label": "ML-Dynamic (Phase 5)",
+          "key": "phase5",
+          "n_tests_per_iter": 140,
+          "n_vulns_per_iter": 68.8,
+          "detection_rate": 0.4916,
+          "std_rate": 0.0506,
+          "n_iterations": 100,
+          "unique_vuln_types": 50,
+          "marginal_lift_pct": -0.43
+        },
+        {
+          "label": "ML-Dynamic + LLM (Phase 6)",
+          "key": "phase6",
+          "n_tests_per_iter": 175,
+          "n_vulns_per_iter": 81.2,
+          "detection_rate": 0.4642,
+          "std_rate": 0.0432,
+          "n_iterations": 100,
+          "unique_vuln_types": 63,
+          "marginal_lift_pct": -5.57
+        }
+      ]
+    }
+  },
+  "realistic": {
+    "H1": {
+      "mode": "realistic",
+      "tool": "h2o",
+      "n_iterations": 100,
+      "spearman_rho": 0.0136,
+      "spearman_p": 0.893184,
+      "pearson_r": 0.047,
+      "pearson_p": 0.642682,
+      "mann_whitney_u": 1203.0,
+      "mann_whitney_p": 0.628563,
+      "early_mean": 0.5014,
+      "late_mean": 0.5013,
+      "cohens_d": -0.0029,
+      "improvement": -0.0001,
+      "ci_95": [
+        -0.0197,
+        0.0194
+      ]
+    },
+    "H2": {
+      "mode": "realistic",
+      "tool": "h2o",
+      "total": 42000,
+      "overall_rate": 0.5022,
+      "rec_n": 19500,
+      "rec_v": 15466,
+      "rec_rate": 0.7931,
+      "non_rec_n": 22500,
+      "non_rec_v": 5628,
+      "non_rec_rate": 0.2501,
+      "lift": 1.5792,
+      "fisher_p": 0.0
+    },
+    "H3": {
+      "mode": "realistic",
+      "tool": "h2o",
+      "protocols": [
+        {
+          "protocol": "coap",
+          "slope": -3.6e-05,
+          "p": 0.795393,
+          "spearman_rho": -0.0263,
+          "spearman_p": 0.795393,
+          "first": 0.0,
+          "last": 0.0,
+          "mean": 0.01,
+          "status": "stable"
+        },
+        {
+          "protocol": "ftp",
+          "slope": -0.001083,
+          "p": 0.018157,
+          "spearman_rho": -0.2473,
+          "spearman_p": 0.013112,
+          "first": 0.4444,
+          "last": 0.3333,
+          "mean": 0.36,
+          "status": "diverging"
+        },
+        {
+          "protocol": "http",
+          "slope": -0.000142,
+          "p": 0.506983,
+          "spearman_rho": -0.041,
+          "spearman_p": 0.685715,
+          "first": 0.4588,
+          "last": 0.4941,
+          "mean": 0.4354,
+          "status": "stable"
+        },
+        {
+          "protocol": "modbus",
+          "slope": 0.000947,
+          "p": 0.140601,
+          "spearman_rho": 0.1262,
+          "spearman_p": 0.210841,
+          "first": 0.8571,
+          "last": 0.7143,
+          "mean": 0.78,
+          "status": "stable"
+        },
+        {
+          "protocol": "mqtt",
+          "slope": 0.001173,
+          "p": 0.338413,
+          "spearman_rho": 0.065,
+          "spearman_p": 0.520467,
+          "first": 1.0,
+          "last": 0.2857,
+          "mean": 0.755,
+          "status": "stable"
+        },
+        {
+          "protocol": "ssh",
+          "slope": 0.000365,
+          "p": 0.617345,
+          "spearman_rho": 0.063,
+          "spearman_p": 0.533394,
+          "first": 0.75,
+          "last": 0.5,
+          "mean": 0.5975,
+          "status": "stable"
+        },
+        {
+          "protocol": "telnet",
+          "slope": 0.000188,
+          "p": 0.792065,
+          "spearman_rho": -0.0485,
+          "spearman_p": 0.631791,
+          "first": 1.0,
+          "last": 1.0,
+          "mean": 0.9025,
+          "status": "stable"
+        }
+      ],
+      "n_converging": 0,
+      "n_stable": 6,
+      "n_diverging": 1,
+      "variance_u": 1461.0,
+      "variance_p": 0.927587,
+      "early_var": 0.128797,
+      "late_var": 0.135991,
+      "var_reduction_pct": -5.59
+    },
+    "H4": {
+      "mode": "realistic",
+      "tool": "h2o",
+      "n": 42000,
+      "ece": 0.0136,
+      "mce": 0.0809,
+      "brier": 0.1644,
+      "curve": [
+        {
+          "bin": [
+            0.0,
+            0.1
+          ],
+          "n": 2996,
+          "pred": 0.0269,
+          "obs": 0.1078
+        },
+        {
+          "bin": [
+            0.1,
+            0.2
+          ],
+          "n": 4204,
+          "pred": 0.1326,
+          "obs": 0.0676
+        },
+        {
+          "bin": [
+            0.2,
+            0.3
+          ],
+          "n": 3000,
+          "pred": 0.2452,
+          "obs": 0.2443
+        },
+        {
+          "bin": [
+            0.3,
+            0.4
+          ],
+          "n": 9300,
+          "pred": 0.3153,
+          "obs": 0.3147
+        },
+        {
+          "bin": [
+            0.4,
+            0.5
+          ],
+          "n": 3000,
+          "pred": 0.4538,
+          "obs": 0.4537
+        },
+        {
+          "bin": [
+            0.5,
+            0.6
+          ],
+          "n": 0,
+          "pred": 0.55,
+          "obs": 0
+        },
+        {
+          "bin": [
+            0.6,
+            0.7
+          ],
+          "n": 3300,
+          "pred": 0.6623,
+          "obs": 0.6633
+        },
+        {
+          "bin": [
+            0.7,
+            0.8
+          ],
+          "n": 8100,
+          "pred": 0.7622,
+          "obs": 0.7635
+        },
+        {
+          "bin": [
+            0.8,
+            0.9
+          ],
+          "n": 8100,
+          "pred": 0.8717,
+          "obs": 0.8757
+        },
+        {
+          "bin": [
+            0.9,
+            1.0
+          ],
+          "n": 0,
+          "pred": 0.95,
+          "obs": 0
+        }
+      ],
+      "score_method": "heuristic"
+    },
+    "H5": {
+      "mode": "realistic",
+      "tool": "h2o",
+      "n": 100,
+      "avg_reduction_pct": 53.57,
+      "avg_coverage_pct": 72.96,
+      "avg_efficiency_ratio": 1.572,
+      "wilcoxon_w": 5050.0,
+      "wilcoxon_p": 0.0,
+      "coverage_t": -17.5402,
+      "coverage_p": 1.0,
+      "rank_biserial_r": 1.0
+    },
+    "H7": {
+      "mode": "realistic",
+      "frameworks": {
+        "h2o": {
+          "n_iters": 100,
+          "mean_rate": 0.5022380952380953,
+          "std_rate": 0.03590397245563836,
+          "auc": 0.8058522891401969
+        },
+        "autogluon": {
+          "n_iters": 100,
+          "mean_rate": 0.5001190476190477,
+          "std_rate": 0.03573868214358981,
+          "auc": 0.8072381273944517
+        },
+        "pycaret": {
+          "n_iters": 100,
+          "mean_rate": 0.4990952380952381,
+          "std_rate": 0.0363557940935463,
+          "auc": 0.8060321880056224
+        },
+        "tpot": {
+          "n_iters": 100,
+          "mean_rate": 0.4993095238095238,
+          "std_rate": 0.0362972969265252,
+          "auc": 0.8058214891062865
+        },
+        "autosklearn": {
+          "n_iters": 100,
+          "mean_rate": 0.498952380952381,
+          "std_rate": 0.036551023573397214,
+          "auc": 0.8063657508482849
+        }
+      },
+      "kruskal_h": 0.5214,
+      "kruskal_p": 0.971388,
+      "pairwise": [
+        {
+          "a": "h2o",
+          "b": "autogluon",
+          "u": 5175.5,
+          "p": 0.668833,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": -0.0351
+        },
+        {
+          "a": "h2o",
+          "b": "pycaret",
+          "u": 5261.0,
+          "p": 0.524292,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": -0.0522
+        },
+        {
+          "a": "h2o",
+          "b": "tpot",
+          "u": 5220.5,
+          "p": 0.590751,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": -0.0441
+        },
+        {
+          "a": "h2o",
+          "b": "autosklearn",
+          "u": 5248.0,
+          "p": 0.545193,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": -0.0496
+        },
+        {
+          "a": "autogluon",
+          "b": "pycaret",
+          "u": 5059.5,
+          "p": 0.885333,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": -0.0119
+        },
+        {
+          "a": "autogluon",
+          "b": "tpot",
+          "u": 5027.5,
+          "p": 0.947379,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": -0.0055
+        },
+        {
+          "a": "autogluon",
+          "b": "autosklearn",
+          "u": 5057.0,
+          "p": 0.89015,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": -0.0114
+        },
+        {
+          "a": "pycaret",
+          "b": "tpot",
+          "u": 4990.5,
+          "p": 0.982447,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": 0.0019
+        },
+        {
+          "a": "pycaret",
+          "b": "autosklearn",
+          "u": 5013.0,
+          "p": 0.975623,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": -0.0026
+        },
+        {
+          "a": "tpot",
+          "b": "autosklearn",
+          "u": 5038.5,
+          "p": 0.925985,
+          "bonf_p": 1.0,
+          "sig_corr": false,
+          "rank_biserial": -0.0077
+        }
+      ]
+    },
+    "H9": {
+      "mode": "realistic",
+      "strategies": {
+        "ml_guided": {
+          "n_iters": 100,
+          "mean": 0.5013571428571428,
+          "std": 0.04987428072214195,
+          "total_tests": 14000,
+          "total_vulns": 7019
+        },
+        "random": {
+          "n_iters": 100,
+          "mean": 0.49364285714285716,
+          "std": 0.05180314977422331,
+          "total_tests": 14000,
+          "total_vulns": 6911
+        },
+        "cvss_priority": {
+          "n_iters": 100,
+          "mean": 0.49714285714285716,
+          "std": 0.05394630739571201,
+          "total_tests": 14000,
+          "total_vulns": 6960
+        },
+        "round_robin": {
+          "n_iters": 100,
+          "mean": 0.4946428571428571,
+          "std": 0.051788177281329846,
+          "total_tests": 14000,
+          "total_vulns": 6925
+        },
+        "no_ml": {
+          "n_iters": 100,
+          "mean": 0.49778571428571433,
+          "std": 0.05318138964037733,
+          "total_tests": 14000,
+          "total_vulns": 6969
+        }
+      },
+      "comparisons": {
+        "random": {
+          "u": 5447.0,
+          "p": 0.137352,
+          "sig": false,
+          "rank_biserial": -0.0894,
+          "lift_pct": 1.56
+        },
+        "cvss_priority": {
+          "u": 5210.0,
+          "p": 0.304162,
+          "sig": false,
+          "rank_biserial": -0.042,
+          "lift_pct": 0.85
+        },
+        "round_robin": {
+          "u": 5305.5,
+          "p": 0.227755,
+          "sig": false,
+          "rank_biserial": -0.0611,
+          "lift_pct": 1.36
+        },
+        "no_ml": {
+          "u": 5200.0,
+          "p": 0.312739,
+          "sig": false,
+          "rank_biserial": -0.04,
+          "lift_pct": 0.72
+        }
+      }
+    },
+    "H10": {
+      "mode": "realistic",
+      "tool": "h2o",
+      "llm": {
+        "n": 750,
+        "v": 202,
+        "rate": 0.2693,
+        "n_unique_scen": 7
+      },
+      "reg": {
+        "n": 14000,
+        "v": 6904,
+        "rate": 0.4931,
+        "n_unique_scen": 49
+      },
+      "odds_ratio": 0.3789,
+      "fisher_p": 0.0,
+      "or_ci_95": [
+        0.3213,
+        0.4467
+      ],
+      "exclusive_scenarios": 7,
+      "mann_whitney": {
+        "u": 46.0,
+        "p": 0.0,
+        "sig": true,
+        "rank_biserial": 0.9877
+      }
+    },
+    "DYNAMIC": {
+      "mode": "realistic",
+      "tool": "h2o",
+      "phases": {
+        "framework": {
+          "n": 42000,
+          "v": 21094,
+          "mean": 0.5022
+        },
+        "llm": {
+          "n": 14750,
+          "v": 7106,
+          "mean": 0.4818
+        },
+        "phase5": {
+          "n": 14000,
+          "v": 6938,
+          "mean": 0.4956
+        },
+        "phase6": null
+      },
+      "p1_static_noLLM": 0.5022,
+      "p3_static_LLM": 0.4818,
+      "p5_dyn_noLLM": 0.4956,
+      "p6_dyn_LLM": null,
+      "dynamic_main": null,
+      "llm_main": null,
+      "interaction": null
+    },
+    "ABLATION": {
+      "mode": "realistic",
+      "conditions": [
+        {
+          "label": "Random",
+          "key": "random",
+          "n_tests_per_iter": 140,
+          "n_vulns_per_iter": 69.1,
+          "detection_rate": 0.4936,
+          "std_rate": 0.0518,
+          "n_iterations": 100,
+          "unique_vuln_types": 50,
+          "marginal_lift_pct": 0
+        },
+        {
+          "label": "Round-Robin",
+          "key": "round_robin",
+          "n_tests_per_iter": 140,
+          "n_vulns_per_iter": 69.2,
+          "detection_rate": 0.4946,
+          "std_rate": 0.0518,
+          "n_iterations": 100,
+          "unique_vuln_types": 48,
+          "marginal_lift_pct": 0.2
+        },
+        {
+          "label": "CVSS Priority",
+          "key": "cvss_priority",
+          "n_tests_per_iter": 140,
+          "n_vulns_per_iter": 69.6,
+          "detection_rate": 0.4971,
+          "std_rate": 0.0539,
+          "n_iterations": 100,
+          "unique_vuln_types": 49,
+          "marginal_lift_pct": 0.51
+        },
+        {
+          "label": "ML-Guided",
+          "key": "ml_guided",
+          "n_tests_per_iter": 140,
+          "n_vulns_per_iter": 70.2,
+          "detection_rate": 0.5014,
+          "std_rate": 0.0499,
+          "n_iterations": 100,
+          "unique_vuln_types": 49,
+          "marginal_lift_pct": 0.87
+        },
+        {
+          "label": "ML + LLM",
+          "key": "ml_llm",
+          "n_tests_per_iter": 148,
+          "n_vulns_per_iter": 71.1,
+          "detection_rate": 0.4818,
+          "std_rate": 0.0495,
+          "n_iterations": 100,
+          "unique_vuln_types": 56,
+          "marginal_lift_pct": -3.91
+        },
+        {
+          "label": "No Prioritisation (All)",
+          "key": "no_ml",
+          "n_tests_per_iter": 140,
+          "n_vulns_per_iter": 69.7,
+          "detection_rate": 0.4978,
+          "std_rate": 0.0532,
+          "n_iterations": 100,
+          "unique_vuln_types": 49,
+          "marginal_lift_pct": 3.32
+        },
+        {
+          "label": "ML-Dynamic (Phase 5)",
+          "key": "phase5",
+          "n_tests_per_iter": 140,
+          "n_vulns_per_iter": 69.4,
+          "detection_rate": 0.4956,
+          "std_rate": 0.0522,
+          "n_iterations": 100,
+          "unique_vuln_types": 49,
+          "marginal_lift_pct": -0.44
+        },
+        {
+          "label": "ML-Dynamic + LLM (Phase 6)",
+          "key": "phase6",
+          "n_tests_per_iter": 151,
+          "n_vulns_per_iter": 69.1,
+          "detection_rate": 0.4578,
+          "std_rate": 0.0479,
+          "n_iterations": 100,
+          "unique_vuln_types": 49,
+          "marginal_lift_pct": -7.63
+        }
+      ]
+    }
+  },
+  "H6": {
+    "tool": "h2o",
+    "modes": {
+      "deterministic": {
+        "total_unique": 38,
+        "n_iters": 100,
+        "last_discovery": 2,
+        "mean_new": 0.38,
+        "lift": 0
+      },
+      "medium": {
+        "total_unique": 47,
+        "n_iters": 100,
+        "last_discovery": 47,
+        "mean_new": 0.47,
+        "lift": 23.684210526315788
+      },
+      "realistic": {
+        "total_unique": 49,
+        "n_iters": 100,
+        "last_discovery": 60,
+        "mean_new": 0.49,
+        "lift": 28.947368421052634
+      }
+    },
+    "kruskal_h": 5.4262,
+    "kruskal_p": 0.066332,
+    "pairwise": [
+      {
+        "a": "deterministic",
+        "b": "medium",
+        "u": 5396.5,
+        "p": 0.009346,
+        "p_corrected": 0.028038,
+        "sig": true
+      },
+      {
+        "a": "deterministic",
+        "b": "realistic",
+        "u": 5298.5,
+        "p": 0.026916,
+        "p_corrected": 0.080748,
+        "sig": false
+      },
+      {
+        "a": "medium",
+        "b": "realistic",
+        "u": 4910.5,
+        "p": 0.671222,
+        "p_corrected": 1.0,
+        "sig": false
+      }
+    ]
+  },
+  "H7_interaction": {
+    "ss_total": 4.1624,
+    "eta_fw": 0.0016,
+    "eta_mode": 0.4753,
+    "eta_interaction": 0.004,
+    "eta_residual": 0.5191,
+    "grand_mean": 0.5208,
+    "per_mode_kruskal": {
+      "deterministic": {
+        "kruskal_h": 157.1614,
+        "p": 0.0,
+        "sig": true
+      },
+      "medium": {
+        "kruskal_h": 0.0816,
+        "p": 0.99919,
+        "sig": false
+      },
+      "realistic": {
+        "kruskal_h": 0.5214,
+        "p": 0.971388,
+        "sig": false
+      }
+    },
+    "n_obs": 1500
+  }
+}

@@ -1,0 +1,380 @@
+C:\Users\chris\PycharmProjects\pyotest\analysis\compute_hypotheses.py:130: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  sr, sp = scipy_stats.spearmanr(ind, rates)
+
+=== Mode: deterministic ===
+H1: {'mode': 'deterministic', 'tool': 'h2o', 'n_iterations': 100, 'spearman_rho': -0.3328, 'spearman_p': 0.000715, 'pearson_r': -0.305, 'pearson_p': 0.002031, 'mann_whitney_u': 899.0, 'mann_whitney_p': 0.998377, 'early_mean': 0.5712, 'late_mean': 0.5694, 'cohens_d': -0.5846, 'improvement': -0.0018, 'ci_95': [-0.003, -0.0006]}
+H2: {'mode': 'deterministic', 'tool': 'h2o', 'total': 17500, 'overall_rate': 0.5707, 'rec_n': 8875, 'rec_v': 7488, 'rec_rate': 0.8437, 'non_rec_n': 8625, 'non_rec_v': 2500, 'non_rec_rate': 0.2899, 'lift': 1.4783, 'fisher_p': 0.0}
+H3: {
+ "mode": "deterministic",
+ "tool": "h2o",
+ "protocols": [
+  {
+   "protocol": "coap",
+   "slope": null,
+   "p": null,
+   "first": 0.0,
+   "last": 0.0,
+   "mean": 0.0,
+   "status": "stable"
+  },
+  {
+   "protocol": "ftp",
+   "slope": 0.0,
+   "p": 1.0,
+   "spearman_rho": NaN,
+   "spearman_p": NaN,
+   "first": 0.2222,
+   "last": 0.2222,
+   "mean": 0.2222,
+   "status": "stable"
+  },
+  {
+   "protocol": "http",
+   "slope": -6.6e-05,
+   "p": 0.0,
+   "spearman_rho": -0.75,
+   "spearman_p": 0.0,
+   "firs
+H4 ECE: 0.0488 Brier: 0.1211
+H5: {'mode': 'deterministic', 'tool': 'h2o', 'n': 100, 'avg_reduction_pct': 49.29, 'avg_coverage_pct': 74.95, 'avg_efficiency_ratio': 1.478, 'wilcoxon_w': 5050.0, 'wilcoxon_p': 0.0, 'coverage_t': -357.5084, 'coverage_p': 1.0, 'rank_biserial_r': 1.0}
+H7: {
+ "mode": "deterministic",
+ "frameworks": {
+  "h2o": {
+   "n_iters": 100,
+   "mean_rate": 0.5703214285714285,
+   "std_rate": 0.0031821809361197565,
+   "auc": 0.8824377191927437
+  },
+  "autogluon": {
+   "n_iters": 100,
+   "mean_rate": 0.5593571428571428,
+   "std_rate": 0.05183728138605072,
+   "auc": 0.8470235570850859
+  },
+  "pycaret": {
+   "n_iters": 100,
+   "mean_rate": 0.5764285714285713,
+   "std_rate": 0.0032732683535399254,
+   "auc": 0.8858407985773721
+  },
+  "tpot": {
+   "n_iters": 100,
+  
+H9: {
+ "mode": "deterministic",
+ "strategies": {
+  "ml_guided": {
+   "n_iters": 100,
+   "mean": 0.5703214285714285,
+   "std": 0.0031821809361197565,
+   "total_tests": 17500,
+   "total_vulns": 9988
+  },
+  "random": {
+   "n_iters": 100,
+   "mean": 0.5767857142857141,
+   "std": 0.0030929478706587465,
+   "total_tests": 14000,
+   "total_vulns": 8075
+  },
+  "cvss_priority": {
+   "n_iters": 100,
+   "mean": 0.5692857142857141,
+   "std": 0.003273268353539874,
+   "total_tests": 14000,
+   "total_vulns": 7970
+ 
+H10: {
+ "mode": "deterministic",
+ "tool": "h2o",
+ "llm": {
+  "n": 750,
+  "v": 150,
+  "rate": 0.2,
+  "n_unique_scen": 1
+ },
+ "reg": {
+  "n": 17500,
+  "v": 10095,
+  "rate": 0.5769,
+  "n_unique_scen": 38
+ },
+ "odds_ratio": 0.1834,
+ "fisher_p": 0.0,
+ "or_ci_95": [
+  0.153,
+  0.2199
+ ],
+ "exclusive_scenarios": 1,
+ "mann_whitney": {
+  "u": 0.0,
+  "p": 0.0,
+  "sig": true,
+  "rank_biserial": 1.0
+ }
+}
+Dynamic: {'mode': 'deterministic', 'tool': 'h2o', 'phases': {'framework': {'n': 17500, 'v': 9988, 'mean': 0.5707}, 'llm': {'n': 18250, 'v': 10245, 'mean': 0.5614}, 'phase5': {'n': 14000, 'v': 8067, 'mean': 0.5762}, 'phase6': None}, 'p1_static_noLLM': 0.5707, 'p3_static_LLM': 0.5614, 'p5_dyn_noLLM': 0.5762, 'p6_dyn_LLM': None, 'dynamic_main': None, 'llm_main': None, 'interaction': None}
+Ablation n_cond: 8
+
+=== Mode: medium ===
+H1: {'mode': 'medium', 'tool': 'h2o', 'n_iterations': 100, 'spearman_rho': -0.1204, 'spearman_p': 0.232854, 'pearson_r': -0.0965, 'pearson_p': 0.33942, 'mann_whitney_u': 1030.0, 'mann_whitney_p': 0.936068, 'early_mean': 0.496, 'late_mean': 0.485, 'cohens_d': -0.214, 'improvement': -0.011, 'ci_95': [-0.0311, 0.0091]}
+H2: {'mode': 'medium', 'tool': 'h2o', 'total': 14000, 'overall_rate': 0.4905, 'rec_n': 6500, 'rec_v': 5095, 'rec_rate': 0.7838, 'non_rec_n': 7500, 'non_rec_v': 1772, 'non_rec_rate': 0.2363, 'lift': 1.5981, 'fisher_p': 0.0}
+H3: {
+ "mode": "medium",
+ "tool": "h2o",
+ "protocols": [
+  {
+   "protocol": "coap",
+   "slope": -8e-05,
+   "p": 0.564179,
+   "spearman_rho": -0.0583,
+   "spearman_p": 0.564179,
+   "first": 0.0,
+   "last": 0.0,
+   "mean": 0.01,
+   "status": "stable"
+  },
+  {
+   "protocol": "ftp",
+   "slope": 0.001591,
+   "p": 7e-06,
+   "spearman_rho": 0.3383,
+   "spearman_p": 0.000576,
+   "first": 0.2222,
+   "last": 0.4444,
+   "mean": 0.2333,
+   "status": "converging"
+  },
+  {
+   "protocol": "http",
+   "slope": -0.00
+H4 ECE: 0.015 Brier: 0.1623
+H5: {'mode': 'medium', 'tool': 'h2o', 'n': 100, 'avg_reduction_pct': 53.57, 'avg_coverage_pct': 74.2, 'avg_efficiency_ratio': 1.598, 'wilcoxon_w': 5050.0, 'wilcoxon_p': 0.0, 'coverage_t': -17.2049, 'coverage_p': 1.0, 'rank_biserial_r': 1.0}
+H7: {
+ "mode": "medium",
+ "frameworks": {
+  "h2o": {
+   "n_iters": 100,
+   "mean_rate": 0.4905,
+   "std_rate": 0.05169627744858246,
+   "auc": 0.8114238627899772
+  },
+  "autogluon": {
+   "n_iters": 100,
+   "mean_rate": 0.49064285714285716,
+   "std_rate": 0.05022088962873956,
+   "auc": 0.8119469963756082
+  },
+  "pycaret": {
+   "n_iters": 100,
+   "mean_rate": 0.4903571428571428,
+   "std_rate": 0.048333186722742685,
+   "auc": 0.8123525739930821
+  },
+  "tpot": {
+   "n_iters": 100,
+   "mean_rate": 0.49121
+H9: {
+ "mode": "medium",
+ "strategies": {
+  "ml_guided": {
+   "n_iters": 100,
+   "mean": 0.4905,
+   "std": 0.05169627744858246,
+   "total_tests": 14000,
+   "total_vulns": 6867
+  },
+  "random": {
+   "n_iters": 100,
+   "mean": 0.48807142857142854,
+   "std": 0.05014321326694864,
+   "total_tests": 14000,
+   "total_vulns": 6833
+  },
+  "cvss_priority": {
+   "n_iters": 100,
+   "mean": 0.49214285714285716,
+   "std": 0.05013756585838688,
+   "total_tests": 14000,
+   "total_vulns": 6890
+  },
+  "round_robin": {
+H10: {
+ "mode": "medium",
+ "tool": "h2o",
+ "llm": {
+  "n": 750,
+  "v": 276,
+  "rate": 0.368,
+  "n_unique_scen": 8
+ },
+ "reg": {
+  "n": 14000,
+  "v": 6887,
+  "rate": 0.4919,
+  "n_unique_scen": 49
+ },
+ "odds_ratio": 0.6014,
+ "fisher_p": 0.0,
+ "or_ci_95": [
+  0.5166,
+  0.7001
+ ],
+ "exclusive_scenarios": 8,
+ "mann_whitney": {
+  "u": 1200.5,
+  "p": 0.0,
+  "sig": true,
+  "rank_biserial": 0.6799
+ }
+}
+Dynamic: {'mode': 'medium', 'tool': 'h2o', 'phases': {'framework': {'n': 14000, 'v': 6867, 'mean': 0.4905}, 'llm': {'n': 14750, 'v': 7163, 'mean': 0.4856}, 'phase5': {'n': 14000, 'v': 6883, 'mean': 0.4916}, 'phase6': None}, 'p1_static_noLLM': 0.4905, 'p3_static_LLM': 0.4856, 'p5_dyn_noLLM': 0.4916, 'p6_dyn_LLM': None, 'dynamic_main': None, 'llm_main': None, 'interaction': None}
+Ablation n_cond: 8
+
+=== Mode: realistic ===
+H1: {'mode': 'realistic', 'tool': 'h2o', 'n_iterations': 100, 'spearman_rho': 0.0136, 'spearman_p': 0.893184, 'pearson_r': 0.047, 'pearson_p': 0.642682, 'mann_whitney_u': 1203.0, 'mann_whitney_p': 0.628563, 'early_mean': 0.5014, 'late_mean': 0.5013, 'cohens_d': -0.0029, 'improvement': -0.0001, 'ci_95': [-0.0197, 0.0194]}
+H2: {'mode': 'realistic', 'tool': 'h2o', 'total': 42000, 'overall_rate': 0.5022, 'rec_n': 19500, 'rec_v': 15466, 'rec_rate': 0.7931, 'non_rec_n': 22500, 'non_rec_v': 5628, 'non_rec_rate': 0.2501, 'lift': 1.5792, 'fisher_p': 0.0}
+H3: {
+ "mode": "realistic",
+ "tool": "h2o",
+ "protocols": [
+  {
+   "protocol": "coap",
+   "slope": -3.6e-05,
+   "p": 0.795393,
+   "spearman_rho": -0.0263,
+   "spearman_p": 0.795393,
+   "first": 0.0,
+   "last": 0.0,
+   "mean": 0.01,
+   "status": "stable"
+  },
+  {
+   "protocol": "ftp",
+   "slope": -0.001083,
+   "p": 0.018157,
+   "spearman_rho": -0.2473,
+   "spearman_p": 0.013112,
+   "first": 0.4444,
+   "last": 0.3333,
+   "mean": 0.36,
+   "status": "diverging"
+  },
+  {
+   "protocol": "http",
+   "slope"
+H4 ECE: 0.0136 Brier: 0.1644
+H5: {'mode': 'realistic', 'tool': 'h2o', 'n': 100, 'avg_reduction_pct': 53.57, 'avg_coverage_pct': 72.96, 'avg_efficiency_ratio': 1.572, 'wilcoxon_w': 5050.0, 'wilcoxon_p': 0.0, 'coverage_t': -17.5402, 'coverage_p': 1.0, 'rank_biserial_r': 1.0}
+H7: {
+ "mode": "realistic",
+ "frameworks": {
+  "h2o": {
+   "n_iters": 100,
+   "mean_rate": 0.5022380952380953,
+   "std_rate": 0.03590397245563836,
+   "auc": 0.8058522891401969
+  },
+  "autogluon": {
+   "n_iters": 100,
+   "mean_rate": 0.5001190476190477,
+   "std_rate": 0.03573868214358981,
+   "auc": 0.8072381273944517
+  },
+  "pycaret": {
+   "n_iters": 100,
+   "mean_rate": 0.4990952380952381,
+   "std_rate": 0.0363557940935463,
+   "auc": 0.8060321880056224
+  },
+  "tpot": {
+   "n_iters": 100,
+   "mean_ra
+H9: {
+ "mode": "realistic",
+ "strategies": {
+  "ml_guided": {
+   "n_iters": 100,
+   "mean": 0.5013571428571428,
+   "std": 0.04987428072214195,
+   "total_tests": 14000,
+   "total_vulns": 7019
+  },
+  "random": {
+   "n_iters": 100,
+   "mean": 0.49364285714285716,
+   "std": 0.05180314977422331,
+   "total_tests": 14000,
+   "total_vulns": 6911
+  },
+  "cvss_priority": {
+   "n_iters": 100,
+   "mean": 0.49714285714285716,
+   "std": 0.05394630739571201,
+   "total_tests": 14000,
+   "total_vulns": 6960
+  },
+  "
+H10: {
+ "mode": "realistic",
+ "tool": "h2o",
+ "llm": {
+  "n": 750,
+  "v": 202,
+  "rate": 0.2693,
+  "n_unique_scen": 7
+ },
+ "reg": {
+  "n": 14000,
+  "v": 6904,
+  "rate": 0.4931,
+  "n_unique_scen": 49
+ },
+ "odds_ratio": 0.3789,
+ "fisher_p": 0.0,
+ "or_ci_95": [
+  0.3213,
+  0.4467
+ ],
+ "exclusive_scenarios": 7,
+ "mann_whitney": {
+  "u": 46.0,
+  "p": 0.0,
+  "sig": true,
+  "rank_biserial": 0.9877
+ }
+}
+Dynamic: {'mode': 'realistic', 'tool': 'h2o', 'phases': {'framework': {'n': 42000, 'v': 21094, 'mean': 0.5022}, 'llm': {'n': 14750, 'v': 7106, 'mean': 0.4818}, 'phase5': {'n': 14000, 'v': 6938, 'mean': 0.4956}, 'phase6': None}, 'p1_static_noLLM': 0.5022, 'p3_static_LLM': 0.4818, 'p5_dyn_noLLM': 0.4956, 'p6_dyn_LLM': None, 'dynamic_main': None, 'llm_main': None, 'interaction': None}
+Ablation n_cond: 8
+H6: {
+ "tool": "h2o",
+ "modes": {
+  "deterministic": {
+   "total_unique": 38,
+   "n_iters": 100,
+   "last_discovery": 2,
+   "mean_new": 0.38,
+   "lift": 0
+  },
+  "medium": {
+   "total_unique": 47,
+   "n_iters": 100,
+   "last_discovery": 47,
+   "mean_new": 0.47,
+   "lift": 23.684210526315788
+  },
+  "realistic": {
+   "total_unique": 49,
+   "n_iters": 100,
+   "last_discovery": 60,
+   "mean_new": 0.49,
+   "lift": 28.947368421052634
+  }
+ },
+ "kruskal_h": 5.4262,
+ "kruskal_p": 0.066332,
+ "pairwise": [
+  {
+H7_int: {'ss_total': 4.1624, 'eta_fw': np.float64(0.0016), 'eta_mode': np.float64(0.4753), 'eta_interaction': np.float64(0.004), 'eta_residual': np.float64(0.5191), 'grand_mean': 0.5208, 'per_mode_kruskal': {'deterministic': {'kruskal_h': 157.1614, 'p': 0.0, 'sig': True}, 'medium': {'kruskal_h': 0.0816, 'p': 0.99919, 'sig': False}, 'realistic': {'kruskal_h': 0.5214, 'p': 0.971388, 'sig': False}}, 'n_obs': 1500}
+
+Wrote hypothesis_results.json

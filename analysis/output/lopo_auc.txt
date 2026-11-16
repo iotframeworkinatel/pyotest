@@ -1,0 +1,28 @@
+
+=== deterministic (n=50001) ===
+protocols: ['coap', 'ftp', 'http', 'modbus', 'mqtt', 'ssh', 'telnet']
+ proto     n  vulns      AUC note
+  coap  3290     23 0.587236   ok
+   ftp  3693    967 0.690427   ok
+  http 29252  14633 0.738323   ok
+modbus  4818   4063 0.983829   ok
+  mqtt  4818   4805 0.559577   ok
+   ssh  2753   1972 0.519951   ok
+telnet  1377   1372 0.372813   ok
+median AUC (ok cells): 0.5872
+mean AUC   (ok cells): 0.6360
+Wilcoxon (AUC > 0.5) W=24.0, p=0.0547
+
+=== realistic (n=49999) ===
+protocols: ['coap', 'ftp', 'http', 'modbus', 'mqtt', 'ssh', 'telnet']
+ proto     n  vulns      AUC note
+  coap  3115     45 0.526428   ok
+   ftp  3437    983 0.667310   ok
+  http 29544  13006 0.717048   ok
+modbus  4866   3714 0.796958   ok
+  mqtt  4866   3710 0.504493   ok
+   ssh  2781   1596 0.490810   ok
+telnet  1390   1241 0.473263   ok
+median AUC (ok cells): 0.5264
+mean AUC   (ok cells): 0.5966
+Wilcoxon (AUC > 0.5) W=22.0, p=0.1094
